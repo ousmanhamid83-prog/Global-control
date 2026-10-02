@@ -1,0 +1,10 @@
+node_modules/
+.grok/
+screenshots/
+.output/
+.vercel/
+dist/
+.nitro/
+.tanstack/
+# Tuiles locales : elles viennent de VIGILAIR-2 et VIGILAIR-3 (zips)
+public/sentinel/
