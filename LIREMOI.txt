@@ -1,0 +1,16 @@
+VIGILAIR — poste
+Inspection du 1er octobre 2026
+
+Corrigé dans cette livraison
+- La couche nuit et tout agrandissement ne sont plus dessinés en gros carreaux. La tuile native reste nette. Si on agrandit, l'image est lissée.
+- La vue proche (Ident) demande la mosaïque à 0,3 m là où la tuile existe. Sinon le niveau réel en dessous, pas une grille de couleurs.
+- Le 1090ES interroge adsb.fi puis adsb.lol, une cellule après l'autre, pour ne plus perdre le flux sur un refus 429.
+- Une piste 1090ES verrouillée est croisée avec le METAR le plus proche, le SIGMET qui la couvre, et le GNSS (NIC du bord, cellule au sol).
+
+Constat, pas un défaut du poste
+- À l'heure des captures, FTTJ, Niamey et Accra n'avaient aucun squitter. Le même flux en avait 31 au-dessus de Paris. Le METAR FTTJ affiché était bien le message réel.
+- La photo de route avec un véhicule est la mosaïque publique fine. Ce n'est pas une prise de la dernière heure. La photo de l'heure reste Meteosat, environ 1 km, sur les vues larges.
+
+Installation
+- Node 22. Dans ce dossier : npm install, puis npm run dev.
+- Le poste écoute sur le port 8080.
