@@ -17,6 +17,12 @@ import {
 } from "recharts";
 import { Badge } from "@/components/ui/badge";
 import { Synoptique } from "@/components/vigilair/synoptique";
+import {
+  EventFeed,
+  FeedLamp,
+  PhosphorDefs,
+  TelemetryCard,
+} from "@/components/vigilair/telemetry-panel";
 import { cn } from "@/lib/utils";
 import { SENSOR_SITES } from "@/lib/vigilair/sensors";
 import { computePosture, postureLabel } from "@/lib/vigilair/defense";
@@ -37,6 +43,17 @@ import { ROLE_LABEL } from "@/lib/vigilair/staff";
 import { useStaff } from "@/lib/vigilair/staff-context";
 import { sentinelStats } from "@/lib/vigilair/command";
 import { threatOf, useVigilair } from "@/lib/vigilair/store";
+import {
+  ageStatus,
+  formatAge,
+  LINK_LABEL,
+  linkState,
+  streamStatus,
+  useTelemetry,
+  useWallClock,
+  type FeedStatus,
+  type LinkState,
+} from "@/lib/vigilair/telemetry";
 import { formatWatchDuration, shortWatchLabel } from "@/lib/vigilair/watch";
 import type { IdState, Origin, Threat, Track, UasClass } from "@/lib/vigilair/types";
 
@@ -77,7 +94,12 @@ export function DashboardView() {
   }, [isSuperadmin]);
   const phenomena = useVigilair((s) => s.phenomena);
   const alerts = useVigilair((s) => s.alerts);
-  const satMeta = useVigilair((s) => s.satMeta);
+  const running = useVigilair((s) => s.running);
+  const replay = useVigilair((s) => s.clockMode === "replay");
+  const liveAt = useVigilair((s) => s.liveAt);
+  const { lastOk } = useTelemetry();
+  const wall = useWallClock();
+  const stream = streamStatus(running, replay);
   const live = tracks.filter((t) => t.idState !== "perdu");
   const { posture, reason } = computePosture(tracks);
   const raids = detectRaids(tracks);
@@ -102,9 +124,11 @@ export function DashboardView() {
 
   const bySensor = useMemo(() => {
     const src = pic?.sources ?? [];
+    const n = (st: LinkState) => src.filter((s) => linkState(s) === st).length;
     return [
-      { name: "Live", n: src.filter((s) => s.ok).length },
-      { name: "Silence", n: src.filter((s) => !s.ok).length },
+      { name: "Live", n: n("live"), fill: "var(--color-ok)" },
+      { name: "Silence", n: n("silence"), fill: "var(--color-muted)" },
+      { name: "Injoignable", n: n("injoignable"), fill: "var(--color-warn)" },
     ];
   }, [pic]);
 
@@ -200,13 +224,18 @@ export function DashboardView() {
     };
   }, [live]);
 
-  const kpis = [
-    { label: "Pistes live", value: String(live.length) },
+  const liveLinks = pic?.sources.filter((s) => s.ok).length ?? 0;
+  const kpis: { label: string; value: string; tone?: KpiTone }[] = [
+    { label: "Pistes live", value: String(live.length), tone: live.length ? "ok" : "idle" },
     {
       label: "Confirmées",
       value: String(live.filter((t) => t.idState === "confirme").length),
     },
-    { label: "Posture", value: postureLabel(posture) },
+    {
+      label: "Posture",
+      value: postureLabel(posture),
+      tone: posture === "menace" ? "crit" : posture === "alerte" ? "warn" : "ok",
+    },
     {
       label: "Quart",
       value: !watchLoaded
@@ -214,12 +243,18 @@ export function DashboardView() {
         : watch
           ? `${shortWatchLabel(watch.openedLabel)} · ${formatWatchDuration(now - (Date.parse(watch.openedAt) || now))}`
           : "vacant",
+      tone: !watchLoaded ? "idle" : watch ? "ok" : "warn",
     },
     {
-      label: "Capteurs",
-      value: pic
-        ? `${pic.sources.filter((s) => s.ok).length} flux réels`
-        : "en attente",
+      label: "Liaisons",
+      value: pic ? `${liveLinks}/${pic.sources.length} live` : "en attente",
+      tone: !pic
+        ? "idle"
+        : liveLinks === pic.sources.length
+          ? "ok"
+          : liveLinks === 0
+            ? "crit"
+            : "warn",
     },
     {
       label: "Effecteur",
@@ -230,11 +265,13 @@ export function DashboardView() {
             ? "RF armé"
             : "RF off"
           : "Chef seulement",
+      tone: ewArmed ? "warn" : "idle",
     },
     { label: "PRF PPI", value: `${prfHz(ppi.rangeKm)} Hz` },
     {
       label: "Raids",
       value: raids.length ? `${raids[0].corridor} · ${raids[0].count}` : "Aucun",
+      tone: raids.length ? "crit" : "ok",
     },
     {
       label: "Amis FATL / ASECNA",
@@ -246,6 +283,7 @@ export function DashboardView() {
         m4.invalid > 0
           ? `${m4.valid} valides · ${m4.invalid} invalides`
           : `${m4.valid} valides · ${m4.absent} sans M4`,
+      tone: m4.invalid > 0 ? "crit" : "idle",
     },
     {
       label: "Mode S / MLAT",
@@ -253,6 +291,7 @@ export function DashboardView() {
         ms.spoof > 0
           ? `${ms.mlat} TDOA · ${ms.spoof} usurp.`
           : `${ms.ehs + ms.els + ms.adsb} 1090 · ${ms.mlat} MLAT`,
+      tone: ms.spoof > 0 ? "crit" : "idle",
     },
     {
       label: "1090ES live",
@@ -262,6 +301,7 @@ export function DashboardView() {
           : pic
             ? `${live1090.n} · ident ${live1090.local}`
             : "en attente",
+      tone: live1090.emergency > 0 ? "crit" : "idle",
     },
     {
       label: "FTTJ",
@@ -293,7 +333,8 @@ export function DashboardView() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-6xl space-y-6 p-4">
+      <PhosphorDefs />
+      <div className="mx-auto max-w-[1760px] space-y-4 p-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -337,23 +378,38 @@ export function DashboardView() {
                   {label}
                 </li>
               ))}
-              <li className="normal-case tracking-normal">Lien animé : données en circulation</li>
+              <li className="normal-case tracking-normal">Paquets : donnée reçue · ↻ âge du relevé</li>
             </ul>
           </div>
           <Synoptique sentinel={isSuperadmin ? sent : null} />
         </section>
 
+        <div className="grid grid-cols-3 gap-4">
+          <TelemetryCard />
+          <EventFeed />
+        </div>
+
         <div className="grid gap-2 grid-cols-5">
           {kpis.map((k) => (
-            <div key={k.label} className="rounded-xl border border-border bg-surface p-3 hud">
-              <p className="text-xs text-muted-foreground">{k.label}</p>
-              <p className="mt-1 font-mono text-lg tabular-nums">{k.value}</p>
+            <div
+              key={k.label}
+              className={cn(
+                "hud rounded-md border border-l-2 border-border bg-surface px-3 py-2.5",
+                KPI_EDGE[k.tone ?? "idle"],
+              )}
+            >
+              <p className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted-foreground">
+                {k.label}
+              </p>
+              <p className={cn("mt-1 font-mono text-base tabular-nums", KPI_INK[k.tone ?? "idle"])}>
+                {k.value}
+              </p>
             </div>
           ))}
         </div>
 
         <div className="grid gap-4 grid-cols-3">
-          <ChartCard title="Phénomènes" unit="n · feu, séisme, météo">
+          <ChartCard title="Phénomènes" unit="n · feu, séisme, météo" status={ageStatus(lastOk.nat, wall)}>
             {ready && byPhen.length > 0 ? (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={byPhen} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -361,14 +417,14 @@ export function DashboardView() {
                   <XAxis dataKey="name" stroke="var(--color-muted)" fontSize={11} />
                   <YAxis stroke="var(--color-muted)" fontSize={11} allowDecimals={false} width={28} />
                   <Tooltip contentStyle={tooltipStyle} formatter={(value) => [`${value}`, "n"]} />
-                  <Bar dataKey="n" fill="var(--color-series-1)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="n" fill="var(--color-series-1)" />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
               <p className="py-8 text-sm text-muted-foreground">Aucun phénomène dans la fenêtre.</p>
             )}
           </ChartCard>
-          <ChartCard title="Alertes" unit="ouvertes / acquittées">
+          <ChartCard title="Alertes" unit="ouvertes / acquittées" status={stream}>
             {ready ? (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={byAlert} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -376,7 +432,7 @@ export function DashboardView() {
                   <XAxis dataKey="name" stroke="var(--color-muted)" fontSize={11} />
                   <YAxis stroke="var(--color-muted)" fontSize={11} allowDecimals={false} width={28} />
                   <Tooltip contentStyle={tooltipStyle} formatter={(value) => [`${value}`, "n"]} />
-                  <Bar dataKey="n" radius={[4, 4, 0, 0]}>
+                  <Bar dataKey="n">
                     {byAlert.map((row) => (
                       <Cell
                         key={row.name}
@@ -390,7 +446,7 @@ export function DashboardView() {
               <div className="h-56 bg-secondary/40" />
             )}
           </ChartCard>
-          <ChartCard title="Capteurs" unit={satMeta?.visSrc || "flux"}>
+          <ChartCard title="Liaisons" unit={`${pic?.sources.length ?? 0} flux · état au dernier relevé`} status={ageStatus(liveAt, wall)}>
             {ready ? (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={bySensor} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -398,12 +454,9 @@ export function DashboardView() {
                   <XAxis dataKey="name" stroke="var(--color-muted)" fontSize={11} />
                   <YAxis stroke="var(--color-muted)" fontSize={11} allowDecimals={false} width={28} />
                   <Tooltip contentStyle={tooltipStyle} formatter={(value) => [`${value} flux`, "n"]} />
-                  <Bar dataKey="n" radius={[4, 4, 0, 0]}>
+                  <Bar dataKey="n">
                     {bySensor.map((row) => (
-                      <Cell
-                        key={row.name}
-                        fill={row.name === "Live" ? "var(--color-ok)" : "var(--color-muted)"}
-                      />
+                      <Cell key={row.name} fill={row.fill} />
                     ))}
                   </Bar>
                 </BarChart>
@@ -415,7 +468,7 @@ export function DashboardView() {
         </div>
 
         <div className="grid gap-4 grid-cols-2">
-          <ChartCard title="Charge pistes" unit="n · WAT">
+          <ChartCard title="Charge pistes" unit="n · WAT" status={stream}>
             {ready ? (
               <ResponsiveContainer width="100%" height={240}>
                 <AreaChart data={hist} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -474,7 +527,7 @@ export function DashboardView() {
             )}
           </ChartCard>
 
-          <ChartCard title="Mix flux" unit="1090ES / UAS / AMI · n">
+          <ChartCard title="Mix flux" unit="1090ES / UAS / AMI · n" status={stream}>
             {ready ? (
               <ResponsiveContainer width="100%" height={240}>
                 <AreaChart data={hist} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -532,7 +585,7 @@ export function DashboardView() {
             )}
           </ChartCard>
 
-          <ChartCard title="Répartition FL" unit="1 FL = 100 ft = 30,48 m">
+          <ChartCard title="Répartition FL" unit="1 FL = 100 ft = 30,48 m" status={stream}>
             {ready ? (
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={byFl} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -549,7 +602,7 @@ export function DashboardView() {
                     contentStyle={tooltipStyle}
                     formatter={(value) => [`${value} pistes`, "Effectif"]}
                   />
-                  <Bar dataKey="n" name="Pistes" fill="var(--color-primary)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="n" name="Pistes" fill="var(--color-primary)" />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -557,7 +610,7 @@ export function DashboardView() {
             )}
           </ChartCard>
 
-          <ChartCard title="FL × vitesse" unit="FL · kt TAS">
+          <ChartCard title="FL × vitesse" unit="FL · kt TAS" status={stream}>
             {ready ? (
               <ResponsiveContainer width="100%" height={240}>
                 <ScatterChart margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
@@ -603,7 +656,7 @@ export function DashboardView() {
             )}
           </ChartCard>
 
-          <ChartCard title="Origine (mandat)" unit="pistes hostiles">
+          <ChartCard title="Origine (mandat)" unit="pistes hostiles" status={stream}>
             {ready ? (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={byOrigin}>
@@ -619,7 +672,7 @@ export function DashboardView() {
                     contentStyle={tooltipStyle}
                     formatter={(value) => [`${value} pistes`, "Effectif"]}
                   />
-                  <Bar dataKey="n" name="Pistes" radius={[4, 4, 0, 0]}>
+                  <Bar dataKey="n" name="Pistes">
                     {byOrigin.map((d) => (
                       <Cell key={d.origin} fill={ORIGIN_COLOR[d.origin]} />
                     ))}
@@ -631,7 +684,7 @@ export function DashboardView() {
             )}
           </ChartCard>
 
-          <ChartCard title="Chaîne d'identification" unit="états · n">
+          <ChartCard title="Chaîne d'identification" unit="états · n" status={stream}>
             {ready ? (
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={byState} layout="vertical" margin={{ left: 16 }}>
@@ -648,7 +701,7 @@ export function DashboardView() {
                     contentStyle={tooltipStyle}
                     formatter={(value) => [`${value} pistes`, "Effectif"]}
                   />
-                  <Bar dataKey="n" name="Pistes" fill="var(--color-ok)" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="n" name="Pistes" fill="var(--color-ok)" />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -667,8 +720,8 @@ export function DashboardView() {
         ) : null}
 
         <div className="grid gap-4 grid-cols-2">
-          <section className="rounded-xl border border-border bg-surface p-4 hud">
-            <h2 className="text-sm font-semibold">Paramètres système</h2>
+          <section className="hud rounded-md border border-border bg-surface p-4">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.08em]">Paramètres système</h2>
             <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
               <Row k="Couverture ident" v="120 km autour de FTTJ" />
               <Row k="Théâtre AES" v="Mali · Burkina · Niger · Tchad" />
@@ -704,26 +757,37 @@ export function DashboardView() {
               <Row k="Contrôle objet" v="Jamais — COP seulement" />
             </dl>
           </section>
-          <section className="rounded-xl border border-border bg-surface p-4 hud">
-            <h2 className="text-sm font-semibold">
+          <section className="hud rounded-md border border-border bg-surface p-4">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.08em]">
               {pic?.sources.length ? "Flux réels" : "Inventaire C-UAS"}
             </h2>
             <ul className="mt-3 space-y-2">
               {pic?.sources.length
-                ? pic.sources.map((s) => (
-                    <li
-                      key={s.id}
-                      className="flex items-center justify-between gap-2 text-sm"
-                    >
-                      <span className="min-w-0 break-words">
-                        {s.label}
-                        <span className="ml-2 text-xs text-muted-foreground">{s.detail}</span>
-                      </span>
-                      <Badge tone={s.ok ? "ok" : "default"} className="shrink-0">
-                        {s.ok ? "Live" : "Silence"}
-                      </Badge>
-                    </li>
-                  ))
+                ? pic.sources.map((s) => {
+                    const state = linkState(s);
+                    const ok = lastOk[s.id];
+                    return (
+                      <li
+                        key={s.id}
+                        className="flex items-center justify-between gap-2 text-sm"
+                      >
+                        <span className="min-w-0 break-words">
+                          {s.label}
+                          <span className="ml-2 text-xs text-muted-foreground">{s.detail}</span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2">
+                          <span className="font-mono text-[10.5px] tabular-nums text-muted-foreground">
+                            ↻ {ok ? formatAge(wall - ok) : "jamais"}
+                          </span>
+                          <Badge
+                            tone={state === "live" ? "ok" : state === "injoignable" ? "warn" : "default"}
+                          >
+                            {LINK_LABEL[state]}
+                          </Badge>
+                        </span>
+                      </li>
+                    );
+                  })
                 : SENSOR_SITES.map((s) => (
                     <li
                       key={s.id}
@@ -769,22 +833,43 @@ function feedKind(t: Track): "1090" | "UAS" | "AMI" {
 function ChartCard({
   title,
   unit,
+  status,
   children,
 }: {
   title: string;
   unit?: string;
+  status?: FeedStatus;
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-border bg-surface p-4 hud">
-      <div className="mb-3 flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        {unit ? <p className="font-mono text-xs text-muted-foreground">{unit}</p> : null}
+    <section className="hud console-chart min-w-0 rounded-md border border-border bg-surface p-4">
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <h2 className="min-w-0 truncate text-sm font-semibold uppercase tracking-[0.08em]">{title}</h2>
+        {status ? <FeedLamp status={status} /> : null}
       </div>
+      {unit ? (
+        <p className="-mt-2 mb-2 truncate font-mono text-[10.5px] text-muted-foreground">{unit}</p>
+      ) : null}
       {children}
     </section>
   );
 }
+
+type KpiTone = "ok" | "warn" | "crit" | "idle";
+
+const KPI_EDGE: Record<KpiTone, string> = {
+  ok: "border-l-ok",
+  warn: "border-l-warn",
+  crit: "border-l-crit",
+  idle: "border-l-border",
+};
+
+const KPI_INK: Record<KpiTone, string> = {
+  ok: "text-fg",
+  warn: "text-warn",
+  crit: "text-crit",
+  idle: "text-fg",
+};
 
 function Row({ k, v }: { k: string; v: string }) {
   return (

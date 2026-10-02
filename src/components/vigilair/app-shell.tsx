@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { AlertRelay } from "@/components/vigilair/alert-relay";
 import { DutyWatch } from "@/components/vigilair/duty-watch";
 import { EvidenceSync } from "@/components/vigilair/evidence-sync";
+import { ConsoleStatus } from "@/components/vigilair/console-status";
 import { ReplayBar } from "@/components/vigilair/replay-bar";
 import { SituationBar } from "@/components/vigilair/situation-bar";
 import { InstallPoste } from "@/components/vigilair/install-poste";
@@ -391,6 +392,7 @@ function ShellBody({ children }: { children: ReactNode }) {
       >
         {children}
       </div>
+      <ConsoleStatus />
     </div>
   );
 }

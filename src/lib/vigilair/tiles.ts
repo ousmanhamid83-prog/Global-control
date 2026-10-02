@@ -77,6 +77,8 @@ export function liveGsd(
   lat: number,
   src?: string | null,
 ): GsdRead {
+  // Hors ligne, l'image affichée est la mosaïque locale : on lit son pas réel, pas celui du zoom.
+  if (layer === "vis" && localDominant) return layerGsd(layer, Math.min(z, LOCAL_MAX_Z), lat);
   if (layer === "vis" && z >= 11) return layerGsd(layer, z, lat);
   if (layer === "vis") return { m: 1000, label: "GSD 1.0 km", vis: true };
   if (layer === "rel") return { m: 24, label: "GSD 24 m", vis: false };
@@ -540,6 +542,52 @@ function localSrc(z: number, x: number, y: number) {
   return `/sentinel/${z}/${x}/${y}.jpg`;
 }
 
+/**
+ * Mosaïque Sentinel-2 livrée avec le poste (archives VIGILAIR-2 et VIGILAIR-3), centrée sur FTTJ.
+ * Rectangles complets, relevés sur les fichiers : on ne demande jamais une tuile absente.
+ * Elle s'affiche tout de suite, réseau ou pas ; l'imagerie distante la remplace dès qu'elle arrive.
+ */
+const LOCAL_COVER: { z: number; x0: number; x1: number; y0: number; y1: number }[] = [
+  { z: 12, x0: 2216, x1: 2222, y0: 1905, y1: 1912 },
+  { z: 10, x0: 550, x1: 558, y0: 473, y1: 481 },
+  { z: 8, x0: 133, x1: 143, y0: 113, y1: 124 },
+];
+
+const localCache = ((g as { __vigilairLocal21?: Map<string, CacheVal> }).__vigilairLocal21 ??=
+  new Map<string, CacheVal>());
+
+function localCovers(z: number, x: number, y: number): boolean {
+  return LOCAL_COVER.some((c) => c.z === z && x >= c.x0 && x <= c.x1 && y >= c.y0 && y <= c.y1);
+}
+
+function loadLocal(z: number, x: number, y: number) {
+  const k = `${z}/${x}/${y}`;
+  if (localCache.has(k) || !localCovers(z, x, y)) return;
+  localCache.set(k, "fail");
+  const img = new Image();
+  img.decoding = "async";
+  img.onload = () => {
+    localCache.set(k, img);
+  };
+  img.src = localSrc(z, x, y);
+}
+
+function localImg(z: number, x: number, y: number): HTMLImageElement | null {
+  const hit = localCache.get(`${z}/${x}/${y}`);
+  return hit && hit !== "fail" ? hit : null;
+}
+
+/** Demande les tuiles locales utiles à la vue : parents (agrandis) et enfants (réduits, ≤ 3 niveaux). */
+function requestLocal(w: number, h: number, z: number, sizeKm: number, origin: GeoOrigin) {
+  for (const c of LOCAL_COVER) {
+    if (c.z - z > 3) continue;
+    const b = tileBounds(w, h, c.z, sizeKm, 24, origin);
+    for (let x = Math.max(b.x0, c.x0); x <= Math.min(b.x1, c.x1); x++) {
+      for (let y = Math.max(b.y0, c.y0); y <= Math.min(b.y1, c.y1); y++) loadLocal(c.z, x, y);
+    }
+  }
+}
+
 function proxySrc(layer: SatLayer, z: number, x: number, y: number) {
   const bucket = freshBucket(layer);
   const t = bucket === "0" ? "" : `&t=${bucket}`;
@@ -976,6 +1024,12 @@ function drawOne(
   if (img && img !== "fail") {
     return paintTile(ctx, img, x, y, z, w, h, sizeKm, 0, 0, img.width, img.height, origin);
   }
+  const vis = layer === "vis";
+  const own = vis ? localImg(z, x, y) : null;
+  if (own) {
+    drawnLocal += 1;
+    return paintTile(ctx, own, x, y, z, w, h, sizeKm, 0, 0, own.width, own.height, origin);
+  }
   let pz = z;
   let px = x;
   let py = y;
@@ -983,8 +1037,13 @@ function drawOne(
     pz -= 1;
     px = Math.floor(px / 2);
     py = Math.floor(py / 2);
-    const parent = cache.get(key(layer, pz, px, py));
-    if (!parent || parent === "fail") continue;
+    const remote = cache.get(key(layer, pz, px, py));
+    // Mosaïque locale : agrandie au plus ×32 (z17 depuis z12), et le GSD affiché suit
+    // (liveGsd) — jamais maquillée en imagerie 0,3 m.
+    const parent =
+      remote && remote !== "fail" ? remote : vis && z - pz <= 5 ? localImg(pz, px, py) : null;
+    if (!parent) continue;
+    if (parent !== remote) drawnLocal += 1;
     const factor = 2 ** (z - pz);
     const srcW = parent.width / factor;
     const srcH = parent.height / factor;
@@ -994,6 +1053,26 @@ function drawOne(
     const srcX = (x % factor) * srcW;
     const srcY = (y % factor) * srcH;
     return paintTile(ctx, parent, x, y, z, w, h, sizeKm, srcX, srcY, srcW, srcH, origin);
+  }
+  // Vue large sans imagerie distante : la mosaïque locale, plus fine, réduite à l'échelle.
+  if (!vis) return false;
+  let painted = false;
+  for (const c of LOCAL_COVER) {
+    if (c.z <= z || c.z - z > 3) continue;
+    const f = 2 ** (c.z - z);
+    for (let cx = Math.max(x * f, c.x0); cx <= Math.min(x * f + f - 1, c.x1); cx++) {
+      for (let cy = Math.max(y * f, c.y0); cy <= Math.min(y * f + f - 1, c.y1); cy++) {
+        const child = localImg(c.z, cx, cy);
+        if (!child) continue;
+        if (paintTile(ctx, child, cx, cy, c.z, w, h, sizeKm, 0, 0, child.width, child.height, origin)) {
+          painted = true;
+        }
+      }
+    }
+    if (painted) {
+      drawnLocal += 1;
+      return true;
+    }
   }
   return false;
 }
@@ -1008,7 +1087,9 @@ export function drawTiles(
   origin: GeoOrigin = HOME,
 ) {
   paintLayer = layer;
+  drawnLocal = 0;
   requestTiles(w, h, z, sizeKm, layer, origin);
+  if (layer === "vis") requestLocal(w, h, z, sizeKm, origin);
   let drawZ = z;
   if (layer === "vis" && z > 17) {
     const tx = Math.floor(lonToTileX(origin.lon, z));
@@ -1025,8 +1106,39 @@ export function drawTiles(
       if (drawOne(ctx, layer, drawZ, x, y, w, h, sizeKm, origin)) drawn += 1;
     }
   }
+  lastLocalShare = drawn > 0 ? drawnLocal / drawn : 0;
+  const dominant = layer === "vis" && lastLocalShare > 0.5;
+  if (dominant !== localDominant) {
+    localDominant = dominant;
+    for (const l of localListeners) l();
+  }
   return drawn;
 }
+
+let drawnLocal = 0;
+let lastLocalShare = 0;
+let localDominant = false;
+const localListeners = new Set<() => void>();
+const LOCAL_MAX_Z = 12;
+
+/** La carte affiche-t-elle surtout la mosaïque locale ? Pour les bandeaux React (GSD, légende). */
+export function subscribeLocalImagery(listener: () => void): () => void {
+  localListeners.add(listener);
+  return () => localListeners.delete(listener);
+}
+
+export function localImageryDominant(): boolean {
+  return localDominant;
+}
+
+/** Part de la dernière image venue de la mosaïque locale (0 à 1) : le crédit le dit franchement. */
+export function localImageryShare(): number {
+  return lastLocalShare;
+}
+
+// Tuiles z12 de 256 px : ≈ 37 m/px à la latitude de N'Djamena, même si la source Sentinel-2 est à 10 m.
+export const LOCAL_CREDIT =
+  "Mosaïque Sentinel-2 locale · 37 m/px au mieux · hors ligne · pas une prise du jour";
 
 export function preloadAt(lat: number, lon: number, z = 17, layer: SatLayer = "vis") {
   if (typeof window === "undefined") return;

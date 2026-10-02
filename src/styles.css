@@ -178,26 +178,41 @@
   );
 }
 
-/* Synoptique : flux qui circulent, voyant critique qui bat. Immobile si l'utilisateur le demande. */
-.syn-flow {
-  stroke-dasharray: 5 7;
-  animation: syn-flow 1.4s linear infinite;
+/*
+ * Synoptique et télémétrie : paquets qui circulent sur les liens vivants, voyants qui battent,
+ * traces au phosphore. Immobile si l'utilisateur le demande.
+ */
+.syn-particle {
+  filter: drop-shadow(0 0 3px currentColor);
 }
 
-@keyframes syn-flow {
-  to {
-    stroke-dashoffset: -24;
-  }
+.syn-trace {
+  filter: drop-shadow(0 0 2px currentColor);
 }
 
 .syn-led-crit {
   animation: syn-pulse 1.2s ease-in-out infinite;
 }
 
+.syn-led-live {
+  animation: syn-pulse 2.4s ease-in-out infinite;
+}
+
 @keyframes syn-pulse {
   50% {
     opacity: 0.3;
   }
+}
+
+/* Graphiques de console : graduations en mono, courbes au phosphore (filtre #phosphor). */
+.console-chart .recharts-cartesian-axis-tick text,
+.console-chart .recharts-legend-item-text {
+  font-family: var(--font-mono);
+}
+
+.console-chart .recharts-line-curve,
+.console-chart .recharts-area-curve {
+  filter: url(#phosphor);
 }
 
 .syn-node:hover .syn-box,
@@ -212,7 +227,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .syn-flow,
+  .syn-led-live,
   .syn-led-crit {
     animation: none;
   }

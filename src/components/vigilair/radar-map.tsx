@@ -34,7 +34,7 @@ import {
 import { ACOUSTIC_SITES, SENSOR_SITES } from "@/lib/vigilair/sensors";
 import { getLiveZones } from "@/lib/vigilair/zones";
 import { peekTracks, trackVisible, useVigilair } from "@/lib/vigilair/store";
-import { satCredit, drawTiles, liveGsd, pixelBudgetLine, formatPx, pixelSpan, pixelDetections, pixelClassLabel, scanCenterTile } from "@/lib/vigilair/tiles";
+import { satCredit, drawTiles, liveGsd, pixelBudgetLine, formatPx, pixelSpan, pixelDetections, pixelClassLabel, scanCenterTile, localImageryShare, LOCAL_CREDIT } from "@/lib/vigilair/tiles";
 import { formatFireAge, lockFire, fireAgeMs } from "@/lib/vigilair/fire-clock";
 import { placeGpsZone, focusMine, focusWater } from "@/lib/vigilair/place-zone";
 import { PASS_LABEL } from "@/lib/vigilair/passability";
@@ -95,6 +95,17 @@ export function snapshotCop(): void {
     a.click();
     window.setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   }, "image/png");
+}
+
+const VECTOR_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300];
+
+/**
+ * Durée du vecteur vitesse selon l'échelle : une piste à 300 km/h trace environ 1/12 de la
+ * carte (1 min à 120 km de large, 1 s au zoom 0,3 m). La durée est écrite sur la plaque d'échelle.
+ */
+function vectorSeconds(sizeKm: number): number {
+  const ideal = sizeKm * 0.5;
+  return VECTOR_STEPS.find((s) => s >= ideal) ?? VECTOR_STEPS[VECTOR_STEPS.length - 1];
 }
 
 function drawRangeAxes(
@@ -386,6 +397,7 @@ function draw(
   const bg = token(root, "--color-bg", "#09090b");
   const fg = token(root, "--color-fg", "#f4f4f5");
   const muted = token(root, "--color-muted", "#71717a");
+  const mutedFg = token(root, "--color-muted-foreground", "#94a7af");
   const border = token(root, "--color-border", "#27272a");
   const ice = token(root, "--color-primary", "#c8ccd4");
   const surface = token(root, "--color-surface", "#121214");
@@ -989,6 +1001,7 @@ function draw(
     ctx.globalAlpha = 1;
   }
 
+  const vecS = vectorSeconds(sizeKm);
   for (const t of tracks) {
     if (!trackVisible(t, selectedId)) continue;
     const ami = isFriend(t);
@@ -1008,6 +1021,22 @@ function draw(
     ctx.globalAlpha = 1;
 
     const rad = (t.heading * Math.PI) / 180;
+    // Vecteur vitesse : où sera la piste dans vecS secondes, au cap et à la vitesse mesurés.
+    if (t.speedKmh > 5) {
+      const km = (t.speedKmh * vecS) / 3600;
+      const q = pj(
+        t.lat + (km * Math.cos(rad)) / 111.32,
+        t.lon + (km * Math.sin(rad)) / (111.32 * Math.cos((t.lat * Math.PI) / 180)),
+      );
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.8;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(q.x, q.y);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
     const isSel = t.id === selectedId || t.locked;
     if (isSel) {
       ctx.strokeStyle = t.locked ? ok : ice;
@@ -1154,17 +1183,6 @@ function draw(
   const scalePx = (scaleKm / sizeKm) * w;
   const sx = 16;
   const sy = h - 18;
-  ctx.strokeStyle = ice;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(sx, sy);
-  ctx.lineTo(sx + scalePx, sy);
-  ctx.moveTo(sx, sy - 4);
-  ctx.lineTo(sx, sy + 4);
-  ctx.moveTo(sx + scalePx, sy - 4);
-  ctx.lineTo(sx + scalePx, sy + 4);
-  ctx.stroke();
-  ctx.fillStyle = muted;
   ctx.font = "400 10px 'IBM Plex Mono', monospace";
   const gsdNow = liveGsd(st.satLayer, cfg.tileZ, origin.lat, st.satMeta?.visSrc);
   const pxH = pixelSpan(gsdNow.m, "homme");
@@ -1193,21 +1211,41 @@ function draw(
   canvas.dataset.detReady = scan.ready ? "1" : "0";
   const pxLine = pixelBudgetLine(gsdNow.m);
   canvas.dataset.pxLine = pxLine;
+  const vecLabel = `vecteur ${vecS < 60 ? `${vecS} s` : `${vecS / 60} min`}`;
   const barLabel =
     scaleKm < 1
-      ? `${Math.round(scaleKm * 1000)} m · ${cfg.label} · ${gsdNow.label}`
+      ? `${Math.round(scaleKm * 1000)} m · ${cfg.label} · ${gsdNow.label} · ${vecLabel}`
       : scale === "monde"
-        ? `${scaleKm} km · ${cfg.label} · ${COUNTRY_COUNT} États · ${gsdNow.label}`
-        : `${scaleKm} km · ${cfg.label} · ${gsdNow.label}`;
-  ctx.fillText(barLabel, sx + scalePx + 8, sy + 3);
+        ? `${scaleKm} km · ${cfg.label} · ${COUNTRY_COUNT} États · ${gsdNow.label} · ${vecLabel}`
+        : `${scaleKm} km · ${cfg.label} · ${gsdNow.label} · ${vecLabel}`;
   const credit = sat
-    ? satCredit(cfg.tileZ, useVigilair.getState().satLayer, useVigilair.getState().satMeta)
+    ? localImageryShare() > 0.5
+      ? LOCAL_CREDIT
+      : satCredit(cfg.tileZ, useVigilair.getState().satLayer, useVigilair.getState().satMeta)
     : "Schéma — imagerie satellitaire en chargement";
-  ctx.fillText(
-    scale === "monde" ? `${credit} · vis / IR / TH / nuit / relief` : credit,
-    sx,
-    sy - 12,
+  const creditLine = scale === "monde" ? `${credit} · vis / IR / TH / nuit / relief` : credit;
+  // Plaque sombre sous l'échelle et le crédit : lisibles même sur une imagerie claire.
+  const plateW = Math.max(
+    ctx.measureText(creditLine).width,
+    scalePx + 8 + ctx.measureText(barLabel).width,
   );
+  const plate = { x: sx - 8, y: sy - 25, w: Math.min(w - sx, plateW + 16), h: 35 };
+  ctx.fillStyle = "rgba(5, 9, 11, 0.82)";
+  ctx.fillRect(plate.x, plate.y, plate.w, plate.h);
+  canvas.dataset.plate = `${plate.x},${plate.y},${Math.round(plate.x + plate.w)},${plate.y + plate.h}`;
+  ctx.strokeStyle = ice;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(sx, sy);
+  ctx.lineTo(sx + scalePx, sy);
+  ctx.moveTo(sx, sy - 4);
+  ctx.lineTo(sx, sy + 4);
+  ctx.moveTo(sx + scalePx, sy - 4);
+  ctx.lineTo(sx + scalePx, sy + 4);
+  ctx.stroke();
+  ctx.fillStyle = mutedFg;
+  ctx.fillText(barLabel, sx + scalePx + 8, sy + 3);
+  ctx.fillText(creditLine, sx, sy - 12);
   if ((scale === "ident" || scale === "k4") && st.satLayer === "vis") {
     for (const hit of scan.hits) {
       const p = pj(hit.lat, hit.lon);

@@ -183,6 +183,7 @@ async function pullAdsb(): Promise<{
   const byHex = new Map<string, LiveAc>();
   let ok = 0;
   let refused = 0;
+  let lastErr = "";
   for (const c of CELLS) {
     let value: unknown = null;
     let heard = false;
@@ -197,6 +198,7 @@ async function pullAdsb(): Promise<{
       } catch (e) {
         const msg = e instanceof Error ? e.message : "";
         if (msg === "429") refused += 1;
+        else if (msg) lastErr = msg;
       }
     }
     if (!heard || value == null) continue;
@@ -215,6 +217,8 @@ async function pullAdsb(): Promise<{
     }
   }
   if (refused > 0 && ok === 0) errors.push("1090ES refusé (429)");
+  // Aucune cellule jointe : c'est une coupure de liaison, pas un ciel vide.
+  else if (ok === 0 && lastErr) errors.push(`1090ES: ${lastErr}`);
   const ac = [...byHex.values()];
   return {
     ac,

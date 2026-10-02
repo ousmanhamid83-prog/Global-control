@@ -15,7 +15,7 @@ import { RadarMap, peekCopCursor, snapshotCop } from "@/components/vigilair/rada
 import { TrackRail } from "@/components/vigilair/track-rail";
 import { SCALE, type MapScale } from "@/lib/vigilair/geo";
 import { SAT_LAYERS, SAT_LAYER_LABEL, sceneAgeLabel } from "@/lib/vigilair/sat";
-import { coverBoard, formatGap, formatNeed, formatPx, lastPixelScan, liveGsd as readLiveGsd, pixelBudgetLine, pixelSpan, realDetectLine, realDetects, subscribePixelScan, taskDeck } from "@/lib/vigilair/tiles";
+import { coverBoard, formatGap, formatNeed, formatPx, lastPixelScan, liveGsd as readLiveGsd, localImageryDominant, pixelBudgetLine, pixelSpan, realDetectLine, realDetects, subscribeLocalImagery, subscribePixelScan, taskDeck } from "@/lib/vigilair/tiles";
 import { useVigilair } from "@/lib/vigilair/store";
 import { cn } from "@/lib/utils";
 
@@ -214,6 +214,7 @@ export function CopView() {
   const [theatreOpen, toggleTheatre] = useTheatreOpen();
   const [deckOpen, setDeckOpen] = useState(false);
   const scan = useSyncExternalStore(subscribePixelScan, lastPixelScan, lastPixelScan);
+  const offline = useSyncExternalStore(subscribeLocalImagery, localImageryDominant, () => false);
   const reel = realDetectLine(scan);
 
   const liveGsd = readLiveGsd(
@@ -524,7 +525,9 @@ export function CopView() {
                 Poste de tâche
               </button>
               <p className="max-w-md min-w-0 rounded-md bg-bg/85 px-2 py-1 text-xs leading-snug text-muted-foreground [@media(max-height:640px)]:hidden block">
-                {k4Vis
+                {offline && satLayer === "vis"
+                  ? `Hors ligne · mosaïque Sentinel-2 locale · ${liveGsd.label} · ni homme ni voiture à cette échelle`
+                  : k4Vis
                   ? "Visible ~1 m · World Imagery · mosaïque archive · pas < 1 h"
                   : identVis
                   ? capture
