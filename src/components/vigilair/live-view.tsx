@@ -64,7 +64,7 @@ export function LiveView() {
           <p className="max-w-3xl text-sm text-muted-foreground">{LIVE_CREDIT}</p>
         </header>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+        <div className="grid gap-2 grid-cols-6">
           <Stat k="Contacts 1090" v={String(live.n)} />
           <Stat k="Volume ident 120 km" v={String(live.local)} tone={live.local ? "ok" : "default"} />
           <Stat
@@ -131,7 +131,7 @@ export function LiveView() {
                 )}
               >
                 <Icon className="size-4" />
-                <span className="hidden sm:inline">{t.label}</span>
+                <span className="inline">{t.label}</span>
               </button>
             );
           })}
@@ -149,7 +149,7 @@ export function LiveView() {
 
 function SourceRow({ sources }: { sources: SourceHealth[] }) {
   return (
-    <ul className="grid grid-cols-2 gap-2 lg:grid-cols-3">
+    <ul className="grid gap-2 grid-cols-3">
       {sources.map((s) => (
         <li
           key={s.id}
@@ -181,7 +181,7 @@ function Stat({
   tone?: "ok" | "warn" | "crit" | "default";
 }) {
   return (
-    <div className="rounded-md border border-border bg-surface p-3">
+    <div className="rounded-md border border-border bg-surface p-3 hud">
       <p className="text-xs text-muted-foreground">{k}</p>
       <p
         className={cn(
@@ -329,9 +329,9 @@ function WxPanel() {
     );
   }
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+    <div className="grid gap-4 grid-cols-2">
       {apt || solar ? (
-        <div className="rounded-md border border-border bg-surface p-4 lg:col-span-2">
+        <div className="rounded-md border border-border bg-surface p-4 col-span-2 hud">
           <h2 className="text-sm font-medium">FTTJ Hassan Djamous · AWC</h2>
           <p className="mt-2 font-mono text-sm tabular-nums">
             {apt
@@ -362,7 +362,7 @@ function WxPanel() {
         ) : (
           <ul className="space-y-2">
             {taf.map((t) => (
-              <li key={t.icao} className="rounded-md border border-border bg-surface p-3">
+              <li key={t.icao} className="rounded-md border border-border bg-surface p-3 hud">
                 <p className="text-xs font-medium">{t.icao}</p>
                 <p className="mt-1 font-mono text-xs leading-relaxed text-muted-foreground">
                   {t.raw}
@@ -382,7 +382,7 @@ function WxPanel() {
         ) : (
           <ul className="space-y-2">
             {ao.map((s, i) => (
-              <li key={`${s.fir}-${i}`} className="rounded-md border border-border bg-surface p-3">
+              <li key={`${s.fir}-${i}`} className="rounded-md border border-border bg-surface p-3 hud">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-sm font-medium">
                     {s.fir} · {s.firName}
@@ -411,7 +411,7 @@ function WxPanel() {
 
 function MetarCard({ m }: { m: MetarRow }) {
   return (
-    <li className="rounded-md border border-border bg-surface p-3">
+    <li className="rounded-md border border-border bg-surface p-3 hud">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-medium">
           {m.icao} · {m.name}
@@ -505,7 +505,7 @@ function RidPanel() {
       ) : null}
       <ul className="space-y-2">
         {decoded.map((d, i) => (
-          <li key={`${d.type}-${i}`} className="rounded-md border border-border bg-surface p-3">
+          <li key={`${d.type}-${i}`} className="rounded-md border border-border bg-surface p-3 hud">
             <div className="flex items-center justify-between gap-2">
               <p className="text-sm font-medium">{d.typeLabel}</p>
               <Badge tone={d.ok ? "ok" : "crit"}>{d.ok ? "OK" : "erreur"}</Badge>
@@ -541,8 +541,8 @@ function GnssPanel() {
   const s = tow % 60;
   const hot = jam.filter((j) => j.level !== "low");
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <div className="rounded-md border border-border bg-surface p-4">
+    <div className="grid gap-4 grid-cols-2">
+      <div className="rounded-md border border-border bg-surface p-4 hud">
         <h2 className="text-sm font-medium">Temps GPS</h2>
         <p className="mt-3 font-mono text-2xl tabular-nums">
           Semaine {space?.gpsWeek ?? "—"}
@@ -562,7 +562,7 @@ function GnssPanel() {
           </p>
         ) : null}
       </div>
-      <div className="rounded-md border border-border bg-surface p-4">
+      <div className="rounded-md border border-border bg-surface p-4 hud">
         <h2 className="text-sm font-medium">NOAA SWPC · intégrité GNSS</h2>
         <div className="mt-3 flex flex-wrap items-end gap-3">
           <p className="font-mono text-2xl tabular-nums">Kp {space?.kp ?? "—"}</p>
@@ -587,7 +587,7 @@ function GnssPanel() {
           distinguer d'une tempête. Source NOAA Space Weather Prediction Center.
         </p>
       </div>
-      <div className="rounded-md border border-border bg-surface p-4 lg:col-span-2">
+      <div className="rounded-md border border-border bg-surface p-4 col-span-2 hud">
         <h2 className="text-sm font-medium">Jamming GNSS · NIC / NACp ADS-B</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Même méthode que gpsjam.org : part des aéronefs 1090ES qui reportent une
@@ -600,7 +600,7 @@ function GnssPanel() {
             {jam.length ? ` · ${jam.length} cellule(s) nominale(s)` : ""}.
           </p>
         ) : (
-          <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+          <ul className="mt-3 grid gap-2 grid-cols-2">
             {hot.map((j) => (
               <li
                 key={`${j.lat}:${j.lon}`}
@@ -623,7 +623,7 @@ function GnssPanel() {
         )}
       </div>
       {(pic?.alerts ?? []).length > 0 ? (
-        <div className="rounded-md border border-border bg-surface p-4 lg:col-span-2">
+        <div className="rounded-md border border-border bg-surface p-4 col-span-2 hud">
           <h2 className="text-sm font-medium">Alertes NOAA SWPC</h2>
           <ul className="mt-3 space-y-2">
             {(pic?.alerts ?? []).map((a) => (
@@ -696,8 +696,8 @@ function ToolsPanel() {
   };
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <section className="space-y-3 rounded-md border border-border bg-surface p-4">
+    <div className="grid gap-4 grid-cols-2">
+      <section className="space-y-3 rounded-md border border-border bg-surface p-4 hud">
         <h2 className="text-sm font-medium">Registre ICAO24 · adsbdb</h2>
         <p className="text-sm text-muted-foreground">
           Interrogation réelle du registre Mode S (type, immat, opérateur). Pas
@@ -748,7 +748,7 @@ function ToolsPanel() {
           </dl>
         ) : null}
       </section>
-      <section className="space-y-3 rounded-md border border-border bg-surface p-4">
+      <section className="space-y-3 rounded-md border border-border bg-surface p-4 hud">
         <h2 className="text-sm font-medium">Briefing situation</h2>
         <p className="text-sm text-muted-foreground">
           Synthèse des capteurs réels du dernier ingest — 1090, METAR, SIGMET,
@@ -762,9 +762,9 @@ function ToolsPanel() {
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-fg">{brief}</p>
         ) : null}
       </section>
-      <section className="rounded-md border border-border bg-surface p-4 lg:col-span-2">
+      <section className="rounded-md border border-border bg-surface p-4 col-span-2 hud">
         <h2 className="text-sm font-medium">Ce qui est réel</h2>
-        <ul className="mt-2 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
+        <ul className="mt-2 grid gap-2 text-sm text-muted-foreground grid-cols-2">
           <li>1090ES — réseau passif mondial (adsb.lol / readsb), cellules FTTJ Lagos Khartoum Niamey.</li>
           <li>METAR / TAF — NOAA Aviation Weather, stations ASECNA et FIR voisines.</li>
           <li>SIGMET — bulletins OACI mondiaux, filtrés Afrique / Sahel.</li>

@@ -492,7 +492,7 @@ function TransponderBlock({ track }: { track: Track }) {
     pic,
   );
   return (
-    <section className="space-y-1 rounded-md border border-border bg-surface p-3 text-sm">
+    <section className="space-y-1 rounded-md border border-border bg-surface p-3 text-sm hud">
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Traité · {treated.verdict}
       </p>

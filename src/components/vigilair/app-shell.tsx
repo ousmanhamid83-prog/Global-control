@@ -1,34 +1,11 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import {
-  Activity,
-  BookOpen,
-  Clock,
-  Fingerprint,
-  KeyRound,
-  Laptop,
-  LayoutDashboard,
-  MapPinned,
-  Menu,
-  Mic,
-  Pause,
-  Play,
-  Radar,
-  Radio,
-  RadioTower,
-  Satellite,
-  Scan,
-  ScrollText,
-  Target,
-  X,
-} from "lucide-react";
+import { Clock, Pause, Play, Radio, RadioTower } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
 import { AlertRelay } from "@/components/vigilair/alert-relay";
 import { DutyWatch } from "@/components/vigilair/duty-watch";
 import { EvidenceSync } from "@/components/vigilair/evidence-sync";
-import { CombatBanner } from "@/components/vigilair/combat-banner";
-import { GuardBanner } from "@/components/vigilair/guard-banner";
 import { ReplayBar } from "@/components/vigilair/replay-bar";
+import { SituationBar } from "@/components/vigilair/situation-bar";
 import { InstallPoste } from "@/components/vigilair/install-poste";
 import { StewardDesk, StewardWatch } from "@/components/vigilair/steward-watch";
 import { Badge } from "@/components/ui/badge";
@@ -64,50 +41,39 @@ type NavTo =
   | "/sentinelle"
   | "/division";
 
-type NavItem = { to: NavTo; label: string; icon: LucideIcon };
+type NavItem = { to: NavTo; label: string };
 
 const GROUPS: { label: string; items: NavItem[] }[] = [
   {
     label: "Poste",
     items: [
-      { to: "/", label: "Situation", icon: Activity },
-      { to: "/radar", label: "Radar", icon: Scan },
-      { to: "/tableau", label: "Tableau", icon: LayoutDashboard },
+      { to: "/", label: "Situation" },
+      { to: "/radar", label: "Radar" },
+      { to: "/tableau", label: "Tableau" },
     ],
   },
   {
     label: "Détection",
     items: [
-      { to: "/ident", label: "Ident", icon: Radar },
-      { to: "/iff", label: "IFF", icon: Fingerprint },
-      { to: "/capteurs", label: "Capteurs", icon: Satellite },
-      { to: "/zones", label: "Bulles", icon: Target },
-      { to: "/trace", label: "Trace", icon: MapPinned },
+      { to: "/ident", label: "Ident" },
+      { to: "/iff", label: "IFF" },
+      { to: "/capteurs", label: "Capteurs" },
+      { to: "/zones", label: "Bulles" },
+      { to: "/trace", label: "Trace" },
     ],
   },
   {
     label: "Garde",
     items: [
-      { to: "/quart", label: "Quart", icon: Clock },
-      { to: "/audio", label: "SIGINT", icon: Mic },
-      { to: "/catalogue", label: "Signatures", icon: BookOpen },
-      { to: "/journal", label: "Journal", icon: ScrollText },
-      { to: "/sentinelle", label: "Sentinelle", icon: Laptop },
-      { to: "/division", label: "Division", icon: KeyRound },
+      { to: "/quart", label: "Quart" },
+      { to: "/audio", label: "SIGINT" },
+      { to: "/catalogue", label: "Signatures" },
+      { to: "/journal", label: "Journal" },
+      { to: "/sentinelle", label: "Sentinelle" },
+      { to: "/division", label: "Division" },
     ],
   },
 ];
-
-const NAV = GROUPS.flatMap((g) => g.items);
-
-const PARAMS = [
-  ["Intendant", "chaque option, chef seulement"],
-  ["Feu", "détection à la seconde, dès l'ouverture"],
-  ["Feu naturel", "front, ou point VIIRS sur la carte"],
-  ["FIRMS", "VIIRS ≤ 2 h · pixel 375 m"],
-  ["Couches", "vis · IR · thermique · nuit · relief"],
-  ["Émission", "aucune — le poste n'émet pas"],
-] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, isPending } = useCurrentUserState();
@@ -166,7 +132,6 @@ function ShellBody({ children }: { children: ReactNode }) {
     pathname !== "/division" &&
     pathname !== "/zones";
   const [ready, setReady] = useState(false);
-  const [menu, setMenu] = useState(false);
 
   useEffect(() => {
     bootVigilair();
@@ -174,16 +139,33 @@ function ShellBody({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    setMenu(false);
-  }, [pathname]);
-
-  useEffect(() => {
+    // Dernière façon d'atteindre une commande : souris ou clavier (Tab). Chrome marque tout
+    // focus « visible » dès qu'une touche est pressée, donc :focus-visible ne suffit pas ici.
+    let viaPointer = true;
+    const onPointer = () => {
+      viaPointer = true;
+    };
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Tab") {
+        viaPointer = false;
+        return;
+      }
       const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) {
+      if (
+        el &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.tagName === "SELECT" ||
+          el.isContentEditable)
+      ) {
         return;
       }
       if (e.code === "Space") {
+        // Commande atteinte au clavier : Espace l'active, comme partout. Après un clic souris,
+        // Espace reste la pause du flux.
+        if (!viaPointer && el?.closest("button, a, [role='button'], summary")) {
+          return;
+        }
         e.preventDefault();
         useVigilair.getState().setRunning(!useVigilair.getState().running);
         return;
@@ -246,8 +228,12 @@ function ShellBody({ children }: { children: ReactNode }) {
         setPpi({ rangeKm: PPI_RANGES[n - 1] as PpiRangeKm });
       }
     };
+    window.addEventListener("pointerdown", onPointer, true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onPointer, true);
+      window.removeEventListener("keydown", onKey);
+    };
   }, [lockTrack, setPpi, scrubReplay, seekReplay, returnToLive, setShowFriends, setShowLive, cycleThreatFloor, cycleIffFilter, requestM4]);
 
   const live = tracks.filter((t) => t.idState !== "perdu").length;
@@ -266,68 +252,63 @@ function ShellBody({ children }: { children: ReactNode }) {
     posture === "menace" || raids.length > 0 ? "crit" : posture === "alerte" ? "warn" : "ok";
 
   return (
-    <div className="relative flex h-dvh min-w-0 flex-col overflow-hidden bg-bg text-fg">
+    <div className="console-grid relative flex h-dvh min-w-[1280px] flex-col overflow-hidden text-fg">
       <AlertRelay />
       <DutyWatch />
       <StewardWatch />
       <EvidenceSync />
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-3">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <button
-            type="button"
-            className="grid size-11 shrink-0 place-items-center rounded-md text-fg lg:hidden"
-            aria-expanded={menu}
-            aria-label={menu ? "Fermer le menu" : "Ouvrir le menu"}
-            onClick={() => setMenu((v) => !v)}
-          >
-            {menu ? <X className="size-5" /> : <Menu className="size-5" />}
-          </button>
-          {/* Sous sm, le logo cède sa place aux commandes. */}
-          <span className="hidden sm:contents">
-            <Logo />
-          </span>
-          <div className="min-w-0">
-            <p className="font-display text-sm font-semibold tracking-tight">VIGILAIR</p>
-            <p className="hidden truncate text-xs text-muted-foreground sm:block">
-              COP N'Djamena · 1090ES · VIIRS · silencieux
+      <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border bg-surface px-4">
+        <div className="flex shrink-0 items-center gap-3">
+          <Logo />
+          <div className="leading-none">
+            <p className="font-display text-[17px] font-bold uppercase tracking-[0.22em] text-fg">
+              Vigilair
+            </p>
+            <p className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">
+              COP · FTTJ N'Djamena · silencieux
             </p>
           </div>
         </div>
-        <div className="ml-auto flex min-w-0 items-center gap-1.5">
-          {/* Badges sur deux rangs au besoin : jamais au point de pousser les commandes hors de l'écran. */}
-          <div className="hidden max-h-14 min-w-0 flex-wrap items-center justify-end gap-1 overflow-hidden py-1 whitespace-nowrap lg:flex">
-            <Badge tone={instruction ? "warn" : "ok"}>
-              {instruction ? "Exercice" : "Réel"}
+        <div className="h-8 w-px shrink-0 bg-border" aria-hidden />
+        {/* Badges sur deux rangs au besoin : jamais au point de pousser les commandes hors de l'écran. */}
+        <div className="flex max-h-14 min-w-0 flex-1 flex-wrap items-center gap-1 overflow-hidden py-1 whitespace-nowrap">
+          <Badge tone={instruction ? "warn" : "ok"}>{instruction ? "Exercice" : "Réel"}</Badge>
+          {watchLoaded ? (
+            <Badge tone={watch ? "ok" : "warn"}>
+              <Clock className="mr-1 size-3" />
+              {watch
+                ? `${shortWatchLabel(watch.openedLabel)} · ${formatWatchDuration(now - (Date.parse(watch.openedAt) || now))}`
+                : "Quart vacant"}
             </Badge>
-            {watchLoaded ? (
-              <Badge tone={watch ? "ok" : "warn"}>
-                <Clock className="mr-1 size-3" />
-                {watch
-                  ? `${shortWatchLabel(watch.openedLabel)} · ${formatWatchDuration(now - (Date.parse(watch.openedAt) || now))}`
-                  : "Quart vacant"}
-              </Badge>
-            ) : null}
-            <Badge tone={postureTone}>{postureLabel(posture)}</Badge>
-            {zonePicture.some((z) => z.level === "intrusion") ? (
-              <Badge tone="crit">Bulle</Badge>
-            ) : zonePicture.some((z) => z.level === "approche") ? (
-              <Badge tone="warn">Bulle</Badge>
-            ) : null}
-            {friends.n > 0 ? <Badge tone="ok">Amis {friends.n}</Badge> : null}
-            {m4.valid > 0 ? <Badge tone="ok">M4+ {m4.valid}</Badge> : null}
-            {m4.invalid > 0 ? <Badge tone="crit">M4- {m4.invalid}</Badge> : null}
-            {unacked > 0 ? <Badge tone="crit">{unacked} alertes</Badge> : null}
-            {raids.length > 0 ? <Badge tone="crit">Raid {raids[0].count}</Badge> : null}
-          </div>
+          ) : null}
+          <Badge tone={postureTone}>{postureLabel(posture)}</Badge>
+          {zonePicture.some((z) => z.level === "intrusion") ? (
+            <Badge tone="crit">Bulle</Badge>
+          ) : zonePicture.some((z) => z.level === "approche") ? (
+            <Badge tone="warn">Bulle</Badge>
+          ) : null}
+          {friends.n > 0 ? <Badge tone="ok">Amis {friends.n}</Badge> : null}
+          {m4.valid > 0 ? <Badge tone="ok">M4+ {m4.valid}</Badge> : null}
+          {m4.invalid > 0 ? <Badge tone="crit">M4- {m4.invalid}</Badge> : null}
+          {unacked > 0 ? <Badge tone="crit">{unacked} alertes</Badge> : null}
+          {raids.length > 0 ? <Badge tone="crit">Raid {raids[0].count}</Badge> : null}
           {frozen ? <Badge tone="crit">COP figé</Badge> : null}
           <Badge>
             <Radio className="mr-1 size-3" />
-            {live}
+            {live} pistes
           </Badge>
           {live1090.n > 0 ? <Badge tone="ok">1090 {live1090.n}</Badge> : null}
-          <span className="hidden whitespace-nowrap font-mono text-xs tabular-nums text-muted-foreground sm:inline">
-            {ready ? formatClock(now) : "--:--:--"} WAT
-          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <div className="mr-2 flex flex-col items-end leading-none">
+            <span className="font-mono text-[15px] font-semibold tabular-nums text-fg">
+              {ready ? formatClock(now) : "--:--:--"}
+              <span className="ml-1 text-[10px] font-medium text-muted-foreground">WAT</span>
+            </span>
+            <span className="mt-1 font-mono text-[10px] tabular-nums text-muted-foreground">
+              {ready ? new Date(now).toISOString().slice(11, 19) : "--:--:--"} Z
+            </span>
+          </div>
           {isSuperadmin ? (
             <Button
               variant={botOpen ? "default" : "outline"}
@@ -342,12 +323,10 @@ function ShellBody({ children }: { children: ReactNode }) {
               variant={ewArmed ? "default" : "outline"}
               size="sm"
               onClick={() => setEwArmed(!ewArmed)}
-              aria-label={
-                ewArmed ? "Désarmer le brouillage" : "Armer le brouillage défensif"
-              }
+              aria-label={ewArmed ? "Désarmer le brouillage" : "Armer le brouillage défensif"}
             >
               <RadioTower />
-              <span className="hidden xl:inline">{ewArmed ? "RF armé" : "RF off"}</span>
+              {ewArmed ? "RF armé" : "RF off"}
             </Button>
           ) : null}
           <Button
@@ -357,13 +336,10 @@ function ShellBody({ children }: { children: ReactNode }) {
             aria-label={running ? "Pause du flux" : "Reprendre le flux"}
           >
             {running ? <Pause /> : <Play />}
-            <span className="hidden xl:inline">{running ? "Pause" : "Flux"}</span>
+            {running ? "Pause" : "Flux"}
           </Button>
-          {/* Sous lg, installation et fermeture de session passent dans le menu. */}
-          <div className="hidden items-center gap-1.5 lg:flex">
-            <InstallPoste variant="header" />
-            <PosteChip />
-          </div>
+          <InstallPoste variant="header" />
+          <PosteChip />
         </div>
       </header>
       {isSuperadmin && botOpen ? (
@@ -372,103 +348,37 @@ function ShellBody({ children }: { children: ReactNode }) {
         </div>
       ) : null}
 
-      <nav className="hidden gap-1 overflow-x-auto border-b border-border px-2 py-1 lg:flex">
-        {NAV.map((item) => {
-          const active =
-            item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.to}
-              to={item.to}
-              className={cn(
-                "inline-flex h-11 shrink-0 items-center gap-2 rounded-md px-3 text-sm transition-colors duration-150",
-                active
-                  ? "bg-secondary text-fg"
-                  : "text-muted-foreground hover:bg-secondary hover:text-fg",
-              )}
-            >
-              <Icon className="size-4" />
-              {item.label}
-            </Link>
-          );
-        })}
+      <nav className="flex h-11 shrink-0 items-stretch overflow-x-auto border-b border-border bg-bg/90 px-2">
+        {GROUPS.map((group, gi) => (
+          <div
+            key={group.label}
+            className={cn("flex items-stretch", gi > 0 && "ml-2 border-l border-border pl-2")}
+          >
+            <span className="flex items-center pr-2 pl-1 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+              {group.label}
+            </span>
+            {group.items.map((item) => {
+              const active = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "inline-flex shrink-0 items-center border-b-2 px-2.5 font-display text-[13px] font-semibold uppercase tracking-[0.06em] transition-colors duration-150",
+                    active
+                      ? "border-primary bg-secondary/70 text-fg"
+                      : "border-transparent text-muted-foreground hover:bg-secondary/50 hover:text-fg",
+                  )}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
-      {menu ? (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/60"
-            aria-label="Fermer le menu"
-            onClick={() => setMenu(false)}
-          />
-          <aside className="absolute inset-y-0 left-0 flex w-[min(20rem,88vw)] flex-col overflow-y-auto border-r border-border bg-surface px-3 py-3">
-            <p className="px-2 font-display text-sm font-semibold">VIGILAIR</p>
-            <p className="px-2 text-xs text-muted-foreground">COP N'Djamena</p>
-            {GROUPS.map((group) => (
-              <div key={group.label} className="mt-4">
-                <p className="px-2 text-[11px] tracking-wide text-muted-foreground uppercase">
-                  {group.label}
-                </p>
-                <div className="mt-1 flex flex-col gap-0.5">
-                  {group.items.map((item) => {
-                    const active =
-                      item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
-                    const Icon = item.icon;
-                    return (
-                      <Link
-                        key={item.to}
-                        to={item.to}
-                        className={cn(
-                          "inline-flex h-11 items-center gap-2 rounded-md px-3 text-sm",
-                          active
-                            ? "bg-secondary text-fg"
-                            : "text-muted-foreground hover:bg-secondary hover:text-fg",
-                        )}
-                      >
-                        <Icon className="size-4" />
-                        {item.label}
-                      </Link>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-            <div className="mt-4">
-              <p className="px-2 text-[11px] tracking-wide text-muted-foreground uppercase">
-                Paramètres
-              </p>
-              <dl className="mt-1 rounded-lg border border-border px-3 py-2">
-                {PARAMS.map(([k, v]) => (
-                  <div key={k} className="flex items-baseline justify-between gap-3 py-1.5">
-                    <dt className="text-xs text-muted-foreground">{k}</dt>
-                    <dd className="text-right text-xs text-fg">{v}</dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-            <div className="mt-3 rounded-lg border border-border px-3 py-3">
-              <p className="text-sm text-fg">
-                {live} piste{live > 1 ? "s" : ""}
-                {unacked > 0 ? ` · ${unacked} alerte${unacked > 1 ? "s" : ""}` : ""}
-              </p>
-              <p className="mt-2 text-xs text-muted-foreground">Connecté en tant que</p>
-              <p className="text-sm font-semibold text-fg">
-                {isSuperadmin ? "chef de division" : "poste"}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {isSuperadmin ? "accès total" : "quart"}
-              </p>
-              <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
-                <PosteChip />
-                <InstallPoste variant="header" />
-              </div>
-            </div>
-          </aside>
-        </div>
-      ) : null}
-      {pathname === "/tableau" ? null : <CombatBanner />}
-      <GuardBanner />
+      <SituationBar />
       {pathname === "/tableau" ? null : <ReplayBar />}
 
       <div

@@ -49,12 +49,12 @@ export const SENTINEL_DOCTRINE = [
   {
     id: "sceau",
     title: "Sceau chef et inactivité",
-    body: "Émettre une clé, éjecter, figer le COP, purger : le mot de passe chef est redemandé. Valable 5 minutes. Huit minutes sans geste : le poste se fige, mot de passe ou clé VA- pour reprendre. Un téléphone oublié n'est plus un COP ouvert.",
+    body: "Émettre une clé, éjecter, figer le COP, purger : le mot de passe chef est redemandé. Valable 5 minutes. Huit minutes sans geste : le poste se fige, mot de passe ou clé VA- pour reprendre. Un poste oublié n'est plus un COP ouvert.",
   },
   {
     id: "sessions",
-    title: "Plafond de sessions et aperçu Android",
-    body: "Chef : deux sessions (poste + téléphone). Agent : une seule, collée à la machine. Les plus anciennes sont coupées. Si Chrome bloque les cookies dans l'aperçu, la session passe par un jeton interne — installez le poste sur l'accueil pour un cookie first-party.",
+    title: "Plafond de sessions et aperçu",
+    body: "Chef : deux sessions (deux postes PC). Agent : une seule, collée à la machine. Les plus anciennes sont coupées. Si Chrome bloque les cookies dans l'aperçu, la session passe par un jeton interne — installez le poste sur le PC pour un cookie first-party.",
   },
 ] as const;
 

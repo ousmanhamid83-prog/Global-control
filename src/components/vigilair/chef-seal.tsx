@@ -20,7 +20,7 @@ export function ChefSealHost() {
   return (
     <div className="fixed inset-0 z-[80] grid place-items-center bg-bg/80 p-4">
       <form
-        className="w-full max-w-sm space-y-4 rounded-lg border border-border bg-surface p-5"
+        className="w-full max-w-sm space-y-4 rounded-lg border border-border bg-surface p-5 hud"
         onSubmit={(e) => {
           e.preventDefault();
           finishChefPassword(password);

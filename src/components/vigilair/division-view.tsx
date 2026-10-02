@@ -82,11 +82,11 @@ export function DivisionView() {
         <InstallPoste />
         <IdentityDesk />
         <IncidentsPanel />
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+        <div className="grid gap-8 grid-cols-2">
           <RosterPanel />
           <TeamRecapPanel />
         </div>
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+        <div className="grid gap-8 grid-cols-2">
           <OpsPanel />
           <KeysPanel chef={profile?.label ?? "Chef de division"} />
         </div>
@@ -129,9 +129,9 @@ function OwnDesk() {
       <InstallPoste />
       <IdentityDesk />
       {recap ? (
-        <div className="space-y-3 rounded-lg border border-border bg-surface p-4">
+        <div className="space-y-3 rounded-lg border border-border bg-surface p-4 hud">
           <p className="text-sm font-medium">Votre récapitulatif</p>
-          <dl className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+          <dl className="grid gap-2 text-sm grid-cols-4">
             <Stat k="Actions" v={String(recap.actions)} />
             <Stat k="Ident" v={String(recap.ident)} />
             <Stat k="Bulletins" v={String(recap.bulletin)} />
@@ -193,7 +193,7 @@ function IdentityDesk() {
   };
 
   return (
-    <section className="space-y-3 rounded-lg border border-border bg-surface p-4">
+    <section className="space-y-3 rounded-lg border border-border bg-surface p-4 hud">
       <div className="flex items-center gap-2">
         <Mail className="size-4 text-muted-foreground" />
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -204,7 +204,7 @@ function IdentityDesk() {
         E-mail professionnel, grade, téléphone, unité. L'e-mail n'est pas un mot
         de passe : l'agent se connecte avec e-mail + clé VA-.
       </p>
-      <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+      <dl className="grid gap-2 text-sm grid-cols-2">
         <div>
           <dt className="text-xs text-muted-foreground">Rôle</dt>
           <dd>{profile ? ROLE_LABEL[profile.role] : "—"}</dd>
@@ -214,8 +214,8 @@ function IdentityDesk() {
           <dd>{profile ? TEAM_LABEL[profile.team] : "—"}</dd>
         </div>
       </dl>
-      <form onSubmit={(e) => void onSave(e)} className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <label className="block text-sm sm:col-span-2">
+      <form onSubmit={(e) => void onSave(e)} className="grid gap-2 grid-cols-2">
+        <label className="block text-sm col-span-2">
           Nom
           <Input
             className="mt-1"
@@ -226,7 +226,7 @@ function IdentityDesk() {
             aria-label="Nom"
           />
         </label>
-        <label className="block text-sm sm:col-span-2">
+        <label className="block text-sm col-span-2">
           E-mail professionnel
           <Input
             className="mt-1 font-mono"
@@ -259,7 +259,7 @@ function IdentityDesk() {
             aria-label="Téléphone"
           />
         </label>
-        <label className="block text-sm sm:col-span-2">
+        <label className="block text-sm col-span-2">
           Unité / bureau
           <Input
             className="mt-1"
@@ -269,7 +269,7 @@ function IdentityDesk() {
             aria-label="Unité"
           />
         </label>
-        <Button type="submit" disabled={busy} className="sm:col-span-2">
+        <Button type="submit" disabled={busy} className="col-span-2">
           Enregistrer l'identité
         </Button>
       </form>
@@ -325,7 +325,7 @@ function IncidentsPanel() {
           {rows.slice(0, 8).map((r) => (
             <li
               key={r.id}
-              className="rounded-md border border-border bg-surface p-3"
+              className="rounded-md border border-border bg-surface p-3 hud"
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -469,7 +469,7 @@ function RosterPanel() {
         {rows.map((r) => (
           <li
             key={r.userId}
-            className="rounded-md border border-border bg-surface p-3"
+            className="rounded-md border border-border bg-surface p-3 hud"
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <button
@@ -591,11 +591,11 @@ function TeamRecapPanel() {
           verrous, incidents.
         </p>
       </div>
-      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <ul className="grid gap-2 grid-cols-2">
         {rows.map((r) => (
           <li
             key={r.team}
-            className="rounded-md border border-border bg-surface p-3"
+            className="rounded-md border border-border bg-surface p-3 hud"
           >
             <div className="flex items-center justify-between gap-2">
               <p className="text-sm font-medium">{TEAM_LABEL[r.team]}</p>
@@ -735,7 +735,7 @@ function KeysPanel({ chef }: { chef: string }) {
           COP figé — émission de clés suspendue jusqu'au déverrouillage.
         </p>
       ) : null}
-      <form onSubmit={onGenerate} className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <form onSubmit={onGenerate} className="grid gap-2 grid-cols-2">
         <Input
           value={label}
           onChange={(e) => setLabel(e.target.value)}
@@ -743,7 +743,7 @@ function KeysPanel({ chef }: { chef: string }) {
           aria-label="Nom de l'agent"
           required
           minLength={2}
-          className="sm:col-span-2"
+          className="col-span-2"
         />
         <Input
           type="email"
@@ -752,7 +752,7 @@ function KeysPanel({ chef }: { chef: string }) {
           placeholder="e-mail professionnel"
           aria-label="E-mail professionnel"
           required
-          className="sm:col-span-2"
+          className="col-span-2"
         />
         <Input
           value={grade}
@@ -771,7 +771,7 @@ function KeysPanel({ chef }: { chef: string }) {
           onChange={(e) => setUnit(e.target.value)}
           placeholder="Unité"
           aria-label="Unité"
-          className="sm:col-span-2"
+          className="col-span-2"
         />
         <select
           className={SELECT}
@@ -800,7 +800,7 @@ function KeysPanel({ chef }: { chef: string }) {
         <Button
           type="submit"
           disabled={busy || frozen || label.trim().length < 2}
-          className="sm:col-span-2"
+          className="col-span-2"
         >
           Générer une clé
         </Button>
@@ -908,8 +908,8 @@ function BotsPanel() {
           extraction, reconnexion d'un agent éjecté.
         </p>
       </div>
-      <form onSubmit={onSave} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <label className="block text-sm sm:col-span-2">
+      <form onSubmit={onSave} className="grid gap-3 grid-cols-2">
+        <label className="block text-sm col-span-2">
           Jeton bot Telegram
           <Input
             className="mt-1"
@@ -938,7 +938,7 @@ function BotsPanel() {
             placeholder="https://…"
           />
         </label>
-        <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
+        <div className="flex flex-wrap items-center gap-2 col-span-2">
           <Button type="submit" disabled={busy}>
             Enregistrer les canaux
           </Button>

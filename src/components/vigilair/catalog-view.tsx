@@ -82,13 +82,13 @@ export function CatalogView() {
           chasse · {counts.ami} amis
         </p>
       </header>
-      <div className="flex flex-col gap-2 sm:flex-row">
+      <div className="flex gap-2 flex-row">
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Nom, constructeur, protocole"
           aria-label="Rechercher une signature"
-          className="sm:max-w-sm"
+          className="max-w-sm"
         />
         <div className="flex flex-wrap gap-1">
           {FILTERS.map((f) => (
@@ -126,8 +126,8 @@ export function CatalogView() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
-        <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
+      <div className="grid gap-4 grid-cols-[minmax(0,1fr)_380px]">
+        <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface hud">
           {list.length === 0 ? (
             <li className="p-6 text-sm text-muted-foreground">
               Aucune signature ne correspond.
@@ -171,7 +171,7 @@ export function CatalogView() {
 
 function SignatureCard({ platform: p }: { platform: Platform }) {
   return (
-    <article className="h-fit rounded-lg border border-border bg-surface p-5">
+    <article className="h-fit rounded-lg border border-border bg-surface p-5 hud">
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-xs text-muted-foreground">{p.manufacturer}</p>

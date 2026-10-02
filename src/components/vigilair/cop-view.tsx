@@ -6,7 +6,6 @@ import { GpsZoneStrip } from "@/components/vigilair/gps-zone";
 import { MineStrip } from "@/components/vigilair/mine-strip";
 import { HydroStrip } from "@/components/vigilair/hydro-strip";
 import { CaptureStrip } from "@/components/vigilair/capture-strip";
-import { DefenseStrip } from "@/components/vigilair/defense-strip";
 import { MetarStrip } from "@/components/vigilair/metar-strip";
 import { WatchStrip } from "@/components/vigilair/watch-strip";
 import { ZoneStrip } from "@/components/vigilair/zone-strip";
@@ -16,93 +15,9 @@ import { RadarMap, peekCopCursor, snapshotCop } from "@/components/vigilair/rada
 import { TrackRail } from "@/components/vigilair/track-rail";
 import { SCALE, type MapScale } from "@/lib/vigilair/geo";
 import { SAT_LAYERS, SAT_LAYER_LABEL, sceneAgeLabel } from "@/lib/vigilair/sat";
-import { coverBoard, formatGap, formatNeed, formatPx, lastPixelScan, liveGsd as readLiveGsd, pixelBudgetLine, pixelDetections, pixelSpan, realDetectLine, realDetects, subscribePixelScan, taskDeck } from "@/lib/vigilair/tiles";
+import { coverBoard, formatGap, formatNeed, formatPx, lastPixelScan, liveGsd as readLiveGsd, pixelBudgetLine, pixelSpan, realDetectLine, realDetects, subscribePixelScan, taskDeck } from "@/lib/vigilair/tiles";
 import { useVigilair } from "@/lib/vigilair/store";
 import { cn } from "@/lib/utils";
-
-function DetectPlate() {
-  const satLayer = useVigilair((s) => s.satLayer);
-  const mapScale = useVigilair((s) => s.mapScale);
-  const viewOrigin = useVigilair((s) => s.viewOrigin);
-  const capture = useVigilair((s) => s.capture);
-  const scan = useSyncExternalStore(subscribePixelScan, lastPixelScan, lastPixelScan);
-  const satMeta = useVigilair((s) => s.satMeta);
-  const lat = capture?.lat ?? viewOrigin.lat;
-  const gsd = readLiveGsd(satLayer, SCALE[mapScale].tileZ, lat, satMeta?.visSrc);
-  const dets = pixelDetections(gsd.m, satLayer);
-  const measured = realDetects(scan);
-  const inside = coverBoard(gsd.m, satLayer, scan.voiture).find((r) => r.id === "dedans");
-  const cell = (on: boolean) => (on ? "oui" : "—");
-  return (
-    <div
-      data-detect="1"
-      data-det-ready={scan.ready ? "1" : "0"}
-      className="px-2 py-1.5 lg:hidden"
-    >
-      <p className="font-mono text-[10px] leading-snug text-muted-foreground">
-        {gsd.label} · dét 1,5 · rec 6 · id 12
-      </p>
-      <table className="mt-1 w-full border-collapse font-mono text-[10px] leading-tight">
-        <thead>
-          <tr className="text-muted-foreground">
-            <th className="py-0.5 text-left font-normal"> </th>
-            <th className="px-1 py-0.5 text-center font-normal">dét</th>
-            <th className="px-1 py-0.5 text-center font-normal">rec</th>
-            <th className="px-1 py-0.5 text-center font-normal">id</th>
-            <th className="py-0.5 text-left font-normal">cran suivant</th>
-          </tr>
-        </thead>
-        <tbody>
-          {dets.map((d) => {
-            const hit = measured.find((m) => m.id === d.id);
-            const next =
-              d.gap.next == null
-                ? "tenu"
-                : `${formatGap(d.gap.missingPx)} · ${formatNeed(d.gap.needGsdM)}`;
-            return (
-              <tr
-                key={d.id}
-                data-det={d.id}
-                data-det-cls={d.cls}
-                data-det-on={d.detected ? "1" : "0"}
-                data-det-n={String(hit?.n ?? 0)}
-                data-det-miss={d.gap.missingPx.toFixed(2)}
-                data-det-need={d.gap.needGsdM == null ? "" : String(Math.round(d.gap.needGsdM * 100))}
-                title={d.verdict}
-              >
-                <td className={d.detected ? "py-0.5 text-fg" : "py-0.5 text-muted-foreground"}>
-                  {d.short} {formatPx(d.px)}
-                </td>
-                <td className={`px-1 py-0.5 text-center ${d.det ? "text-fg" : "text-muted-foreground"}`}>
-                  {cell(d.det)}
-                </td>
-                <td className={`px-1 py-0.5 text-center ${d.rec ? "text-fg" : "text-muted-foreground"}`}>
-                  {cell(d.rec)}
-                </td>
-                <td className={`px-1 py-0.5 text-center ${d.idn ? "text-fg" : "text-muted-foreground"}`}>
-                  {cell(d.idn)}
-                </td>
-                <td className="py-0.5 text-muted-foreground">{next}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      {measured.length > 0 ? (
-        <p className="mt-1 font-mono text-[10px] leading-snug text-fg">
-          Tuile · {measured.map((m) => m.line).join(" · ")}
-        </p>
-      ) : null}
-      <p
-        data-cover="dedans"
-        data-cover-hold={inside?.hold ?? "rien"}
-        className="mt-1 font-mono text-[10px] leading-snug text-muted-foreground"
-      >
-        {inside?.line}
-      </p>
-    </div>
-  );
-}
 
 function PixelRuler({
   rows,
@@ -155,7 +70,7 @@ function TaskDeck() {
   return (
     <div
       data-deck="1"
-      className="hidden p-3 lg:block"
+      className="p-3"
     >
       <div className="flex items-baseline justify-between gap-3">
         <p className="font-mono text-xs text-fg">Poste de tâche</p>
@@ -267,7 +182,8 @@ function useTheatreOpen() {
   return [open, toggle] as const;
 }
 
-const MAP_CHIP = "h-11 min-w-11 shrink-0 rounded-md px-3 text-xs transition-colors duration-150";
+const MAP_CHIP =
+  "h-11 min-w-11 shrink-0 rounded-sm border border-border/80 px-3 font-mono text-[11px] uppercase tracking-wider transition-colors duration-150";
 
 export function CopView() {
   const tracks = useVigilair((s) => s.tracks);
@@ -295,12 +211,7 @@ export function CopView() {
   const homeOrigin = useVigilair((s) => s.homeOrigin);
   const capture = useVigilair((s) => s.capture);
   const viewOrigin = useVigilair((s) => s.viewOrigin);
-  const [tab, setTab] = useState<"pistes" | "dossier">("pistes");
   const [theatreOpen, toggleTheatre] = useTheatreOpen();
-  // Bulle en approche ou en intrusion : le bandeau quitte le théâtre replié et reste sous les yeux.
-  const zoneHot = useVigilair((s) =>
-    s.zonePicture.some((z) => z.level === "intrusion" || z.level === "approche"),
-  );
   const [deckOpen, setDeckOpen] = useState(false);
   const scan = useSyncExternalStore(subscribePixelScan, lastPixelScan, lastPixelScan);
   const reel = realDetectLine(scan);
@@ -343,11 +254,11 @@ export function CopView() {
   const dim = watchMode && watchDimmed;
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-y-auto overscroll-contain lg:overflow-hidden">
-      <div className="shrink-0 lg:max-h-[32%] lg:overflow-y-auto lg:overscroll-contain">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      {/* Hauteur fixe : une alerte qui arrive ne déplace jamais la carte sous le curseur.
+          Posture, raid et intrusions sont dans la barre de situation, au-dessus. */}
+      <div className="h-[clamp(7rem,22dvh,10.5rem)] shrink-0 overflow-y-auto overscroll-contain">
         <AlertStrip />
-        <DefenseStrip />
-        {zoneHot ? <ZoneStrip /> : null}
         <WatchStrip />
         <MetarStrip />
       </div>
@@ -373,34 +284,33 @@ export function CopView() {
       <div
         id="cop-theatre"
         className={cn(
-          "shrink-0 lg:max-h-[34%] lg:overflow-y-auto lg:overscroll-contain",
+          "shrink-0 max-h-[34%] overflow-y-auto overscroll-contain",
           !theatreOpen && "hidden",
         )}
       >
         <CaptureStrip />
-        {zoneHot ? null : <ZoneStrip />}
+        <ZoneStrip />
         <AxisStrip />
         <GpsZoneStrip />
         <MineStrip />
         <HydroStrip />
       </div>
-      <div className="grid shrink-0 grid-cols-1 grid-rows-[minmax(22rem,64dvh)_auto] lg:min-h-0 lg:flex-1 lg:shrink lg:grid-cols-[240px_minmax(0,1fr)_300px] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[280px_minmax(0,1fr)_340px]">
-        <aside className="hidden min-h-0 border-r border-border lg:block">
+      <div className="grid min-h-0 flex-1 shrink grid-rows-[minmax(0,1fr)] overflow-hidden grid-cols-[280px_minmax(0,1fr)_340px]">
+        <aside className="min-h-0 border-r border-border">
           <TrackRail />
         </aside>
-        <section className="relative min-h-0 border-b border-border lg:border-b-0 lg:border-r">
+        <section className="relative min-h-0 border-border border-b-0 border-r">
           <RadarMap
             tracks={tracks}
             selectedId={selectedId}
             onSelect={(id) => {
               if (id) lockTrack(id);
               else select(null);
-              if (id) setTab("dossier");
             }}
           />
           <div
             className={cn(
-              "absolute left-3 right-12 top-3 z-10 flex gap-1 overflow-x-auto transition-opacity duration-300 max-lg:scrollbar-none xl:tall:right-auto xl:tall:max-w-[calc(100%-8rem)] xl:tall:flex-wrap xl:tall:overflow-visible",
+              "absolute left-3 right-12 top-3 z-10 flex gap-1 overflow-x-auto transition-opacity duration-300 tall:right-auto tall:max-w-[calc(100%-8rem)] tall:flex-wrap tall:overflow-visible",
               dim && "opacity-40 hover:opacity-100",
             )}
           >
@@ -541,7 +451,7 @@ export function CopView() {
           </div>
           <div
             className={cn(
-              "scrollbar-none absolute inset-x-3 top-16 z-20 flex justify-end gap-1 overflow-x-auto transition-opacity duration-300 lg:tall:left-auto lg:tall:top-14 lg:tall:max-h-[calc(100%-6.5rem)] lg:tall:flex-col lg:tall:items-end lg:tall:overflow-x-visible lg:tall:overflow-y-auto",
+              "scrollbar-none absolute inset-x-3 top-16 z-20 flex justify-end gap-1 overflow-x-auto transition-opacity duration-300 tall:left-auto tall:top-14 tall:max-h-[calc(100%-6.5rem)] tall:flex-col tall:items-end tall:overflow-x-visible tall:overflow-y-auto",
               dim && "opacity-40 hover:opacity-100",
             )}
           >
@@ -571,8 +481,8 @@ export function CopView() {
             className={cn(
               "pointer-events-none absolute inset-x-3 bottom-11 flex flex-col justify-end gap-2",
               deckOpen
-                ? "top-3 z-30 xl:tall:right-28"
-                : "top-32 z-10 lg:tall:right-28 lg:tall:top-20 xl:tall:top-40",
+                ? "top-3 z-30 tall:right-28"
+                : "top-32 z-10 tall:right-28 tall:top-40",
             )}
           >
             {watchMode ? (
@@ -592,7 +502,6 @@ export function CopView() {
                 !deckOpen && "hidden",
               )}
             >
-              <DetectPlate />
               <TaskDeck />
             </div>
             <div className="flex items-end gap-3">
@@ -614,7 +523,7 @@ export function CopView() {
                 )}
                 Poste de tâche
               </button>
-              <p className="hidden max-w-md min-w-0 rounded-md bg-bg/85 px-2 py-1 text-xs leading-snug text-muted-foreground sm:block [@media(max-height:640px)]:hidden">
+              <p className="max-w-md min-w-0 rounded-md bg-bg/85 px-2 py-1 text-xs leading-snug text-muted-foreground [@media(max-height:640px)]:hidden block">
                 {k4Vis
                   ? "Visible ~1 m · World Imagery · mosaïque archive · pas < 1 h"
                   : identVis
@@ -642,44 +551,9 @@ export function CopView() {
             </div>
           </div>
         </section>
-        <aside className="hidden min-h-0 lg:block">
+        <aside className="min-h-0">
           <Dossier />
         </aside>
-        <div className="flex min-h-[60dvh] flex-col lg:hidden">
-          <div className="flex border-b border-border p-1">
-            <button
-              type="button"
-              onClick={() => setTab("pistes")}
-              className={cn(
-                "h-11 flex-1 rounded-md text-sm transition-colors duration-150",
-                tab === "pistes"
-                  ? "bg-secondary text-fg"
-                  : "text-muted-foreground",
-              )}
-            >
-              Pistes
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("dossier")}
-              className={cn(
-                "h-11 flex-1 rounded-md text-sm transition-colors duration-150",
-                tab === "dossier"
-                  ? "bg-secondary text-fg"
-                  : "text-muted-foreground",
-              )}
-            >
-              Dossier
-            </button>
-          </div>
-          <div className="min-h-0 flex-1">
-            {tab === "pistes" ? (
-              <TrackRail onPick={() => setTab("dossier")} />
-            ) : (
-              <Dossier />
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );

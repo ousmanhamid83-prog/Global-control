@@ -92,7 +92,7 @@ export function JournalView() {
             return (
               <li
                 key={e.id}
-                className="rounded-lg border border-border bg-surface px-4 py-3"
+                className="rounded-lg border border-border bg-surface px-4 py-3 hud"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">

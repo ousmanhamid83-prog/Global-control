@@ -303,7 +303,7 @@ export function DutyWatch() {
   if (!lockMsg) return null;
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-bg/95 p-6">
-      <div className="max-w-md space-y-3 rounded-md border border-crit/40 bg-surface p-6">
+      <div className="max-w-md space-y-3 rounded-md border border-crit/40 bg-surface p-6 hud">
         <p className="text-xs font-medium uppercase tracking-wide text-crit">
           Session coupée
         </p>

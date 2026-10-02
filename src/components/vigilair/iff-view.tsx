@@ -78,7 +78,7 @@ export function IffView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-px border-b border-border bg-border sm:grid-cols-4 lg:grid-cols-6">
+      <div className="grid gap-px border-b border-border bg-border grid-cols-6">
         <Kpi label="Mode S ELS" value={String(ms.els)} />
         <Kpi label="Mode S EHS" value={String(ms.ehs)} />
         <Kpi label="ADS-B" value={String(ms.adsb)} />
@@ -106,8 +106,8 @@ export function IffView() {
         ))}
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[14rem_minmax(0,1fr)] lg:grid-cols-[260px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
-        <aside className="min-h-0 overflow-y-auto border-b border-border lg:border-b-0 lg:border-r">
+      <div className="grid min-h-0 flex-1 grid-cols-[260px_minmax(0,1fr)] grid-rows-[minmax(0,1fr)]">
+        <aside className="min-h-0 overflow-y-auto border-border border-b-0 border-r">
           <p className="sticky top-0 z-10 bg-surface px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Pistes IFF
           </p>
@@ -270,14 +270,14 @@ function Mode4Tab({
         <h2 className="text-sm font-semibold">Chiffrement Mode 4 (Mark XII)</h2>
         <p className="mt-1 text-xs text-muted-foreground">{M4_CRYPTO_STEALTH}</p>
       </div>
-      <ol className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+      <ol className="grid gap-2 grid-cols-3">
         <FlowStep n="1" title="Challenge 1030" body="ISLS + mot chiffré, interrogateur du site radar." />
         <FlowStep n="2" title="Calculateur crypto" body="KIR/KIT · clé du jour FATL. Jamais affichée." />
         <FlowStep n="3" title="Réponse 1090" body="Valide / invalide / timeout. Pas d'émission VIGILAIR." />
       </ol>
       <div className="space-y-3">
         {M4_DOCTRINE.map((d) => (
-          <article key={d.id} className="rounded-md border border-border bg-surface p-3">
+          <article key={d.id} className="rounded-md border border-border bg-surface p-3 hud">
             <h3 className="text-sm font-medium">{d.title}</h3>
             <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{d.body}</p>
           </article>
@@ -301,7 +301,7 @@ function ModeSTab({ selected }: { selected: Track | null }) {
       </div>
       <div className="space-y-3">
         {MODE_S_DOCTRINE.map((d) => (
-          <article key={d.id} className="rounded-md border border-border bg-surface p-3">
+          <article key={d.id} className="rounded-md border border-border bg-surface p-3 hud">
             <h3 className="text-sm font-medium">{d.title}</h3>
             <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{d.body}</p>
           </article>
@@ -348,9 +348,9 @@ function ModeSTab({ selected }: { selected: Track | null }) {
         <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Registres BDS (EHS / ADS-B)
         </h3>
-        <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <ul className="grid gap-2 grid-cols-2">
           {BDS_NOTES.map((b) => (
-            <li key={b.id} className="rounded-md border border-border bg-surface p-3">
+            <li key={b.id} className="rounded-md border border-border bg-surface p-3 hud">
               <p className="font-mono text-xs text-muted-foreground">BDS {b.id}</p>
               <p className="text-sm font-medium">{b.name}</p>
               <p className="mt-1 text-xs text-muted-foreground">{b.body}</p>
@@ -534,7 +534,7 @@ function SelectedDecode({
   const plat =
     PLATFORM_BY_ID[track.hypotheses[0]?.platformId ?? track.truePlatformId];
   return (
-    <div className="rounded-md border border-border bg-surface p-3">
+    <div className="rounded-md border border-border bg-surface p-3 hud">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="font-mono text-xs text-muted-foreground">{track.callsign}</p>
@@ -590,7 +590,7 @@ function FlowStep({
   body: string;
 }) {
   return (
-    <div className="rounded-md border border-border bg-surface p-3">
+    <div className="rounded-md border border-border bg-surface p-3 hud">
       <p className="font-mono text-xs text-muted-foreground">{n}</p>
       <p className="text-sm font-medium">{title}</p>
       <p className="mt-1 text-xs text-muted-foreground">{body}</p>

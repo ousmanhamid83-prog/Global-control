@@ -3,6 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import { PosteBoot } from "@/components/vigilair/poste-boot";
+import { PostePcRequis } from "@/components/vigilair/poste-pc";
 import { VigilairRuntime } from "@/components/vigilair/vigilair-runtime";
 import { StaffProvider } from "@/lib/vigilair/staff-context";
 import appCss from "../styles.css?url";
@@ -51,6 +52,7 @@ export const Route = createRootRoute({
       <body>
         <PreviewHostBridge />
         <PosteBoot />
+        <PostePcRequis />
         <AuthProvider>
           <StaffProvider>
             <VigilairRuntime />

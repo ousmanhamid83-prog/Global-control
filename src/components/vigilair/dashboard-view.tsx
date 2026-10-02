@@ -16,6 +16,8 @@ import {
   ZAxis,
 } from "recharts";
 import { Badge } from "@/components/ui/badge";
+import { Synoptique } from "@/components/vigilair/synoptique";
+import { cn } from "@/lib/utils";
 import { SENSOR_SITES } from "@/lib/vigilair/sensors";
 import { computePosture, postureLabel } from "@/lib/vigilair/defense";
 import {
@@ -316,16 +318,41 @@ export function DashboardView() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        <section className="hud rounded-md border border-border bg-surface p-4">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.08em]">
+              Synoptique · chaîne VIGILAIR
+            </h2>
+            <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted-foreground">
+              {(
+                [
+                  ["bg-ok", "Live"],
+                  ["bg-warn", "Partiel · alerte"],
+                  ["bg-crit", "Critique"],
+                  ["bg-muted", "Silence · repos"],
+                ] as const
+              ).map(([dot, label]) => (
+                <li key={dot} className="flex items-center gap-1.5">
+                  <span className={cn("size-2 rounded-full", dot)} aria-hidden />
+                  {label}
+                </li>
+              ))}
+              <li className="normal-case tracking-normal">Lien animé : données en circulation</li>
+            </ul>
+          </div>
+          <Synoptique sentinel={isSuperadmin ? sent : null} />
+        </section>
+
+        <div className="grid gap-2 grid-cols-5">
           {kpis.map((k) => (
-            <div key={k.label} className="rounded-xl border border-border bg-surface p-3">
+            <div key={k.label} className="rounded-xl border border-border bg-surface p-3 hud">
               <p className="text-xs text-muted-foreground">{k.label}</p>
               <p className="mt-1 font-mono text-lg tabular-nums">{k.value}</p>
             </div>
           ))}
         </div>
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="grid gap-4 grid-cols-3">
           <ChartCard title="Phénomènes" unit="n · feu, séisme, météo">
             {ready && byPhen.length > 0 ? (
               <ResponsiveContainer width="100%" height={220}>
@@ -334,7 +361,7 @@ export function DashboardView() {
                   <XAxis dataKey="name" stroke="var(--color-muted)" fontSize={11} />
                   <YAxis stroke="var(--color-muted)" fontSize={11} allowDecimals={false} width={28} />
                   <Tooltip contentStyle={tooltipStyle} formatter={(value) => [`${value}`, "n"]} />
-                  <Bar dataKey="n" fill="var(--color-crit)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="n" fill="var(--color-series-1)" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -349,7 +376,14 @@ export function DashboardView() {
                   <XAxis dataKey="name" stroke="var(--color-muted)" fontSize={11} />
                   <YAxis stroke="var(--color-muted)" fontSize={11} allowDecimals={false} width={28} />
                   <Tooltip contentStyle={tooltipStyle} formatter={(value) => [`${value}`, "n"]} />
-                  <Bar dataKey="n" fill="var(--color-warn)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="n" radius={[4, 4, 0, 0]}>
+                    {byAlert.map((row) => (
+                      <Cell
+                        key={row.name}
+                        fill={row.name === "Ouvertes" ? "var(--color-warn)" : "var(--color-muted)"}
+                      />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -364,7 +398,14 @@ export function DashboardView() {
                   <XAxis dataKey="name" stroke="var(--color-muted)" fontSize={11} />
                   <YAxis stroke="var(--color-muted)" fontSize={11} allowDecimals={false} width={28} />
                   <Tooltip contentStyle={tooltipStyle} formatter={(value) => [`${value} flux`, "n"]} />
-                  <Bar dataKey="n" fill="var(--color-ok)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="n" radius={[4, 4, 0, 0]}>
+                    {bySensor.map((row) => (
+                      <Cell
+                        key={row.name}
+                        fill={row.name === "Live" ? "var(--color-ok)" : "var(--color-muted)"}
+                      />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -373,7 +414,7 @@ export function DashboardView() {
           </ChartCard>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 grid-cols-2">
           <ChartCard title="Charge pistes" unit="n · WAT">
             {ready ? (
               <ResponsiveContainer width="100%" height={240}>
@@ -403,8 +444,8 @@ export function DashboardView() {
                     type="monotone"
                     dataKey="live"
                     name="Live"
-                    stroke="var(--color-ok)"
-                    fill="var(--color-ok)"
+                    stroke="var(--color-series-1)"
+                    fill="var(--color-series-1)"
                     fillOpacity={0.18}
                     strokeWidth={1.6}
                   />
@@ -412,8 +453,8 @@ export function DashboardView() {
                     type="monotone"
                     dataKey="confirmed"
                     name="Confirmées"
-                    stroke="var(--color-primary)"
-                    fill="var(--color-primary)"
+                    stroke="var(--color-series-2)"
+                    fill="var(--color-series-2)"
                     fillOpacity={0.1}
                     strokeWidth={1.4}
                   />
@@ -462,8 +503,8 @@ export function DashboardView() {
                     dataKey="adsb"
                     name="1090ES"
                     stackId="mix"
-                    stroke="var(--color-ok)"
-                    fill="var(--color-ok)"
+                    stroke="var(--color-series-1)"
+                    fill="var(--color-series-1)"
                     fillOpacity={0.35}
                   />
                   <Area
@@ -471,8 +512,8 @@ export function DashboardView() {
                     dataKey="uas"
                     name="UAS"
                     stackId="mix"
-                    stroke="var(--color-warn)"
-                    fill="var(--color-warn)"
+                    stroke="var(--color-series-2)"
+                    fill="var(--color-series-2)"
                     fillOpacity={0.3}
                   />
                   <Area
@@ -480,8 +521,8 @@ export function DashboardView() {
                     dataKey="ami"
                     name="AMI"
                     stackId="mix"
-                    stroke="var(--color-ru)"
-                    fill="var(--color-ru)"
+                    stroke="var(--color-series-3)"
+                    fill="var(--color-series-3)"
                     fillOpacity={0.28}
                   />
                 </AreaChart>
@@ -625,8 +666,8 @@ export function DashboardView() {
           </p>
         ) : null}
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <section className="rounded-xl border border-border bg-surface p-4">
+        <div className="grid gap-4 grid-cols-2">
+          <section className="rounded-xl border border-border bg-surface p-4 hud">
             <h2 className="text-sm font-semibold">Paramètres système</h2>
             <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
               <Row k="Couverture ident" v="120 km autour de FTTJ" />
@@ -663,7 +704,7 @@ export function DashboardView() {
               <Row k="Contrôle objet" v="Jamais — COP seulement" />
             </dl>
           </section>
-          <section className="rounded-xl border border-border bg-surface p-4">
+          <section className="rounded-xl border border-border bg-surface p-4 hud">
             <h2 className="text-sm font-semibold">
               {pic?.sources.length ? "Flux réels" : "Inventaire C-UAS"}
             </h2>
@@ -735,7 +776,7 @@ function ChartCard({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-border bg-surface p-4">
+    <section className="rounded-xl border border-border bg-surface p-4 hud">
       <div className="mb-3 flex items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold">{title}</h2>
         {unit ? <p className="font-mono text-xs text-muted-foreground">{unit}</p> : null}

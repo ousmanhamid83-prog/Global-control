@@ -47,8 +47,8 @@ export function IdentView() {
           </Badge>
         </div>
       </div>
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[16rem_minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[minmax(0,1fr)]">
-        <section className="relative min-h-0 border-b border-border lg:border-b-0 lg:border-r">
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_340px] grid-rows-[minmax(0,1fr)]">
+        <section className="relative min-h-0 border-border border-b-0 border-r">
           <RadarMap
             tracks={live}
             selectedId={track?.id ?? null}

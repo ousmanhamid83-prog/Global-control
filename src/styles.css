@@ -1,52 +1,70 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+/* Polices embarquées : le poste reste lisible hors ligne, canvas compris (radar, carte). */
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-500.css";
+@import "@fontsource/ibm-plex-sans/latin-600.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/ibm-plex-mono/latin-600.css";
+@import "@fontsource/ibm-plex-sans-condensed/latin-600.css";
+@import "@fontsource/ibm-plex-sans-condensed/latin-700.css";
 
 /* Fenêtre assez haute pour empiler les commandes de carte (colonnes, barre sur plusieurs rangs). */
 @custom-variant tall (@media (min-height: 800px));
 
+/*
+ * Console de salle d'opérations : graphite bleuté, accent sarcelle, statuts francs.
+ * Contrastes vérifiés (WCAG) : texte ≥ 4,9:1 sur tous les fonds, badges teintés compris.
+ */
 @theme {
-  --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Noto Sans", sans-serif;
-  --font-mono: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Menlo, Consolas, monospace;
-  --font-display: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  --font-display: "IBM Plex Sans Condensed", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
 
-  --color-bg: #09090b;
-  --color-background: #09090b;
-  --color-fg: #f4f4f5;
-  --color-foreground: #f4f4f5;
-  --color-surface: #121214;
-  --color-card: #121214;
-  --color-card-foreground: #f4f4f5;
-  --color-muted: #71717a;
-  --color-muted-foreground: #a1a1aa;
-  --color-border: #27272a;
-  --color-primary: #c8ccd4;
-  --color-primary-foreground: #09090b;
-  --color-accent: #c8ccd4;
-  --color-accent-foreground: #09090b;
-  --color-ring: #c8ccd4;
-  --color-destructive: #c45c5c;
-  --color-secondary: #1a1a1e;
-  --color-secondary-foreground: #f4f4f5;
-  --color-popover: #161618;
-  --color-popover-foreground: #f4f4f5;
-  --color-input: #1c1c20;
-  --color-ok: #7d9b86;
-  --color-warn: #c4a574;
-  --color-crit: #c45c5c;
-  --color-cn: #c47a7a;
-  --color-tr: #c4a574;
-  --color-ru: #8aa0b8;
-  --color-ir: #b89b7a;
-  --color-xx: #71717a;
+  --color-bg: #05090b;
+  --color-background: #05090b;
+  --color-fg: #e3ecef;
+  --color-foreground: #e3ecef;
+  --color-surface: #0a1013;
+  --color-card: #0a1013;
+  --color-card-foreground: #e3ecef;
+  --color-muted: #80939b;
+  --color-muted-foreground: #94a7af;
+  --color-border: #1d2b32;
+  --color-primary: #4fd1c5;
+  --color-primary-foreground: #05090b;
+  --color-accent: #4fd1c5;
+  --color-accent-foreground: #05090b;
+  --color-ring: #4fd1c5;
+  --color-destructive: #f0605a;
+  --color-secondary: #132029;
+  --color-secondary-foreground: #e3ecef;
+  --color-popover: #0e161a;
+  --color-popover-foreground: #e3ecef;
+  --color-input: #0c1519;
+  --color-ok: #4cc38a;
+  --color-warn: #e8a33d;
+  --color-crit: #f0605a;
+  --color-cn: #e48080;
+  --color-tr: #d9b36a;
+  --color-ru: #82aee0;
+  --color-ir: #d0a274;
+  --color-xx: #80939b;
 
-  --radius-xs: 4px;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 24px;
-  --radius: 0.75rem;
+  /* Séries de graphiques (identité, jamais statut) : validées daltonisme sur la surface. */
+  --color-series-1: #19a598;
+  --color-series-2: #8d73e8;
+  --color-series-3: #d65a92;
 
-  --shadow-border: 0 0 0 1px rgb(255 255 255 / 0.08);
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 5px;
+  --radius-xl: 6px;
+  --radius: 0.25rem;
+
+  --shadow-border: 0 0 0 1px rgb(79 209 197 / 0.12);
 }
 
 @layer base {
@@ -58,7 +76,7 @@
     color-scheme: dark;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    scrollbar-color: #63636b transparent;
+    scrollbar-color: #5b707a transparent;
     scrollbar-width: thin;
   }
 
@@ -74,7 +92,7 @@
 
   ::-webkit-scrollbar-thumb {
     border-radius: 999px;
-    background-color: #63636b;
+    background-color: #5b707a;
   }
 
   :where(button, a, [role="button"], input[type="range"], summary):focus-visible {
@@ -86,6 +104,7 @@
     background-color: var(--color-bg);
     color: var(--color-fg);
     font-family: var(--font-sans);
+    font-feature-settings: "tnum" 1;
   }
 
   button:not(:disabled),
@@ -96,6 +115,8 @@
   h1,
   h2,
   h3 {
+    font-family: var(--font-display);
+    letter-spacing: 0.01em;
     text-wrap: balance;
   }
 
@@ -104,7 +125,7 @@
   }
 
   input[type="range"] {
-    accent-color: var(--color-ok);
+    accent-color: var(--color-primary);
   }
 }
 
@@ -116,3 +137,83 @@
   }
 }
 
+/* Fond de console : quadrillage technique de 32 px, à peine visible. */
+@utility console-grid {
+  background-color: var(--color-bg);
+  background-image:
+    linear-gradient(rgb(79 209 197 / 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(79 209 197 / 0.035) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/*
+ * Cadre HUD : équerres d'angle contre la bordure. Dessinées en fond (pas de pseudo-élément,
+ * pas de position:relative ajoutée), donc sans effet sur la mise en page des enfants.
+ */
+@utility hud {
+  --hud: rgb(79 209 197 / 0.7);
+  background-image:
+    linear-gradient(var(--hud), var(--hud)), linear-gradient(var(--hud), var(--hud)),
+    linear-gradient(var(--hud), var(--hud)), linear-gradient(var(--hud), var(--hud)),
+    linear-gradient(var(--hud), var(--hud)), linear-gradient(var(--hud), var(--hud)),
+    linear-gradient(var(--hud), var(--hud)), linear-gradient(var(--hud), var(--hud));
+  background-size:
+    10px 2px, 2px 10px, 10px 2px, 2px 10px,
+    10px 2px, 2px 10px, 10px 2px, 2px 10px;
+  background-position:
+    0 0, 0 0, 100% 0, 100% 0,
+    0 100%, 0 100%, 100% 100%, 100% 100%;
+  background-repeat: no-repeat;
+  /* Dans la bordure, pas dessous : la bordure se peint par-dessus le fond. */
+  background-origin: padding-box;
+}
+
+/* Écran PPI : lignes de balayage façon tube cathodique, sans animation. */
+.radar-scan {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 2px,
+    rgb(0 0 0 / 0.16) 3px
+  );
+}
+
+/* Synoptique : flux qui circulent, voyant critique qui bat. Immobile si l'utilisateur le demande. */
+.syn-flow {
+  stroke-dasharray: 5 7;
+  animation: syn-flow 1.4s linear infinite;
+}
+
+@keyframes syn-flow {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+.syn-led-crit {
+  animation: syn-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes syn-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.syn-node:hover .syn-box,
+.syn-node:focus-visible .syn-box {
+  stroke: var(--color-primary);
+  stroke-opacity: 1;
+  stroke-width: 2;
+}
+
+.syn-node:focus-visible {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .syn-flow,
+  .syn-led-crit {
+    animation: none;
+  }
+}

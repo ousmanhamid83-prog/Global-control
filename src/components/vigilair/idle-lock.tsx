@@ -65,7 +65,7 @@ export function IdleLock() {
   return (
     <div className="fixed inset-0 z-[70] grid place-items-center bg-bg p-4">
       <form
-        className="w-full max-w-sm space-y-4 rounded-lg border border-border bg-surface p-5"
+        className="w-full max-w-sm space-y-4 rounded-lg border border-border bg-surface p-5 hud"
         onSubmit={(e) => {
           e.preventDefault();
           void onUnlock();

@@ -116,7 +116,7 @@ export function StewardDesk() {
   };
 
   return (
-    <section className="space-y-4 rounded-md border border-border bg-surface p-4">
+    <section className="space-y-4 rounded-md border border-border bg-surface p-4 hud">
       <header className="space-y-1">
         <h2 className="text-sm font-semibold">Intendant</h2>
         <p className="text-sm text-muted-foreground">

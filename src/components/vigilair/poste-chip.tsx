@@ -28,7 +28,7 @@ export function PosteChip() {
       <span className="grid size-8 place-items-center rounded-full bg-secondary text-xs font-medium text-fg">
         {initial}
       </span>
-      <span className="hidden max-w-36 truncate text-xs font-medium xl:inline">{label}</span>
+      <span className="max-w-36 truncate text-xs font-medium inline">{label}</span>
       {authEnabled && !gateSession ? (
         <button
           type="button"

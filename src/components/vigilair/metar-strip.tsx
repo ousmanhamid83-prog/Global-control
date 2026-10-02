@@ -24,7 +24,7 @@ export function MetarStrip() {
   const jamHot = pic?.jam.some((j) => j.level !== "low") ?? false;
 
   return (
-    <div className="flex flex-col gap-1 border-b border-border bg-surface px-3 py-2 sm:flex-row sm:items-center sm:gap-4">
+    <div className="flex border-b border-border bg-surface px-3 py-2 flex-row items-center gap-4">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <Badge tone={showLive ? "ok" : "default"}>1090ES {showLive ? "live" : "off"}</Badge>
         <span className="font-mono text-xs tabular-nums text-fg">
@@ -49,7 +49,7 @@ export function MetarStrip() {
           <Badge>RWY {pic.airport.rwy}</Badge>
         ) : null}
       </div>
-      <p className="truncate text-xs text-muted-foreground sm:ml-auto sm:max-w-md sm:text-right">
+      <p className="truncate text-xs text-muted-foreground ml-auto max-w-md text-right">
         {liveError
           ? liveError
           : `${LIVE_CREDIT.split("·")[0]}· Kp ${kp ?? "—"} · GOES ${xray ?? "—"} · ${

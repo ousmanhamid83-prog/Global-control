@@ -56,7 +56,7 @@ export function WatchStrip() {
   const fttj = watch.snapIn.cat;
 
   return (
-    <div className="flex flex-col gap-1 border-b border-border bg-surface px-3 py-2 sm:flex-row sm:items-center sm:gap-3">
+    <div className="flex border-b border-border bg-surface px-3 py-2 flex-row items-center gap-3">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         {modeBadge}
         <Badge tone="ok">
@@ -70,7 +70,7 @@ export function WatchStrip() {
       </div>
       <Link
         to="/quart"
-        className="inline-flex h-11 shrink-0 items-center rounded-md px-3 text-xs text-muted-foreground hover:bg-secondary hover:text-fg sm:ml-auto"
+        className="inline-flex h-11 shrink-0 items-center rounded-md px-3 text-xs text-muted-foreground hover:bg-secondary hover:text-fg ml-auto"
       >
         Relève · {Number.isFinite(opened) ? formatClock(opened) : formatDate(now)} WAT
       </Link>

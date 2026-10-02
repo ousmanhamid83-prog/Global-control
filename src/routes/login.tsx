@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/login")({ component: Login });
 
 const COOKIE_MSG =
-  "Le navigateur bloque les cookies de l'aperçu. La session passe par un jeton interne. Ouvrez en plein écran ou installez le poste sur l'accueil.";
+  "Le navigateur bloque les cookies de l'aperçu. La session passe par un jeton interne. Ouvrez en plein écran ou installez le poste sur le PC.";
 
 function takeToken(raw: unknown, header?: string | null): string | null {
   const fromData =
@@ -134,12 +134,14 @@ function Login() {
 
   if (isPending) {
     return (
-      <main className="grid min-h-dvh place-items-center bg-bg px-4 text-fg">
+      <main className="console-grid grid min-h-dvh place-items-center px-4 text-fg">
         <div className="flex items-center gap-3" role="status">
           <Logo />
           <div>
-            <p className="font-display text-lg font-semibold tracking-tight">VIGILAIR</p>
-            <p className="text-xs text-muted-foreground">Chargement du poste…</p>
+            <p className="font-display text-xl font-bold uppercase tracking-[0.22em]">Vigilair</p>
+            <p className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">
+              Chargement du poste…
+            </p>
           </div>
         </div>
       </main>
@@ -291,159 +293,161 @@ function Login() {
   };
 
   return (
-    <main className="grid min-h-dvh place-items-center bg-bg px-4 py-10 text-fg">
-      <div className="w-full max-w-lg space-y-6">
-        <div className="flex items-center gap-3">
-          <Logo />
-          <div>
-            <p className="font-display text-lg font-semibold tracking-tight">VIGILAIR</p>
-            <p className="text-xs text-muted-foreground">
-              Poste de commandement réel · à installer sur les PC · N'Djamena
-            </p>
+    <main className="console-grid grid min-h-dvh place-items-center px-4 py-10 text-fg">
+      <div className="w-full max-w-lg space-y-4">
+        <div className="hud space-y-5 rounded-md border border-border bg-surface p-6">
+          <div className="flex items-center gap-3">
+            <Logo />
+            <div className="leading-none">
+              <p className="font-display text-xl font-bold uppercase tracking-[0.22em]">Vigilair</p>
+              <p className="mt-1.5 font-mono text-[10.5px] uppercase leading-4 tracking-[0.12em] text-muted-foreground">
+                Poste de commandement · FTTJ N'Djamena
+              </p>
+            </div>
           </div>
-        </div>
 
-        <PreviewCookieHint />
+          <PreviewCookieHint />
 
-        {notice ? (
-          <p className="rounded-md border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
-            {notice}
-          </p>
-        ) : null}
+          {notice ? (
+            <p className="rounded-md border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+              {notice}
+            </p>
+          ) : null}
 
-        <div className="flex gap-1 rounded-md border border-border p-1">
-          <button
-            type="button"
-            onClick={() => setTab("chef")}
-            aria-pressed={tab === "chef"}
-            className={cn(
-              "h-11 flex-1 rounded-md px-2 text-sm transition-colors duration-150",
-              tab === "chef" ? "bg-secondary text-fg" : "text-muted-foreground",
-            )}
-          >
-            Chef de division
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("admin")}
-            aria-pressed={tab === "admin"}
-            className={cn(
-              "h-11 flex-1 rounded-md px-2 text-sm transition-colors duration-150",
-              tab === "admin" ? "bg-secondary text-fg" : "text-muted-foreground",
-            )}
-          >
-            Agent (clé VA-)
-          </button>
-        </div>
+          <div className="flex gap-1 rounded-sm border border-border bg-bg p-1">
+            <button
+              type="button"
+              onClick={() => setTab("chef")}
+              aria-pressed={tab === "chef"}
+              className={cn(
+                "h-10 flex-1 rounded-xs px-2 font-display text-[13px] font-semibold uppercase tracking-[0.08em] transition-colors duration-150",
+                tab === "chef" ? "bg-secondary text-fg shadow-border" : "text-muted-foreground hover:text-fg",
+              )}
+            >
+              Chef de division
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("admin")}
+              aria-pressed={tab === "admin"}
+              className={cn(
+                "h-10 flex-1 rounded-xs px-2 font-display text-[13px] font-semibold uppercase tracking-[0.08em] transition-colors duration-150",
+                tab === "admin" ? "bg-secondary text-fg shadow-border" : "text-muted-foreground hover:text-fg",
+              )}
+            >
+              Agent (clé VA-)
+            </button>
+          </div>
 
-        {!authEnabled ? (
-          <p className="text-sm text-muted-foreground">Authentification désactivée.</p>
-        ) : tab === "chef" ? (
-          <form
-            className="space-y-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void onChef(hasChef ? "in" : "up");
-            }}
-          >
-            {!hasChef ? (
+          {!authEnabled ? (
+            <p className="text-sm text-muted-foreground">Authentification désactivée.</p>
+          ) : tab === "chef" ? (
+            <form
+              className="space-y-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void onChef(hasChef ? "in" : "up");
+              }}
+            >
+              {!hasChef ? (
+                <label className="block text-sm">
+                  Nom du poste
+                  <Input
+                    className="mt-1"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    autoComplete="name"
+                  />
+                </label>
+              ) : null}
               <label className="block text-sm">
-                Nom du poste
+                E-mail
                 <Input
                   className="mt-1"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  autoComplete="name"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="username"
                 />
               </label>
-            ) : null}
-            <label className="block text-sm">
-              E-mail
-              <Input
-                className="mt-1"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="username"
-              />
-            </label>
-            <label className="block text-sm">
-              Mot de passe
-              <Input
-                className="mt-1"
-                type="password"
-                required
-                minLength={8}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete={hasChef ? "current-password" : "new-password"}
-              />
-            </label>
-            <Button type="submit" className="w-full" disabled={busy}>
-              {busy
-                ? "Vérification…"
-                : hasChef
-                  ? "Ouvrir la session chef"
-                  : "Créer le poste chef de division"}
-            </Button>
-            {hasChef ? (
+              <label className="block text-sm">
+                Mot de passe
+                <Input
+                  className="mt-1"
+                  type="password"
+                  required
+                  minLength={8}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete={hasChef ? "current-password" : "new-password"}
+                />
+              </label>
+              <Button type="submit" className="w-full" disabled={busy}>
+                {busy
+                  ? "Vérification…"
+                  : hasChef
+                    ? "Ouvrir la session chef"
+                    : "Créer le poste chef de division"}
+              </Button>
+              {hasChef ? (
+                <p className="text-xs text-muted-foreground">
+                  Seul le chef de division a un mot de passe. Les agents : e-mail
+                  professionnel + clé VA-. Cinq refus = verrou 15 minutes, COP
+                  figé, sessions coupées. Pas de Google, pas de X : l'identité du
+                  chef ne quitte pas le poste.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Aucun chef n'est encore déclaré. Ce compte devient le
+                  super-administrateur du contrat. Aucun fournisseur tiers
+                  (Google / X) : l'adresse IP du chef n'est pas envoyée dehors.
+                </p>
+              )}
+            </form>
+          ) : (
+            <form className="space-y-3" onSubmit={onKey}>
+              <label className="block text-sm">
+                E-mail professionnel
+                <Input
+                  className="mt-1"
+                  type="email"
+                  required
+                  value={agentEmail}
+                  onChange={(e) => setAgentEmail(e.target.value)}
+                  autoComplete="username"
+                />
+              </label>
+              <label className="block text-sm">
+                Clé unique d'identification
+                <Input
+                  className="mt-1 font-mono uppercase"
+                  value={key}
+                  onChange={(e) => setKey(e.target.value.toUpperCase())}
+                  placeholder="VA-XXXX-XXXX-XXXX"
+                  autoComplete="off"
+                  required
+                  aria-label="Clé unique d'identification"
+                />
+              </label>
+              <Button type="submit" className="w-full" disabled={busy || key.length < 10 || !agentEmail.includes("@")}>
+                {busy ? "Vérification…" : "Accéder au COP"}
+              </Button>
               <p className="text-xs text-muted-foreground">
-                Seul le chef de division a un mot de passe. Les agents : e-mail
-                professionnel + clé VA-. Cinq refus = verrou 15 minutes, COP
-                figé, sessions coupées. Pas de Google, pas de X : l'identité du
-                chef ne quitte pas le poste.
+                E-mail émis par le chef + clé VA-. Pas de mot de passe agent.
+                La clé se scelle au premier poste. Cinq refus = verrou 15 min.
               </p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Aucun chef n'est encore déclaré. Ce compte devient le
-                super-administrateur du contrat. Aucun fournisseur tiers
-                (Google / X) : l'adresse IP du chef n'est pas envoyée dehors.
-              </p>
-            )}
-          </form>
-        ) : (
-          <form className="space-y-3" onSubmit={onKey}>
-            <label className="block text-sm">
-              E-mail professionnel
-              <Input
-                className="mt-1"
-                type="email"
-                required
-                value={agentEmail}
-                onChange={(e) => setAgentEmail(e.target.value)}
-                autoComplete="username"
-              />
-            </label>
-            <label className="block text-sm">
-              Clé unique d'identification
-              <Input
-                className="mt-1 font-mono uppercase"
-                value={key}
-                onChange={(e) => setKey(e.target.value.toUpperCase())}
-                placeholder="VA-XXXX-XXXX-XXXX"
-                autoComplete="off"
-                required
-                aria-label="Clé unique d'identification"
-              />
-            </label>
-            <Button type="submit" className="w-full" disabled={busy || key.length < 10 || !agentEmail.includes("@")}>
-              {busy ? "Vérification…" : "Accéder au COP"}
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              E-mail émis par le chef + clé VA-. Pas de mot de passe agent.
-              La clé se scelle au premier poste. Cinq refus = verrou 15 min.
+            </form>
+          )}
+          {err ? (
+            <p
+              role="alert"
+              className="rounded-md border border-crit/40 bg-crit/5 px-3 py-2 text-sm text-crit"
+            >
+              {err}
             </p>
-          </form>
-        )}
-        {err ? (
-          <p
-            role="alert"
-            className="rounded-md border border-crit/40 bg-crit/5 px-3 py-2 text-sm text-crit"
-          >
-            {err}
-          </p>
-        ) : null}
+          ) : null}
+        </div>
         <InstallPoste />
       </div>
     </main>

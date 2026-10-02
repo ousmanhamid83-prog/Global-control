@@ -90,7 +90,7 @@ export function ZoneView() {
           </p>
         </header>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid gap-2 grid-cols-4">
           <Stat k="Bulles" v={String(board.length)} />
           <Stat k="Armées" v={String(board.filter((b) => b.zone.armed).length)} tone="ok" />
           <Stat k="Intrusions" v={String(hot)} tone={hot ? "crit" : "ok"} />
@@ -101,11 +101,11 @@ export function ZoneView() {
           />
         </div>
 
-        <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <ul className="grid gap-3 grid-cols-2">
           {board.map((b) => (
             <li
               key={b.zone.id}
-              className="space-y-3 rounded-lg border border-border bg-surface p-4"
+              className="space-y-3 rounded-lg border border-border bg-surface p-4 hud"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -188,7 +188,7 @@ export function ZoneView() {
             Le relief montre le massif. L'infrarouge public ne voit pas à
             travers un toit.
           </p>
-          <ul className="grid grid-cols-1 gap-2 md:grid-cols-2">
+          <ul className="grid gap-2 grid-cols-2">
             {picture
               .filter((p) => p.zone.kind === "mine")
               .map((b) => (
@@ -285,7 +285,7 @@ function AddZoneForm({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <section className="space-y-3 rounded-lg border border-border bg-surface p-4">
+    <section className="space-y-3 rounded-lg border border-border bg-surface p-4 hud">
       <div className="flex items-center gap-2">
         <Shield className="size-4" />
         <h2 className="text-sm font-semibold">Nouvelle bulle</h2>
@@ -294,7 +294,7 @@ function AddZoneForm({ onDone }: { onDone: () => void }) {
         Réservé au chef. Coordonnées dans l'AO tchadienne. Le rayon est la
         zone d'exclusion UAS, pas un volume IFR.
       </p>
-      <form onSubmit={(e) => void onSubmit(e)} className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <form onSubmit={(e) => void onSubmit(e)} className="grid gap-2 grid-cols-2">
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -302,7 +302,7 @@ function AddZoneForm({ onDone }: { onDone: () => void }) {
           aria-label="Nom du site"
           required
           minLength={2}
-          className="sm:col-span-2"
+          className="col-span-2"
         />
         <select
           className={SELECT}
@@ -342,9 +342,9 @@ function AddZoneForm({ onDone }: { onDone: () => void }) {
           onChange={(e) => setNote(e.target.value)}
           placeholder="Note (optionnel)"
           aria-label="Note"
-          className="sm:col-span-2"
+          className="col-span-2"
         />
-        <Button type="submit" disabled={busy} className="sm:col-span-2">
+        <Button type="submit" disabled={busy} className="col-span-2">
           Armer la bulle
         </Button>
       </form>

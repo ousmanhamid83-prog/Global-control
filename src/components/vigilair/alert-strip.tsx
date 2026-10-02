@@ -9,7 +9,14 @@ export function AlertStrip() {
   const ackAll = useVigilair((s) => s.ackAll);
   const select = useVigilair((s) => s.select);
   const open = alerts.filter((a) => !a.acked).slice(0, 4);
-  if (open.length === 0) return null;
+  if (open.length === 0) {
+    return (
+      <div className="flex h-9 items-center gap-2 border-b border-border bg-surface px-3">
+        <Badge>Alertes</Badge>
+        <p className="text-xs text-muted-foreground">Aucune alerte ouverte.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-stretch gap-2 overflow-x-auto border-b border-border bg-surface px-3 py-2">

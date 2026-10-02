@@ -83,7 +83,7 @@ export function PaintFilters({
         onClick={cycleThreatFloor}
         className={cn(
           CHIP,
-          "h-11",
+          "h-11 min-w-11 rounded-sm border border-border/80 font-mono text-[11px] uppercase tracking-wider",
           threatFloor !== "ALL"
             ? threatFloor === "critique"
               ? "bg-crit/20 text-crit"
@@ -100,7 +100,7 @@ export function PaintFilters({
         onClick={cycleIffFilter}
         className={cn(
           CHIP,
-          "h-11",
+          "h-11 min-w-11 rounded-sm border border-border/80 font-mono text-[11px] uppercase tracking-wider",
           iffFilter === "m4"
             ? "bg-ok/20 text-ok"
             : iffFilter === "sans-m4"

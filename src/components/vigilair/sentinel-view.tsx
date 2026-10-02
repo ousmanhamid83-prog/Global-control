@@ -72,7 +72,7 @@ function AgentSentinel({ name }: { name: string }) {
       </p>
       <ul className="space-y-3">
         {SENTINEL_DOCTRINE.filter((d) => d.id !== "chef").map((d) => (
-          <li key={d.id} className="rounded-md border border-border bg-surface p-4">
+          <li key={d.id} className="rounded-md border border-border bg-surface p-4 hud">
             <p className="text-sm font-medium">{d.title}</p>
             <p className="mt-1 text-sm text-muted-foreground">{d.body}</p>
           </li>
@@ -114,7 +114,7 @@ function ChefSentinel() {
           </p>
         </header>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid gap-2 grid-cols-4">
           <Stat k="Incidents ouverts" v={String(stats.open)} tone={stats.open ? "crit" : "ok"} />
           <Stat k="Coupures auto" v={String(stats.auto)} tone={stats.auto ? "warn" : "ok"} />
           <Stat k="Agents éjectés" v={String(stats.ejected)} />
@@ -170,7 +170,7 @@ function Stat({
   tone?: "ok" | "warn" | "crit";
 }) {
   return (
-    <div className="rounded-md border border-border bg-surface p-3">
+    <div className="rounded-md border border-border bg-surface p-3 hud">
       <p className="text-xs text-muted-foreground">{k}</p>
       <p
         className={
@@ -191,9 +191,9 @@ function Stat({
 
 function DoctrinePanel() {
   return (
-    <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+    <ul className="grid gap-3 grid-cols-2">
       {SENTINEL_DOCTRINE.map((d) => (
-        <li key={d.id} className="rounded-md border border-border bg-surface p-4">
+        <li key={d.id} className="rounded-md border border-border bg-surface p-4 hud">
           <p className="text-sm font-medium">{d.title}</p>
           <p className="mt-2 text-sm text-muted-foreground">{d.body}</p>
         </li>
@@ -247,13 +247,13 @@ function AnonymatPanel() {
           ne riposte pas sur le réseau adverse.
         </p>
       </header>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="grid gap-2 grid-cols-4">
         <Stat k="Sessions" v={String(status?.sessions ?? "—")} />
         <Stat k="IP en session" v={String(status?.withIp ?? "—")} tone={leak ? "crit" : "ok"} />
         <Stat k="User-Agent" v={String(status?.withUa ?? "—")} tone={status?.withUa ? "warn" : "ok"} />
         <Stat k="Tiers navigateur" v="0" tone="ok" />
       </div>
-      <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+      <ul className="grid gap-3 grid-cols-2">
         <LeakCard
           ok
           title="Polices"
@@ -282,7 +282,7 @@ function AnonymatPanel() {
         <LeakCard
           ok
           title="Sessions"
-          body="Chef : 2 postes. Agent : 1. Aperçu Android : jeton interne si cookies bloqués, pas d'IP en clair."
+          body="Chef : 2 postes. Agent : 1. Aperçu en cadre : jeton interne si cookies bloqués, pas d'IP en clair."
         />
       </ul>
       <div className="flex flex-wrap items-center gap-3">
@@ -301,7 +301,7 @@ function AnonymatPanel() {
 
 function LeakCard({ ok, title, body }: { ok: boolean; title: string; body: string }) {
   return (
-    <li className="rounded-md border border-border bg-surface p-4">
+    <li className="rounded-md border border-border bg-surface p-4 hud">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-medium">{title}</p>
         <Badge tone={ok ? "ok" : "crit"}>{ok ? "scellé" : "fuite"}</Badge>
@@ -335,7 +335,7 @@ function BindingsPanel() {
   return (
     <ul className="space-y-2">
       {rows.map((r) => (
-        <li key={r.id} className="rounded-md border border-border bg-surface p-3">
+        <li key={r.id} className="rounded-md border border-border bg-surface p-3 hud">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
               <p className="text-sm font-medium">{r.actor}</p>
@@ -400,7 +400,7 @@ function IncidentsPanel({ onChange }: { onChange: () => void }) {
   return (
     <ul className="space-y-2">
       {rows.map((r) => (
-        <li key={r.id} className="rounded-md border border-border bg-surface p-3">
+        <li key={r.id} className="rounded-md border border-border bg-surface p-3 hud">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
@@ -499,7 +499,7 @@ function DrillPanel({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <section className="space-y-3 rounded-md border border-border bg-surface p-4">
+    <section className="space-y-3 rounded-md border border-border bg-surface p-4 hud">
       <div className="flex items-center gap-2">
         <ShieldAlert className="size-4 text-crit" />
         <h2 className="text-sm font-semibold">Exercice sentinelle</h2>

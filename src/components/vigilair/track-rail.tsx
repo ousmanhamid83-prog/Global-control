@@ -24,7 +24,7 @@ const FILTERS: { id: FilterOrigin; label: string }[] = [
   { id: "XX", label: "Hors" },
 ];
 
-export function TrackRail({ onPick }: { onPick?: (id: string) => void }) {
+export function TrackRail() {
   const tracks = useVigilair((s) => s.tracks);
   const selectedId = useVigilair((s) => s.selectedId);
   const originFilter = useVigilair((s) => s.originFilter);
@@ -117,10 +117,7 @@ export function TrackRail({ onPick }: { onPick?: (id: string) => void }) {
               <li key={t.id}>
                 <button
                   type="button"
-                  onClick={() => {
-                    select(t.id);
-                    onPick?.(t.id);
-                  }}
+                  onClick={() => select(t.id)}
                   className={cn(
                     "flex w-full flex-col gap-1 rounded-md border px-3 py-2.5 text-left transition-colors duration-150",
                     active

@@ -1,4 +1,4 @@
-import { Download, Monitor, Smartphone } from "lucide-react";
+import { Download, Monitor } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,7 +37,7 @@ export function InstallPoste({
   if (variant === "header") {
     if (standalone) {
       return (
-        <Badge tone="ok" className="hidden sm:inline-flex">
+        <Badge tone="ok" className="inline-flex">
           <Monitor className="mr-1 size-3" />
           Poste
         </Badge>
@@ -57,41 +57,41 @@ export function InstallPoste({
         aria-label="Installer le poste"
       >
         <Download />
-        <span className="hidden xl:inline">Installer</span>
+        <span className="inline">Installer</span>
       </Button>
     );
   }
 
   return (
-    <section className="space-y-3 rounded-md border border-border bg-surface p-4">
+    <section className="space-y-3 rounded-md border border-border bg-surface p-4 hud">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Poste ordinateur et mobile
+            Poste ordinateur
           </p>
           <h2 className="text-sm font-semibold tracking-tight">
             {standalone
               ? "VIGILAIR tourne comme un logiciel"
-              : "Installer sur PC, Android et iOS"}
+              : "Installer sur PC"}
           </h2>
         </div>
         {standalone ? (
           <Badge tone="ok">Installé</Badge>
         ) : (
-          <Badge>Windows · macOS · Linux · Android · iOS</Badge>
+          <Badge>Windows · macOS · Linux</Badge>
         )}
       </div>
       <p className="text-sm text-muted-foreground">
         {standalone
           ? "Ce poste est hors navigateur, plein écran. Les flux 1090ES, METAR, SIGMET, FTTJ et GNSS sont réels. Pas un simulateur."
-          : "VIGILAIR s'installe comme une application (PWA). Même logiciel sur ordinateur, téléphone Android et iPhone. Les kits ZIP contiennent le mode d'emploi hors-ligne et les icônes."}
+          : "VIGILAIR s'installe sur le PC comme une application (PWA), en fenêtre dédiée. Le kit ZIP contient le mode d'emploi hors-ligne et les icônes."}
       </p>
       {!standalone ? (
         <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
-          <li>PC : Chrome ou Microsoft Edge. Mobile : Chrome (Android) ou Safari (iOS).</li>
+          <li>Navigateur : Chrome ou Microsoft Edge, écran d'au moins 1280 px.</li>
           <li>Connexion chef (e-mail + mot de passe) ou agent (e-mail + clé VA-).</li>
-          <li>Bouton ci-dessous, ou « Installer l'application » dans la barre d'adresse / Partager → Sur l'écran d'accueil.</li>
-          <li>Le raccourci apparaît dans Démarrer, le bureau, ou l'écran d'accueil.</li>
+          <li>Bouton ci-dessous, ou « Installer l'application » dans la barre d'adresse.</li>
+          <li>Le raccourci apparaît dans le menu Démarrer et sur le bureau.</li>
         </ol>
       ) : null}
       <div className="flex flex-wrap gap-2">
@@ -102,7 +102,7 @@ export function InstallPoste({
             disabled={busy || !can}
           >
             <Download />
-            {can ? "Installer sur cet appareil" : "En attente du navigateur"}
+            {can ? "Installer sur ce PC" : "En attente du navigateur"}
           </Button>
         ) : null}
         <Button type="button" variant="outline" asChild>
@@ -111,19 +111,12 @@ export function InstallPoste({
             Kit PC
           </a>
         </Button>
-        <Button type="button" variant="outline" asChild>
-          <a href="/kits/VIGILAIR-poste-mobile.zip" download>
-            <Smartphone />
-            Kit Android / iOS
-          </a>
-        </Button>
       </div>
       {!can && !standalone ? (
         <p className="text-xs text-muted-foreground">
           Si le bouton reste inactif : menu Edge / Chrome · Installer ce site
-          en tant qu'application. iPhone : Safari · Partager · Sur l'écran
-          Android : Chrome · Ajouter à l'écran d'accueil. L'aperçu dans Grok
-          bloque souvent les cookies : le poste installé, lui, les accepte.
+          en tant qu'application. L'aperçu dans Grok bloque souvent les
+          cookies : le poste installé, lui, les accepte.
         </p>
       ) : null}
       {note ? (

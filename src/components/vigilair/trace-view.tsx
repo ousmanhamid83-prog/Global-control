@@ -40,8 +40,8 @@ export function TraceView() {
         </p>
       </header>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[220px_minmax(0,1fr)_320px]">
-        <ul className="order-2 max-h-56 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-surface lg:order-1 lg:max-h-none">
+      <div className="grid gap-4 grid-cols-[220px_minmax(0,1fr)_320px]">
+        <ul className="divide-y divide-border overflow-y-auto rounded-lg border border-border bg-surface hud">
           {live.length === 0 ? (
             <li className="px-3 py-6 text-center text-xs text-muted-foreground">
               Aucune piste en cours.
@@ -69,8 +69,8 @@ export function TraceView() {
           })}
         </ul>
 
-        <div className="order-1 flex min-h-0 flex-col gap-2 lg:order-2">
-          <div className="relative h-64 overflow-hidden rounded-lg border border-border lg:h-[28rem]">
+        <div className="flex min-h-0 flex-col gap-2">
+          <div className="relative overflow-hidden rounded-lg border border-border h-[28rem]">
             <RadarMap
               tracks={live}
               selectedId={track?.id ?? null}
@@ -82,7 +82,7 @@ export function TraceView() {
           <p className="text-xs text-muted-foreground">{SAR_NOTE}</p>
         </div>
 
-        <div className="order-3 space-y-3 rounded-lg border border-border bg-surface p-4">
+        <div className="space-y-3 rounded-lg border border-border bg-surface p-4 hud">
           {!track ? (
             <p className="text-sm text-muted-foreground">Aucune piste.</p>
           ) : (

@@ -121,7 +121,7 @@ export function QuartView() {
           </p>
         </header>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid gap-2 grid-cols-4">
           <Stat
             k="Quart"
             v={
@@ -154,7 +154,7 @@ export function QuartView() {
           />
         </div>
 
-        <section className="space-y-4 rounded-lg border border-border bg-surface p-4">
+        <section className="space-y-4 rounded-lg border border-border bg-surface p-4 hud">
           {!watchLoaded ? (
             <div className="h-24 animate-pulse rounded-md bg-secondary/40" />
           ) : vacant ? (
@@ -191,7 +191,7 @@ export function QuartView() {
                   Consigne : {watch.noteIn}
                 </p>
               ) : null}
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div className="grid gap-4 grid-cols-2">
                 <SnapCard title="Gel d'ouverture" snap={watch.snapIn} />
                 <SnapCard title="Capteurs maintenant" snap={liveSnap} live />
               </div>
@@ -284,7 +284,7 @@ export function QuartView() {
                 return (
                   <li
                     key={w.id}
-                    className="rounded-lg border border-border bg-surface px-4 py-3"
+                    className="rounded-lg border border-border bg-surface px-4 py-3 hud"
                   >
                     <button
                       type="button"
@@ -392,7 +392,7 @@ function Stat({
   tone?: "default" | "ok" | "warn" | "crit";
 }) {
   return (
-    <div className="rounded-md border border-border bg-surface p-3">
+    <div className="rounded-md border border-border bg-surface p-3 hud">
       <p className="text-xs text-muted-foreground">{k}</p>
       <p
         className={cn(

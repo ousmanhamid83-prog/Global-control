@@ -55,11 +55,11 @@ export function AudioView() {
         </p>
       </header>
       <SigintDesk />
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[240px_minmax(0,1fr)_300px]">
-        <div className="order-2 max-h-56 overflow-y-auto lg:order-1 lg:max-h-none">
+      <div className="grid gap-4 grid-cols-[240px_minmax(0,1fr)_300px]">
+        <div className="overflow-y-auto">
           <TrackPicker tracks={live} selectedId={track?.id ?? null} onSelect={select} />
         </div>
-        <div className="order-1 flex min-h-0 flex-col gap-3 lg:order-2">
+        <div className="flex min-h-0 flex-col gap-3">
           <SpectroPanel track={track} listening={listening} wide={listenWide} />
           <div className="flex flex-wrap gap-2">
             <Button
@@ -94,7 +94,7 @@ export function AudioView() {
             </Link>
           </div>
         </div>
-        <div className="order-3">
+        <div>
           <InterceptDossier track={track} clips={clips} />
         </div>
       </div>
@@ -114,7 +114,7 @@ function SigintDesk() {
     filter === "open" ? !a.acked : filter === "acked" ? a.acked : true,
   );
   return (
-    <section className="rounded-lg border border-border bg-surface" data-sigint-alerts="1">
+    <section className="rounded-lg border border-border bg-surface hud" data-sigint-alerts="1">
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
         <h2 className="text-sm font-semibold">Gestion des alertes</h2>
         <span className="font-mono text-xs text-muted-foreground">{openN} ouvertes</span>
@@ -187,7 +187,7 @@ function TrackPicker({
   onSelect: (id: string) => void;
 }) {
   return (
-    <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
+    <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface hud">
       {tracks.length === 0 ? (
         <li className="p-4 text-sm text-muted-foreground">Aucune piste.</li>
       ) : (
@@ -309,7 +309,7 @@ function SpectroPanel({
     : 4;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-surface">
+    <div className="overflow-hidden rounded-lg border border-border bg-surface hud">
       <div className="flex items-center justify-between px-3 py-2">
         <p className="font-mono text-xs text-muted-foreground">
           {track ? `${track.callsign} · waterfall ACO` : "pas de piste"}
@@ -320,7 +320,7 @@ function SpectroPanel({
       </div>
       <canvas
         ref={canvasRef}
-        className="block h-48 w-full sm:h-64"
+        className="block w-full h-64"
         aria-label="Spectrogramme acoustique"
       />
       <div className="flex items-center gap-3 px-3 py-2">
@@ -410,7 +410,7 @@ function InterceptDossier({
   const ac = track?.acoustic;
 
   return (
-    <div className="space-y-4 rounded-lg border border-border bg-surface p-4">
+    <div className="space-y-4 rounded-lg border border-border bg-surface p-4 hud">
       {!track ? (
         <p className="text-sm text-muted-foreground">Sélectionnez une piste.</p>
       ) : (
