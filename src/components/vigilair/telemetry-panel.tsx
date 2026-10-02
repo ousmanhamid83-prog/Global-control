@@ -118,6 +118,7 @@ export function TelemetryCard() {
                 domain={[-WINDOW_S, 0]}
                 ticks={TICKS}
                 tickFormatter={(v: number) => (v === 0 ? "0" : `${v / 60} min`)}
+                tickMargin={6}
                 stroke="var(--color-muted)"
                 fontSize={10}
               />

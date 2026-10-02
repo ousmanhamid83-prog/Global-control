@@ -185,6 +185,9 @@ export function DashboardView() {
     return [...map.entries()].map(([k, n]) => ({ name: classLabel(k), n }));
   }, [live]);
 
+  // Moins de 15 min d'historique : des minutes seules se répéteraient sur l'axe.
+  const histSpan = history.length > 1 ? history[history.length - 1].t - history[0].t : 0;
+  const histTick = histSpan < 15 * 60_000 ? formatClock : formatWatHm;
   const hist = history.map((h) => ({
     t: h.t,
     live: h.live,
@@ -471,21 +474,21 @@ export function DashboardView() {
           <ChartCard title="Charge pistes" unit="n · WAT" status={stream}>
             {ready ? (
               <ResponsiveContainer width="100%" height={240}>
-                <AreaChart data={hist} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <AreaChart data={hist} margin={{ top: 10, right: 28, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="var(--color-border)" vertical={false} />
                   <XAxis
                     dataKey="t"
-                    tickFormatter={formatWatHm}
+                    tickFormatter={histTick}
                     stroke="var(--color-muted)"
                     fontSize={11}
-                    minTickGap={28}
+                    minTickGap={40}
+                    tickMargin={6}
                   />
                   <YAxis
                     stroke="var(--color-muted)"
                     fontSize={11}
                     allowDecimals={false}
                     width={32}
-                    label={{ value: "n", position: "insideTopLeft", fill: "var(--color-muted)", fontSize: 10 }}
                   />
                   <Tooltip
                     contentStyle={tooltipStyle}
@@ -530,14 +533,15 @@ export function DashboardView() {
           <ChartCard title="Mix flux" unit="1090ES / UAS / AMI · n" status={stream}>
             {ready ? (
               <ResponsiveContainer width="100%" height={240}>
-                <AreaChart data={hist} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <AreaChart data={hist} margin={{ top: 10, right: 28, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="var(--color-border)" vertical={false} />
                   <XAxis
                     dataKey="t"
-                    tickFormatter={formatWatHm}
+                    tickFormatter={histTick}
                     stroke="var(--color-muted)"
                     fontSize={11}
-                    minTickGap={28}
+                    minTickGap={40}
+                    tickMargin={6}
                   />
                   <YAxis
                     stroke="var(--color-muted)"
@@ -585,10 +589,10 @@ export function DashboardView() {
             )}
           </ChartCard>
 
-          <ChartCard title="Répartition FL" unit="1 FL = 100 ft = 30,48 m" status={stream}>
+          <ChartCard title="Répartition FL" unit="n · 1 FL = 100 ft = 30,48 m" status={stream}>
             {ready ? (
               <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={byFl} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <BarChart data={byFl} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="var(--color-border)" vertical={false} />
                   <XAxis dataKey="name" stroke="var(--color-muted)" fontSize={10} interval={0} />
                   <YAxis
@@ -596,7 +600,6 @@ export function DashboardView() {
                     fontSize={11}
                     allowDecimals={false}
                     width={32}
-                    label={{ value: "n", position: "insideTopLeft", fill: "var(--color-muted)", fontSize: 10 }}
                   />
                   <Tooltip
                     contentStyle={tooltipStyle}
@@ -613,28 +616,25 @@ export function DashboardView() {
           <ChartCard title="FL × vitesse" unit="FL · kt TAS" status={stream}>
             {ready ? (
               <ResponsiveContainer width="100%" height={240}>
-                <ScatterChart margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+                <ScatterChart margin={{ top: 10, right: 20, left: 0, bottom: 4 }}>
                   <CartesianGrid stroke="var(--color-border)" />
                   <XAxis
                     type="number"
                     dataKey="fl"
                     name="FL"
-                    unit=" FL"
+                    tickMargin={6}
                     stroke="var(--color-muted)"
                     fontSize={11}
                     allowDecimals={false}
-                    label={{ value: "FL", position: "insideBottomRight", fill: "var(--color-muted)", fontSize: 10 }}
                   />
                   <YAxis
                     type="number"
                     dataKey="kt"
                     name="Vitesse"
-                    unit=" kt"
                     stroke="var(--color-muted)"
                     fontSize={11}
                     allowDecimals={false}
                     width={40}
-                    label={{ value: "kt", position: "insideTopLeft", fill: "var(--color-muted)", fontSize: 10 }}
                   />
                   <ZAxis range={[40, 80]} />
                   <Tooltip
