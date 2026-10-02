@@ -207,17 +207,61 @@ export function PpiRadar({ className }: { className?: string }) {
   );
 }
 
+type Legend = { width: number; size: number; base: number; right: boolean; bottom: boolean };
+
+/** Légendes d'angle relevées au dernier tracé ; largeurs estimées avant le premier. */
+let legends: Legend[] = [
+  { width: 80, size: 12, base: 22, right: false, bottom: false },
+  { width: 190, size: 11, base: 40, right: false, bottom: false },
+  { width: 220, size: 11, base: 56, right: false, bottom: false },
+  { width: 60, size: 11, base: 72, right: false, bottom: false },
+  { width: 185, size: 11, base: 22, right: true, bottom: false },
+  { width: 115, size: 11, base: 38, right: true, bottom: false },
+  { width: 240, size: 10, base: 16, right: false, bottom: true },
+];
+
 /**
- * Centre et rayon de l'écran. Paysage : centré, comme sur le poste fixe.
- * Portrait (téléphone) : sous les légendes du haut, au-dessus de celle du bas.
+ * Centre et rayon de l'écran : le plus grand disque, anneau compris, qui tient dans le canvas
+ * sans toucher une légende, centré au plus près de h/2 + 4. Écran large : rien ne gêne, même
+ * géométrie qu'avant. Écran étroit : le disque descend et rétrécit juste ce qu'il faut, sans saut.
  */
 function scopeGeom(w: number, h: number) {
-  const radius = Math.min(w, h) * 0.42;
-  if (h <= w) return { cx: w / 2, cy: h / 2 + 4, radius };
-  const top = 80;
-  const bottom = 28;
-  const fit = (h - top - bottom) / 2 - 20;
-  return { cx: w / 2, cy: top + (h - top - bottom) / 2, radius: Math.max(40, Math.min(radius, fit)) };
+  const cx = w / 2;
+  const rects = legends.map((l) => {
+    const base = l.bottom ? h - l.base : l.base;
+    const x0 = l.right ? w - 16 - l.width : 16;
+    return { x0, x1: x0 + l.width, y0: base - l.size * 0.8, y1: base + l.size * 0.25, bottom: l.bottom };
+  });
+  // Plage de centres possibles pour un rayon : chaque légende proche en interdit une partie.
+  const span = (r: number) => {
+    const ro = r + 18;
+    let lo = ro;
+    let hi = h - ro;
+    for (const b of rects) {
+      const dx = cx < b.x0 ? b.x0 - cx : cx > b.x1 ? cx - b.x1 : 0;
+      if (dx >= ro) continue;
+      const s = Math.sqrt(ro * ro - dx * dx);
+      if (b.bottom) hi = Math.min(hi, b.y0 - s);
+      else lo = Math.max(lo, b.y1 + s);
+    }
+    return lo <= hi ? { lo, hi } : null;
+  };
+  let radius = Math.min(w, h) * 0.42;
+  let fit = span(radius);
+  if (!fit) {
+    let a = 0;
+    let b = radius;
+    for (let i = 0; i < 24; i++) {
+      const m = (a + b) / 2;
+      if (span(m)) a = m;
+      else b = m;
+    }
+    radius = a;
+    fit = span(radius);
+  }
+  const prefer = h / 2 + 4;
+  const cy = fit ? Math.min(fit.hi, Math.max(fit.lo, prefer)) : prefer;
+  return { cx, cy, radius: Math.max(8, radius) };
 }
 
 function drawFrame(
@@ -261,6 +305,12 @@ function drawFrame(
   };
 
   const { cx, cy, radius } = scopeGeom(w, h);
+  canvas.dataset.scope = `${cx.toFixed(1)},${cy.toFixed(1)},${radius.toFixed(1)}`;
+  const seen: Legend[] = [];
+  const legend = (text: string, size: number, x: number, base: number, right = false, bottom = false) => {
+    ctx.fillText(text, x, base);
+    seen.push({ width: ctx.measureText(text).width, size, base: bottom ? h - base : base, right, bottom });
+  };
 
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
@@ -512,21 +562,22 @@ function drawFrame(
   ctx.textAlign = "left";
   ctx.fillStyle = ok;
   ctx.font = "12px IBM Plex Sans, sans-serif";
-  ctx.fillText("VIGILAIR PPI", 16, 22);
+  legend("VIGILAIR PPI", 12, 16, 22);
   ctx.fillStyle = muted;
   ctx.font = "11px IBM Plex Mono, ui-monospace, monospace";
-  ctx.fillText(`FTTJ  N'DJAMENA  ·  ${params.rangeKm} km`, 16, 40);
-  ctx.fillText(`BALAYAGE ${params.rpm} tr/min  ·  PRF ${prfHz(params.rangeKm)} Hz`, 16, 56);
-  ctx.fillText(
+  legend(`FTTJ  N'DJAMENA  ·  ${params.rangeKm} km`, 11, 16, 40);
+  legend(`BALAYAGE ${params.rpm} tr/min  ·  PRF ${prfHz(params.rangeKm)} Hz`, 11, 16, 56);
+  legend(
     params.rangeKm >= 2500 ? "THÉÂTRE SAHEL · AES INCLUS" : `AZ ${sweep.toFixed(0).padStart(3, "0")}°`,
+    11,
     16,
     72,
   );
 
   ctx.textAlign = "right";
   ctx.fillStyle = muted;
-  ctx.fillText("SILENCIEUX · PAS D'ÉMISSION", w - 16, 22);
-  ctx.fillText("CN / TR / RU / IR", w - 16, 38);
+  legend("SILENCIEUX · PAS D'ÉMISSION", 11, w - 16, 22, true);
+  legend("CN / TR / RU / IR", 11, w - 16, 38, true);
 
   if (selected && selected.idState !== "perdu") {
     const plat =
@@ -578,11 +629,12 @@ function drawFrame(
   ctx.textAlign = "left";
   ctx.fillStyle = muted;
   ctx.font = "10px IBM Plex Sans, sans-serif";
-  ctx.fillText("Poste FTTJ · coverage PPI · télépilote non informé", 16, h - 16);
+  legend("Poste FTTJ · coverage PPI · télépilote non informé", 10, 16, h - 16, false, true);
 
   if (selected?.ew?.state === "effet") {
     ctx.fillStyle = crit;
     ctx.font = "11px IBM Plex Sans, sans-serif";
-    ctx.fillText("EFFET RF EXTERNE", 16, h - 32);
+    legend("EFFET RF EXTERNE", 11, 16, h - 32, false, true);
   }
+  legends = seen;
 }

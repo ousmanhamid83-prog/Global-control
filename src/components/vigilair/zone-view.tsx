@@ -101,7 +101,7 @@ export function ZoneView() {
           />
         </div>
 
-        <ul className="grid gap-3 md:grid-cols-2">
+        <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {board.map((b) => (
             <li
               key={b.zone.id}
@@ -188,7 +188,7 @@ export function ZoneView() {
             Le relief montre le massif. L'infrarouge public ne voit pas à
             travers un toit.
           </p>
-          <ul className="grid gap-2 md:grid-cols-2">
+          <ul className="grid grid-cols-1 gap-2 md:grid-cols-2">
             {picture
               .filter((p) => p.zone.kind === "mine")
               .map((b) => (
@@ -294,7 +294,7 @@ function AddZoneForm({ onDone }: { onDone: () => void }) {
         Réservé au chef. Coordonnées dans l'AO tchadienne. Le rayon est la
         zone d'exclusion UAS, pas un volume IFR.
       </p>
-      <form onSubmit={(e) => void onSubmit(e)} className="grid gap-2 sm:grid-cols-2">
+      <form onSubmit={(e) => void onSubmit(e)} className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}

@@ -439,7 +439,7 @@ function Login() {
         {err ? (
           <p
             role="alert"
-            className="rounded-md border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit"
+            className="rounded-md border border-crit/40 bg-crit/5 px-3 py-2 text-sm text-crit"
           >
             {err}
           </p>

@@ -297,6 +297,10 @@ export function CopView() {
   const viewOrigin = useVigilair((s) => s.viewOrigin);
   const [tab, setTab] = useState<"pistes" | "dossier">("pistes");
   const [theatreOpen, toggleTheatre] = useTheatreOpen();
+  // Bulle en approche ou en intrusion : le bandeau quitte le théâtre replié et reste sous les yeux.
+  const zoneHot = useVigilair((s) =>
+    s.zonePicture.some((z) => z.level === "intrusion" || z.level === "approche"),
+  );
   const [deckOpen, setDeckOpen] = useState(false);
   const scan = useSyncExternalStore(subscribePixelScan, lastPixelScan, lastPixelScan);
   const reel = realDetectLine(scan);
@@ -340,11 +344,12 @@ export function CopView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto overscroll-contain lg:overflow-hidden">
-      <div className="shrink-0 lg:max-h-[24%] lg:overflow-y-auto lg:overscroll-contain">
+      <div className="shrink-0 lg:max-h-[32%] lg:overflow-y-auto lg:overscroll-contain">
         <AlertStrip />
         <DefenseStrip />
-        <MetarStrip />
+        {zoneHot ? <ZoneStrip /> : null}
         <WatchStrip />
+        <MetarStrip />
       </div>
       <button
         type="button"
@@ -373,7 +378,7 @@ export function CopView() {
         )}
       >
         <CaptureStrip />
-        <ZoneStrip />
+        {zoneHot ? null : <ZoneStrip />}
         <AxisStrip />
         <GpsZoneStrip />
         <MineStrip />
@@ -395,7 +400,7 @@ export function CopView() {
           />
           <div
             className={cn(
-              "absolute left-3 right-12 top-3 z-10 flex gap-1 overflow-x-auto transition-opacity duration-300 max-lg:scrollbar-none xl:right-auto xl:max-w-[calc(100%-8rem)] xl:flex-wrap xl:overflow-visible",
+              "absolute left-3 right-12 top-3 z-10 flex gap-1 overflow-x-auto transition-opacity duration-300 max-lg:scrollbar-none xl:tall:right-auto xl:tall:max-w-[calc(100%-8rem)] xl:tall:flex-wrap xl:tall:overflow-visible",
               dim && "opacity-40 hover:opacity-100",
             )}
           >
@@ -410,7 +415,7 @@ export function CopView() {
                   ? "bg-crit/20 text-crit"
                   : watchMode
                     ? "bg-ok/20 text-ok"
-                    : "bg-bg/80 text-muted-foreground hover:text-fg",
+                    : "bg-bg/85 text-muted-foreground hover:text-fg",
               )}
               aria-pressed={watchMode}
             >
@@ -427,7 +432,7 @@ export function CopView() {
                   MAP_CHIP,
                   mapScale === s
                     ? "bg-secondary text-fg"
-                    : "bg-bg/80 text-muted-foreground hover:text-fg",
+                    : "bg-bg/85 text-muted-foreground hover:text-fg",
                 )}
               >
                 {SCALE[s].label}
@@ -440,7 +445,7 @@ export function CopView() {
                 MAP_CHIP,
                 showLive
                   ? "bg-ok/20 text-ok"
-                  : "bg-bg/80 text-muted-foreground hover:text-fg",
+                  : "bg-bg/85 text-muted-foreground hover:text-fg",
               )}
               aria-pressed={showLive}
             >
@@ -453,7 +458,7 @@ export function CopView() {
                 MAP_CHIP,
                 showFriends
                   ? "bg-ok/20 text-ok"
-                  : "bg-bg/80 text-muted-foreground hover:text-fg",
+                  : "bg-bg/85 text-muted-foreground hover:text-fg",
               )}
               aria-pressed={showFriends}
             >
@@ -483,7 +488,7 @@ export function CopView() {
                 MAP_CHIP,
                 capture
                   ? "bg-secondary text-fg"
-                  : "bg-bg/80 text-muted-foreground hover:text-fg",
+                  : "bg-bg/85 text-muted-foreground hover:text-fg",
               )}
             >
               Ident
@@ -499,7 +504,7 @@ export function CopView() {
               data-px-pirogue-cls={pxPirogue.cls}
               data-reel={reel}
               title="Détection : il y a quelque chose, dès 1,5 px. Reconnaissance : c'est cette classe, dès 6 px. Identification : le modèle ou la personne, dès 12 px. Sous 1,5 px : aucune."
-              className="inline-flex h-11 max-w-[18rem] shrink-0 flex-col justify-center rounded-md bg-bg/80 px-3 font-mono text-[11px] leading-tight text-fg"
+              className="inline-flex h-11 max-w-[18rem] shrink-0 flex-col justify-center rounded-md bg-bg/85 px-3 font-mono text-[11px] leading-tight text-fg"
             >
               <span>{liveGsd.label}</span>
               <span className="truncate text-muted-foreground">{pixelBudgetLine(liveGsd.m)}</span>
@@ -507,7 +512,7 @@ export function CopView() {
             <button
               type="button"
               onClick={() => homeOrigin()}
-              className={cn(MAP_CHIP, "bg-bg/80 text-muted-foreground hover:text-fg")}
+              className={cn(MAP_CHIP, "bg-bg/85 text-muted-foreground hover:text-fg")}
             >
               FTTJ
             </button>
@@ -519,7 +524,7 @@ export function CopView() {
                 MAP_CHIP,
                 copTool === "mesure"
                   ? "bg-secondary text-fg"
-                  : "bg-bg/80 text-muted-foreground hover:text-fg",
+                  : "bg-bg/85 text-muted-foreground hover:text-fg",
               )}
               aria-pressed={copTool === "mesure"}
             >
@@ -529,18 +534,18 @@ export function CopView() {
               type="button"
               data-tool="capture"
               onClick={() => snapshotCop()}
-              className={cn(MAP_CHIP, "bg-bg/80 text-muted-foreground hover:text-fg")}
+              className={cn(MAP_CHIP, "bg-bg/85 text-muted-foreground hover:text-fg")}
             >
               Capture
             </button>
           </div>
           <div
             className={cn(
-              "scrollbar-none absolute inset-x-3 top-16 z-20 flex justify-end gap-1 overflow-x-auto transition-opacity duration-300 lg:left-auto lg:top-14 lg:flex-col lg:items-end lg:overflow-visible",
+              "scrollbar-none absolute inset-x-3 top-16 z-20 flex justify-end gap-1 overflow-x-auto transition-opacity duration-300 lg:tall:left-auto lg:tall:top-14 lg:tall:max-h-[calc(100%-6.5rem)] lg:tall:flex-col lg:tall:items-end lg:tall:overflow-x-visible lg:tall:overflow-y-auto",
               dim && "opacity-40 hover:opacity-100",
             )}
           >
-            {/* Sous la boussole du canvas : rangée sur mobile, colonne sur grand écran. */}
+            {/* Sous la boussole du canvas : rangée, ou colonne sur un écran large et haut (défilante si la carte est courte). */}
             {SAT_LAYERS.map((l) => (
               <button
                 key={l}
@@ -554,18 +559,20 @@ export function CopView() {
                   MAP_CHIP,
                   satLayer === l
                     ? "bg-secondary text-fg"
-                    : "bg-bg/80 text-muted-foreground hover:text-fg",
+                    : "bg-bg/85 text-muted-foreground hover:text-fg",
                 )}
               >
                 {SAT_LAYER_LABEL[l]}
               </button>
             ))}
           </div>
-          {/* Bas de carte : au-dessus de l'échelle du canvas, sous les barres d'outils. Ouvert, le poste de tâche passe devant les couches. */}
+          {/* Bas de carte, au-dessus de l'échelle du canvas. Fermé : sous les barres d'outils. Ouvert : le poste de tâche prend la hauteur de la carte, devant les outils. */}
           <div
             className={cn(
-              "pointer-events-none absolute inset-x-3 top-32 bottom-11 z-10 flex flex-col justify-end gap-2 lg:top-20 xl:right-28 xl:top-40",
-              deckOpen && "z-30",
+              "pointer-events-none absolute inset-x-3 bottom-11 flex flex-col justify-end gap-2",
+              deckOpen
+                ? "top-3 z-30 xl:tall:right-28"
+                : "top-32 z-10 lg:tall:right-28 lg:tall:top-20 xl:tall:top-40",
             )}
           >
             {watchMode ? (
@@ -597,7 +604,7 @@ export function CopView() {
                 className={cn(
                   MAP_CHIP,
                   "pointer-events-auto inline-flex items-center gap-1.5 border border-border",
-                  deckOpen ? "bg-secondary text-fg" : "bg-bg/80 text-muted-foreground hover:text-fg",
+                  deckOpen ? "bg-secondary text-fg" : "bg-bg/85 text-muted-foreground hover:text-fg",
                 )}
               >
                 {deckOpen ? (
@@ -607,7 +614,7 @@ export function CopView() {
                 )}
                 Poste de tâche
               </button>
-              <p className="hidden max-w-md min-w-0 rounded-md bg-bg/70 px-2 py-1 text-xs leading-snug text-muted-foreground sm:block">
+              <p className="hidden max-w-md min-w-0 rounded-md bg-bg/85 px-2 py-1 text-xs leading-snug text-muted-foreground sm:block [@media(max-height:640px)]:hidden">
                 {k4Vis
                   ? "Visible ~1 m · World Imagery · mosaïque archive · pas < 1 h"
                   : identVis

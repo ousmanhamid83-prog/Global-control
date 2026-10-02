@@ -270,7 +270,7 @@ function Mode4Tab({
         <h2 className="text-sm font-semibold">Chiffrement Mode 4 (Mark XII)</h2>
         <p className="mt-1 text-xs text-muted-foreground">{M4_CRYPTO_STEALTH}</p>
       </div>
-      <ol className="grid gap-2 sm:grid-cols-3">
+      <ol className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <FlowStep n="1" title="Challenge 1030" body="ISLS + mot chiffré, interrogateur du site radar." />
         <FlowStep n="2" title="Calculateur crypto" body="KIR/KIT · clé du jour FATL. Jamais affichée." />
         <FlowStep n="3" title="Réponse 1090" body="Valide / invalide / timeout. Pas d'émission VIGILAIR." />
@@ -348,7 +348,7 @@ function ModeSTab({ selected }: { selected: Track | null }) {
         <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Registres BDS (EHS / ADS-B)
         </h3>
-        <ul className="grid gap-2 sm:grid-cols-2">
+        <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {BDS_NOTES.map((b) => (
             <li key={b.id} className="rounded-md border border-border bg-surface p-3">
               <p className="font-mono text-xs text-muted-foreground">BDS {b.id}</p>

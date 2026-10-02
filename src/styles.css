@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Fenêtre assez haute pour empiler les commandes de carte (colonnes, barre sur plusieurs rangs). */
+@custom-variant tall (@media (min-height: 800px));
+
 @theme {
   --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Noto Sans", sans-serif;
   --font-mono: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Menlo, Consolas, monospace;
@@ -55,7 +58,7 @@
     color-scheme: dark;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    scrollbar-color: #3f3f46 transparent;
+    scrollbar-color: #63636b transparent;
     scrollbar-width: thin;
   }
 
@@ -71,7 +74,7 @@
 
   ::-webkit-scrollbar-thumb {
     border-radius: 999px;
-    background-color: #3f3f46;
+    background-color: #63636b;
   }
 
   :where(button, a, [role="button"], input[type="range"], summary):focus-visible {

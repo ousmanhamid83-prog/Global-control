@@ -325,7 +325,7 @@ export function DashboardView() {
           ))}
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <ChartCard title="Phénomènes" unit="n · feu, séisme, météo">
             {ready && byPhen.length > 0 ? (
               <ResponsiveContainer width="100%" height={220}>
@@ -373,7 +373,7 @@ export function DashboardView() {
           </ChartCard>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <ChartCard title="Charge pistes" unit="n · WAT">
             {ready ? (
               <ResponsiveContainer width="100%" height={240}>
@@ -625,7 +625,7 @@ export function DashboardView() {
           </p>
         ) : null}
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <section className="rounded-xl border border-border bg-surface p-4">
             <h2 className="text-sm font-semibold">Paramètres système</h2>
             <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
@@ -674,11 +674,13 @@ export function DashboardView() {
                       key={s.id}
                       className="flex items-center justify-between gap-2 text-sm"
                     >
-                      <span>
+                      <span className="min-w-0 break-words">
                         {s.label}
                         <span className="ml-2 text-xs text-muted-foreground">{s.detail}</span>
                       </span>
-                      <Badge tone={s.ok ? "ok" : "default"}>{s.ok ? "Live" : "Silence"}</Badge>
+                      <Badge tone={s.ok ? "ok" : "default"} className="shrink-0">
+                        {s.ok ? "Live" : "Silence"}
+                      </Badge>
                     </li>
                   ))
                 : SENSOR_SITES.map((s) => (
@@ -686,13 +688,13 @@ export function DashboardView() {
                       key={s.id}
                       className="flex items-center justify-between gap-2 text-sm"
                     >
-                      <span>
+                      <span className="min-w-0 break-words">
                         {s.name}
                         <span className="ml-2 text-xs text-muted-foreground">
                           {s.kind.toUpperCase()} · {s.rangeKm} km
                         </span>
                       </span>
-                      <Badge>Inventaire</Badge>
+                      <Badge className="shrink-0">Inventaire</Badge>
                     </li>
                   ))}
             </ul>

@@ -126,7 +126,7 @@ export function CatalogView() {
         ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
         <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface">
           {list.length === 0 ? (
             <li className="p-6 text-sm text-muted-foreground">

@@ -132,7 +132,7 @@ export function ReplayBar() {
         </div>
       </div>
       {open ? (
-        <div className="grid gap-3 border-t border-border px-3 py-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 border-t border-border px-3 py-3 sm:grid-cols-3">
           {INJECT_GROUPS.map((g) => (
             <div key={g.id}>
               <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">

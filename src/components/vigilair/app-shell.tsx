@@ -275,14 +275,17 @@ function ShellBody({ children }: { children: ReactNode }) {
         <div className="flex min-w-0 items-center gap-2.5">
           <button
             type="button"
-            className="grid size-11 place-items-center rounded-md text-fg lg:hidden"
+            className="grid size-11 shrink-0 place-items-center rounded-md text-fg lg:hidden"
             aria-expanded={menu}
             aria-label={menu ? "Fermer le menu" : "Ouvrir le menu"}
             onClick={() => setMenu((v) => !v)}
           >
             {menu ? <X className="size-5" /> : <Menu className="size-5" />}
           </button>
-          <Logo />
+          {/* Sous sm, le logo cède sa place aux commandes. */}
+          <span className="hidden sm:contents">
+            <Logo />
+          </span>
           <div className="min-w-0">
             <p className="font-display text-sm font-semibold tracking-tight">VIGILAIR</p>
             <p className="hidden truncate text-xs text-muted-foreground sm:block">
@@ -291,7 +294,8 @@ function ShellBody({ children }: { children: ReactNode }) {
           </div>
         </div>
         <div className="ml-auto flex min-w-0 items-center gap-1.5">
-          <div className="hidden items-center gap-1.5 whitespace-nowrap lg:flex">
+          {/* Badges sur deux rangs au besoin : jamais au point de pousser les commandes hors de l'écran. */}
+          <div className="hidden max-h-14 min-w-0 flex-wrap items-center justify-end gap-1 overflow-hidden py-1 whitespace-nowrap lg:flex">
             <Badge tone={instruction ? "warn" : "ok"}>
               {instruction ? "Exercice" : "Réel"}
             </Badge>

@@ -191,7 +191,7 @@ function Stat({
 
 function DoctrinePanel() {
   return (
-    <ul className="grid gap-3 lg:grid-cols-2">
+    <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2">
       {SENTINEL_DOCTRINE.map((d) => (
         <li key={d.id} className="rounded-md border border-border bg-surface p-4">
           <p className="text-sm font-medium">{d.title}</p>
@@ -253,7 +253,7 @@ function AnonymatPanel() {
         <Stat k="User-Agent" v={String(status?.withUa ?? "—")} tone={status?.withUa ? "warn" : "ok"} />
         <Stat k="Tiers navigateur" v="0" tone="ok" />
       </div>
-      <ul className="grid gap-3 lg:grid-cols-2">
+      <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <LeakCard
           ok
           title="Polices"

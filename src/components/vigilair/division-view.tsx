@@ -82,11 +82,11 @@ export function DivisionView() {
         <InstallPoste />
         <IdentityDesk />
         <IncidentsPanel />
-        <div className="grid gap-8 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
           <RosterPanel />
           <TeamRecapPanel />
         </div>
-        <div className="grid gap-8 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
           <OpsPanel />
           <KeysPanel chef={profile?.label ?? "Chef de division"} />
         </div>
@@ -204,7 +204,7 @@ function IdentityDesk() {
         E-mail professionnel, grade, téléphone, unité. L'e-mail n'est pas un mot
         de passe : l'agent se connecte avec e-mail + clé VA-.
       </p>
-      <dl className="grid gap-2 text-sm sm:grid-cols-2">
+      <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
         <div>
           <dt className="text-xs text-muted-foreground">Rôle</dt>
           <dd>{profile ? ROLE_LABEL[profile.role] : "—"}</dd>
@@ -214,7 +214,7 @@ function IdentityDesk() {
           <dd>{profile ? TEAM_LABEL[profile.team] : "—"}</dd>
         </div>
       </dl>
-      <form onSubmit={(e) => void onSave(e)} className="grid gap-2 sm:grid-cols-2">
+      <form onSubmit={(e) => void onSave(e)} className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <label className="block text-sm sm:col-span-2">
           Nom
           <Input
@@ -591,7 +591,7 @@ function TeamRecapPanel() {
           verrous, incidents.
         </p>
       </div>
-      <ul className="grid gap-2 sm:grid-cols-2">
+      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {rows.map((r) => (
           <li
             key={r.team}
@@ -735,7 +735,7 @@ function KeysPanel({ chef }: { chef: string }) {
           COP figé — émission de clés suspendue jusqu'au déverrouillage.
         </p>
       ) : null}
-      <form onSubmit={onGenerate} className="grid gap-2 sm:grid-cols-2">
+      <form onSubmit={onGenerate} className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <Input
           value={label}
           onChange={(e) => setLabel(e.target.value)}
@@ -908,7 +908,7 @@ function BotsPanel() {
           extraction, reconnexion d'un agent éjecté.
         </p>
       </div>
-      <form onSubmit={onSave} className="grid gap-3 sm:grid-cols-2">
+      <form onSubmit={onSave} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block text-sm sm:col-span-2">
           Jeton bot Telegram
           <Input

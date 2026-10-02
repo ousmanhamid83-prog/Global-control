@@ -88,7 +88,7 @@ export function PaintFilters({
             ? threatFloor === "critique"
               ? "bg-crit/20 text-crit"
               : "bg-warn/20 text-warn"
-            : "bg-bg/80 text-muted-foreground hover:text-fg",
+            : "bg-bg/85 text-muted-foreground hover:text-fg",
         )}
         aria-pressed={threatFloor !== "ALL"}
         title="Filtre de menace (T)"
@@ -105,7 +105,7 @@ export function PaintFilters({
             ? "bg-ok/20 text-ok"
             : iffFilter === "sans-m4"
               ? "bg-warn/20 text-warn"
-              : "bg-bg/80 text-muted-foreground hover:text-fg",
+              : "bg-bg/85 text-muted-foreground hover:text-fg",
         )}
         aria-pressed={iffFilter !== "ALL"}
         title="Filtre IFF Mode 4 (I)"

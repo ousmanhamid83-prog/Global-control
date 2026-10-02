@@ -162,7 +162,7 @@ function SourceRow({ sources }: { sources: SourceHealth[] }) {
             )}
           />
           <div className="min-w-0">
-            <p className="text-xs font-medium">{s.label}</p>
+            <p className="text-xs font-medium break-words">{s.label}</p>
             <p className="truncate font-mono text-[11px] text-muted-foreground">{s.detail}</p>
           </div>
         </li>
@@ -329,7 +329,7 @@ function WxPanel() {
     );
   }
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       {apt || solar ? (
         <div className="rounded-md border border-border bg-surface p-4 lg:col-span-2">
           <h2 className="text-sm font-medium">FTTJ Hassan Djamous · AWC</h2>
@@ -541,7 +541,7 @@ function GnssPanel() {
   const s = tow % 60;
   const hot = jam.filter((j) => j.level !== "low");
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <div className="rounded-md border border-border bg-surface p-4">
         <h2 className="text-sm font-medium">Temps GPS</h2>
         <p className="mt-3 font-mono text-2xl tabular-nums">
@@ -696,7 +696,7 @@ function ToolsPanel() {
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <section className="space-y-3 rounded-md border border-border bg-surface p-4">
         <h2 className="text-sm font-medium">Registre ICAO24 · adsbdb</h2>
         <p className="text-sm text-muted-foreground">

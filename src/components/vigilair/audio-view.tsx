@@ -55,7 +55,7 @@ export function AudioView() {
         </p>
       </header>
       <SigintDesk />
-      <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)_300px]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[240px_minmax(0,1fr)_300px]">
         <div className="order-2 max-h-56 overflow-y-auto lg:order-1 lg:max-h-none">
           <TrackPicker tracks={live} selectedId={track?.id ?? null} onSelect={select} />
         </div>
@@ -118,7 +118,7 @@ function SigintDesk() {
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
         <h2 className="text-sm font-semibold">Gestion des alertes</h2>
         <span className="font-mono text-xs text-muted-foreground">{openN} ouvertes</span>
-        <div className="ml-auto flex gap-1">
+        <div className="ml-auto flex flex-wrap justify-end gap-1">
           {(
             [
               ["open", "Ouvertes"],
