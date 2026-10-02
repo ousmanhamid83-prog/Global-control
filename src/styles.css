@@ -52,8 +52,31 @@
   }
 
   html {
+    color-scheme: dark;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    scrollbar-color: #3f3f46 transparent;
+    scrollbar-width: thin;
+  }
+
+  /* Safari ignore scrollbar-color : même barre fine, sombre. */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background-color: #3f3f46;
+  }
+
+  :where(button, a, [role="button"], input[type="range"], summary):focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
   }
 
   body {
@@ -79,6 +102,14 @@
 
   input[type="range"] {
     accent-color: var(--color-ok);
+  }
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
   }
 }
 

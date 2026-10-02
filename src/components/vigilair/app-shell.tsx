@@ -291,9 +291,9 @@ function ShellBody({ children }: { children: ReactNode }) {
           </div>
         </div>
         <div className="ml-auto flex min-w-0 items-center gap-1.5">
-          <div className="hidden items-center gap-1.5 lg:flex">
+          <div className="hidden items-center gap-1.5 whitespace-nowrap lg:flex">
             <Badge tone={instruction ? "warn" : "ok"}>
-              {instruction ? "Exercice" : "Veille"}
+              {instruction ? "Exercice" : "Réel"}
             </Badge>
             {watchLoaded ? (
               <Badge tone={watch ? "ok" : "warn"}>
@@ -321,7 +321,7 @@ function ShellBody({ children }: { children: ReactNode }) {
             {live}
           </Badge>
           {live1090.n > 0 ? <Badge tone="ok">1090 {live1090.n}</Badge> : null}
-          <span className="hidden font-mono text-xs tabular-nums text-muted-foreground sm:inline">
+          <span className="hidden whitespace-nowrap font-mono text-xs tabular-nums text-muted-foreground sm:inline">
             {ready ? formatClock(now) : "--:--:--"} WAT
           </span>
           {isSuperadmin ? (
@@ -343,7 +343,7 @@ function ShellBody({ children }: { children: ReactNode }) {
               }
             >
               <RadioTower />
-              <span className="hidden sm:inline">{ewArmed ? "RF armé" : "RF off"}</span>
+              <span className="hidden xl:inline">{ewArmed ? "RF armé" : "RF off"}</span>
             </Button>
           ) : null}
           <Button
@@ -353,10 +353,13 @@ function ShellBody({ children }: { children: ReactNode }) {
             aria-label={running ? "Pause du flux" : "Reprendre le flux"}
           >
             {running ? <Pause /> : <Play />}
-            <span className="hidden sm:inline">{running ? "Pause" : "Flux"}</span>
+            <span className="hidden xl:inline">{running ? "Pause" : "Flux"}</span>
           </Button>
-          <InstallPoste variant="header" />
-          <PosteChip />
+          {/* Sous lg, installation et fermeture de session passent dans le menu. */}
+          <div className="hidden items-center gap-1.5 lg:flex">
+            <InstallPoste variant="header" />
+            <PosteChip />
+          </div>
         </div>
       </header>
       {isSuperadmin && botOpen ? (
@@ -452,6 +455,10 @@ function ShellBody({ children }: { children: ReactNode }) {
               <p className="mt-1 text-xs text-muted-foreground">
                 {isSuperadmin ? "accès total" : "quart"}
               </p>
+              <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
+                <PosteChip />
+                <InstallPoste variant="header" />
+              </div>
             </div>
           </aside>
         </div>

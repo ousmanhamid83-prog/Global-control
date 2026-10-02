@@ -11,7 +11,7 @@ import { useVigilair } from "@/lib/vigilair/store";
 import { cn } from "@/lib/utils";
 
 const CHIP =
-  "h-9 rounded-md px-3 text-xs transition-colors duration-150";
+  "h-9 shrink-0 rounded-md px-3 text-xs transition-colors duration-150";
 
 export function PaintFilters({
   variant = "overlay",
@@ -83,6 +83,7 @@ export function PaintFilters({
         onClick={cycleThreatFloor}
         className={cn(
           CHIP,
+          "h-11",
           threatFloor !== "ALL"
             ? threatFloor === "critique"
               ? "bg-crit/20 text-crit"
@@ -99,6 +100,7 @@ export function PaintFilters({
         onClick={cycleIffFilter}
         className={cn(
           CHIP,
+          "h-11",
           iffFilter === "m4"
             ? "bg-ok/20 text-ok"
             : iffFilter === "sans-m4"

@@ -24,8 +24,8 @@ export function RadarView() {
   const requestM4 = useVigilair((s) => s.requestM4);
 
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(18rem,1fr)_auto] lg:grid-cols-[minmax(0,1fr)_300px] lg:grid-rows-[minmax(0,1fr)]">
-      <section className="relative grid min-h-0 grid-rows-[minmax(0,1fr)_9rem] border-b border-border lg:border-b-0 lg:border-r">
+    <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(24rem,72dvh)_auto] overflow-y-auto overscroll-contain lg:grid-cols-[minmax(0,1fr)_300px] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden">
+      <section className="relative grid min-h-0 grid-rows-[minmax(0,1fr)_7rem] border-b border-border lg:grid-rows-[minmax(0,1fr)_9rem] lg:border-b-0 lg:border-r">
         <PpiRadar className="min-h-0" />
         <div className="min-h-0 border-t border-border">
           <RhiRadar className="h-full" />

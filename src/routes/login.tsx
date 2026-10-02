@@ -133,7 +133,17 @@ function Login() {
   }, []);
 
   if (isPending) {
-    return <div className="min-h-dvh bg-bg" />;
+    return (
+      <main className="grid min-h-dvh place-items-center bg-bg px-4 text-fg">
+        <div className="flex items-center gap-3" role="status">
+          <Logo />
+          <div>
+            <p className="font-display text-lg font-semibold tracking-tight">VIGILAIR</p>
+            <p className="text-xs text-muted-foreground">Chargement du poste…</p>
+          </div>
+        </div>
+      </main>
+    );
   }
   if (user) return <Navigate to="/" />;
 
@@ -305,6 +315,7 @@ function Login() {
           <button
             type="button"
             onClick={() => setTab("chef")}
+            aria-pressed={tab === "chef"}
             className={cn(
               "h-11 flex-1 rounded-md px-2 text-sm transition-colors duration-150",
               tab === "chef" ? "bg-secondary text-fg" : "text-muted-foreground",
@@ -315,6 +326,7 @@ function Login() {
           <button
             type="button"
             onClick={() => setTab("admin")}
+            aria-pressed={tab === "admin"}
             className={cn(
               "h-11 flex-1 rounded-md px-2 text-sm transition-colors duration-150",
               tab === "admin" ? "bg-secondary text-fg" : "text-muted-foreground",
@@ -369,7 +381,11 @@ function Login() {
               />
             </label>
             <Button type="submit" className="w-full" disabled={busy}>
-              {hasChef ? "Ouvrir la session chef" : "Créer le poste chef de division"}
+              {busy
+                ? "Vérification…"
+                : hasChef
+                  ? "Ouvrir la session chef"
+                  : "Créer le poste chef de division"}
             </Button>
             {hasChef ? (
               <p className="text-xs text-muted-foreground">
@@ -412,7 +428,7 @@ function Login() {
               />
             </label>
             <Button type="submit" className="w-full" disabled={busy || key.length < 10 || !agentEmail.includes("@")}>
-              Accéder au COP
+              {busy ? "Vérification…" : "Accéder au COP"}
             </Button>
             <p className="text-xs text-muted-foreground">
               E-mail émis par le chef + clé VA-. Pas de mot de passe agent.
@@ -420,7 +436,14 @@ function Login() {
             </p>
           </form>
         )}
-        {err ? <p className="text-sm text-crit">{err}</p> : null}
+        {err ? (
+          <p
+            role="alert"
+            className="rounded-md border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit"
+          >
+            {err}
+          </p>
+        ) : null}
         <InstallPoste />
       </div>
     </main>

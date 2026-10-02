@@ -179,9 +179,7 @@ export function PpiRadar({ className }: { className?: string }) {
     const y = e.clientY - rect.top;
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
-    const cx = w / 2;
-    const cy = h / 2;
-    const radius = Math.min(w, h) * 0.42;
+    const { cx, cy, radius } = scopeGeom(w, h);
     const params = ppiRef.current;
     let best: { id: string; d: number } | null = null;
     for (const tr of peekTracks()) {
@@ -207,6 +205,19 @@ export function PpiRadar({ className }: { className?: string }) {
       <div className="pointer-events-none absolute inset-0 radar-scan" />
     </div>
   );
+}
+
+/**
+ * Centre et rayon de l'écran. Paysage : centré, comme sur le poste fixe.
+ * Portrait (téléphone) : sous les légendes du haut, au-dessus de celle du bas.
+ */
+function scopeGeom(w: number, h: number) {
+  const radius = Math.min(w, h) * 0.42;
+  if (h <= w) return { cx: w / 2, cy: h / 2 + 4, radius };
+  const top = 80;
+  const bottom = 28;
+  const fit = (h - top - bottom) / 2 - 20;
+  return { cx: w / 2, cy: top + (h - top - bottom) / 2, radius: Math.max(40, Math.min(radius, fit)) };
 }
 
 function drawFrame(
@@ -249,9 +260,7 @@ function drawFrame(
     XX: token(root, "--color-xx", "#71717a"),
   };
 
-  const cx = w / 2;
-  const cy = h / 2 + 4;
-  const radius = Math.min(w, h) * 0.42;
+  const { cx, cy, radius } = scopeGeom(w, h);
 
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);

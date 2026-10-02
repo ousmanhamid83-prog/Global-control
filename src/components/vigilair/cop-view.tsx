@@ -1,5 +1,5 @@
-import { useState, useSyncExternalStore } from "react";
-import { Eye } from "lucide-react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { ChevronDown, ChevronUp, Eye } from "lucide-react";
 import { AlertStrip } from "@/components/vigilair/alert-strip";
 import { AxisStrip } from "@/components/vigilair/axis-strip";
 import { GpsZoneStrip } from "@/components/vigilair/gps-zone";
@@ -37,7 +37,7 @@ function DetectPlate() {
     <div
       data-detect="1"
       data-det-ready={scan.ready ? "1" : "0"}
-      className="pointer-events-none absolute bottom-14 left-3 z-10 w-[min(22rem,calc(100%-1.5rem))] rounded-md border border-border bg-bg/90 px-2 py-1.5 lg:hidden"
+      className="px-2 py-1.5 lg:hidden"
     >
       <p className="font-mono text-[10px] leading-snug text-muted-foreground">
         {gsd.label} · dét 1,5 · rec 6 · id 12
@@ -155,7 +155,7 @@ function TaskDeck() {
   return (
     <div
       data-deck="1"
-      className="pointer-events-none absolute inset-x-3 bottom-3 z-10 hidden rounded-md border border-border bg-bg/95 p-3 lg:block"
+      className="hidden p-3 lg:block"
     >
       <div className="flex items-baseline justify-between gap-3">
         <p className="font-mono text-xs text-fg">Poste de tâche</p>
@@ -243,6 +243,32 @@ function TaskDeck() {
   );
 }
 
+const THEATRE_KEY = "vigilair.cop.theatre";
+
+/** Bandeaux de théâtre repliés par défaut : la carte garde la hauteur. Choix gardé sur ce poste. */
+function useTheatreOpen() {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    try {
+      setOpen(window.localStorage.getItem(THEATRE_KEY) === "1");
+    } catch {
+      /* stockage bloqué : repliés */
+    }
+  }, []);
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    try {
+      window.localStorage.setItem(THEATRE_KEY, next ? "1" : "0");
+    } catch {
+      /* stockage bloqué : choix pour cette session */
+    }
+  };
+  return [open, toggle] as const;
+}
+
+const MAP_CHIP = "h-11 min-w-11 shrink-0 rounded-md px-3 text-xs transition-colors duration-150";
+
 export function CopView() {
   const tracks = useVigilair((s) => s.tracks);
   const selectedId = useVigilair((s) => s.selectedId);
@@ -270,6 +296,8 @@ export function CopView() {
   const capture = useVigilair((s) => s.capture);
   const viewOrigin = useVigilair((s) => s.viewOrigin);
   const [tab, setTab] = useState<"pistes" | "dossier">("pistes");
+  const [theatreOpen, toggleTheatre] = useTheatreOpen();
+  const [deckOpen, setDeckOpen] = useState(false);
   const scan = useSyncExternalStore(subscribePixelScan, lastPixelScan, lastPixelScan);
   const reel = realDetectLine(scan);
 
@@ -311,20 +339,47 @@ export function CopView() {
   const dim = watchMode && watchDimmed;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="max-h-[46%] shrink-0 overflow-y-auto overscroll-contain">
-      <AlertStrip />
-      <DefenseStrip />
-      <MetarStrip />
-      <WatchStrip />
-      <CaptureStrip />
-      <ZoneStrip />
-      <AxisStrip />
-      <GpsZoneStrip />
-      <MineStrip />
-      <HydroStrip />
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto overscroll-contain lg:overflow-hidden">
+      <div className="shrink-0 lg:max-h-[24%] lg:overflow-y-auto lg:overscroll-contain">
+        <AlertStrip />
+        <DefenseStrip />
+        <MetarStrip />
+        <WatchStrip />
       </div>
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:grid-cols-[280px_minmax(0,1fr)_340px] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden">
+      <button
+        type="button"
+        onClick={toggleTheatre}
+        aria-expanded={theatreOpen}
+        aria-controls="cop-theatre"
+        className="flex h-10 w-full shrink-0 items-center gap-2 border-b border-border bg-surface px-3 text-left text-xs text-muted-foreground transition-colors duration-150 hover:text-fg"
+      >
+        {theatreOpen ? (
+          <ChevronUp className="size-4 shrink-0" aria-hidden />
+        ) : (
+          <ChevronDown className="size-4 shrink-0" aria-hidden />
+        )}
+        <span className="shrink-0 font-medium text-fg">Théâtre</span>
+        <span className="min-w-0 truncate">
+          Scènes ICAO · bulles · axes · zone GPS · mines · hydro
+        </span>
+        <span className="ml-auto shrink-0">{theatreOpen ? "Replier" : "Déplier"}</span>
+      </button>
+      {/* Masqué en CSS, jamais démonté : les bandeaux gardent leurs relevés en cours. */}
+      <div
+        id="cop-theatre"
+        className={cn(
+          "shrink-0 lg:max-h-[34%] lg:overflow-y-auto lg:overscroll-contain",
+          !theatreOpen && "hidden",
+        )}
+      >
+        <CaptureStrip />
+        <ZoneStrip />
+        <AxisStrip />
+        <GpsZoneStrip />
+        <MineStrip />
+        <HydroStrip />
+      </div>
+      <div className="grid shrink-0 grid-cols-1 grid-rows-[minmax(22rem,64dvh)_auto] lg:min-h-0 lg:flex-1 lg:shrink lg:grid-cols-[240px_minmax(0,1fr)_300px] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[280px_minmax(0,1fr)_340px]">
         <aside className="hidden min-h-0 border-r border-border lg:block">
           <TrackRail />
         </aside>
@@ -340,7 +395,7 @@ export function CopView() {
           />
           <div
             className={cn(
-              "absolute left-3 top-3 z-10 flex max-w-[calc(100%-9rem)] flex-wrap gap-1 transition-opacity duration-300",
+              "absolute left-3 right-12 top-3 z-10 flex gap-1 overflow-x-auto transition-opacity duration-300 max-lg:scrollbar-none xl:right-auto xl:max-w-[calc(100%-8rem)] xl:flex-wrap xl:overflow-visible",
               dim && "opacity-40 hover:opacity-100",
             )}
           >
@@ -349,7 +404,8 @@ export function CopView() {
               data-watch="arm"
               onClick={() => setWatchMode(!watchMode)}
               className={cn(
-                "inline-flex h-11 min-w-11 items-center gap-1.5 rounded-md px-3 text-xs transition-colors duration-150",
+                MAP_CHIP,
+                "inline-flex items-center gap-1.5",
                 watchMode && !watchDimmed
                   ? "bg-crit/20 text-crit"
                   : watchMode
@@ -368,7 +424,7 @@ export function CopView() {
                 data-scale={s}
                 onClick={() => setMapScale(s)}
                 className={cn(
-                  "h-11 min-w-11 rounded-md px-3 text-xs transition-colors duration-150",
+                  MAP_CHIP,
                   mapScale === s
                     ? "bg-secondary text-fg"
                     : "bg-bg/80 text-muted-foreground hover:text-fg",
@@ -381,7 +437,7 @@ export function CopView() {
               type="button"
               onClick={() => setShowLive(!showLive)}
               className={cn(
-                "h-11 rounded-md px-3 text-xs transition-colors duration-150",
+                MAP_CHIP,
                 showLive
                   ? "bg-ok/20 text-ok"
                   : "bg-bg/80 text-muted-foreground hover:text-fg",
@@ -394,7 +450,7 @@ export function CopView() {
               type="button"
               onClick={() => setShowFriends(!showFriends)}
               className={cn(
-                "h-11 rounded-md px-3 text-xs transition-colors duration-150",
+                MAP_CHIP,
                 showFriends
                   ? "bg-ok/20 text-ok"
                   : "bg-bg/80 text-muted-foreground hover:text-fg",
@@ -424,7 +480,7 @@ export function CopView() {
                 });
               }}
               className={cn(
-                "h-11 rounded-md px-3 text-xs transition-colors duration-150",
+                MAP_CHIP,
                 capture
                   ? "bg-secondary text-fg"
                   : "bg-bg/80 text-muted-foreground hover:text-fg",
@@ -443,7 +499,7 @@ export function CopView() {
               data-px-pirogue-cls={pxPirogue.cls}
               data-reel={reel}
               title="Détection : il y a quelque chose, dès 1,5 px. Reconnaissance : c'est cette classe, dès 6 px. Identification : le modèle ou la personne, dès 12 px. Sous 1,5 px : aucune."
-              className="inline-flex h-11 max-w-[18rem] flex-col justify-center rounded-md bg-bg/80 px-3 font-mono text-[11px] leading-tight text-fg"
+              className="inline-flex h-11 max-w-[18rem] shrink-0 flex-col justify-center rounded-md bg-bg/80 px-3 font-mono text-[11px] leading-tight text-fg"
             >
               <span>{liveGsd.label}</span>
               <span className="truncate text-muted-foreground">{pixelBudgetLine(liveGsd.m)}</span>
@@ -451,7 +507,7 @@ export function CopView() {
             <button
               type="button"
               onClick={() => homeOrigin()}
-              className="h-11 rounded-md bg-bg/80 px-3 text-xs text-muted-foreground transition-colors duration-150 hover:text-fg"
+              className={cn(MAP_CHIP, "bg-bg/80 text-muted-foreground hover:text-fg")}
             >
               FTTJ
             </button>
@@ -460,7 +516,7 @@ export function CopView() {
               data-tool="mesure"
               onClick={() => setCopTool(copTool === "mesure" ? "lock" : "mesure")}
               className={cn(
-                "h-11 rounded-md px-3 text-xs transition-colors duration-150",
+                MAP_CHIP,
                 copTool === "mesure"
                   ? "bg-secondary text-fg"
                   : "bg-bg/80 text-muted-foreground hover:text-fg",
@@ -473,17 +529,18 @@ export function CopView() {
               type="button"
               data-tool="capture"
               onClick={() => snapshotCop()}
-              className="h-11 rounded-md bg-bg/80 px-3 text-xs text-muted-foreground transition-colors duration-150 hover:text-fg"
+              className={cn(MAP_CHIP, "bg-bg/80 text-muted-foreground hover:text-fg")}
             >
               Capture
             </button>
           </div>
           <div
             className={cn(
-              "absolute right-3 top-3 z-20 flex max-w-[8.5rem] flex-wrap justify-end gap-1 transition-opacity duration-300",
+              "scrollbar-none absolute inset-x-3 top-16 z-20 flex justify-end gap-1 overflow-x-auto transition-opacity duration-300 lg:left-auto lg:top-14 lg:flex-col lg:items-end lg:overflow-visible",
               dim && "opacity-40 hover:opacity-100",
             )}
           >
+            {/* Sous la boussole du canvas : rangée sur mobile, colonne sur grand écran. */}
             {SAT_LAYERS.map((l) => (
               <button
                 key={l}
@@ -494,7 +551,7 @@ export function CopView() {
                   if (watchMode) setWatchAutoLayer(false);
                 }}
                 className={cn(
-                  "h-11 min-w-11 rounded-md px-3 text-xs transition-colors duration-150",
+                  MAP_CHIP,
                   satLayer === l
                     ? "bg-secondary text-fg"
                     : "bg-bg/80 text-muted-foreground hover:text-fg",
@@ -504,48 +561,84 @@ export function CopView() {
               </button>
             ))}
           </div>
-          <DetectPlate />
-          <TaskDeck />
-          {watchMode ? (
-            <div className="pointer-events-none absolute bottom-36 left-1/2 z-10 w-[min(36rem,calc(100%-1.5rem))] -translate-x-1/2 rounded-md border border-border bg-bg/90 px-3 py-2 text-center lg:bottom-64">
-              <p className="font-mono text-xs tabular-nums text-fg">
-                {watchDimmed
-                  ? "VEILLE ARMÉE · COP live · pas de gel idle"
-                  : `RÉVEIL · ${watchWokeReason ?? "contact"}`}
-                {watchAutoLayer ? " · couche auto" : ""}
+          {/* Bas de carte : au-dessus de l'échelle du canvas, sous les barres d'outils. Ouvert, le poste de tâche passe devant les couches. */}
+          <div
+            className={cn(
+              "pointer-events-none absolute inset-x-3 top-32 bottom-11 z-10 flex flex-col justify-end gap-2 lg:top-20 xl:right-28 xl:top-40",
+              deckOpen && "z-30",
+            )}
+          >
+            {watchMode ? (
+              <div className="mx-auto w-full max-w-xl rounded-md border border-border bg-bg/90 px-3 py-2 text-center">
+                <p className="font-mono text-xs tabular-nums text-fg">
+                  {watchDimmed
+                    ? "VEILLE ARMÉE · COP live · pas de gel idle"
+                    : `RÉVEIL · ${watchWokeReason ?? "contact"}`}
+                  {watchAutoLayer ? " · couche auto" : ""}
+                </p>
+              </div>
+            ) : null}
+            <div
+              id="cop-deck"
+              className={cn(
+                "pointer-events-auto min-h-0 overflow-y-auto overscroll-contain rounded-md border border-border bg-bg",
+                !deckOpen && "hidden",
+              )}
+            >
+              <DetectPlate />
+              <TaskDeck />
+            </div>
+            <div className="flex items-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDeckOpen((v) => !v)}
+                aria-expanded={deckOpen}
+                aria-controls="cop-deck"
+                className={cn(
+                  MAP_CHIP,
+                  "pointer-events-auto inline-flex items-center gap-1.5 border border-border",
+                  deckOpen ? "bg-secondary text-fg" : "bg-bg/80 text-muted-foreground hover:text-fg",
+                )}
+              >
+                {deckOpen ? (
+                  <ChevronDown className="size-3.5" aria-hidden />
+                ) : (
+                  <ChevronUp className="size-3.5" aria-hidden />
+                )}
+                Poste de tâche
+              </button>
+              <p className="hidden max-w-md min-w-0 rounded-md bg-bg/70 px-2 py-1 text-xs leading-snug text-muted-foreground sm:block">
+                {k4Vis
+                  ? "Visible ~1 m · World Imagery · mosaïque archive · pas < 1 h"
+                  : identVis
+                  ? capture
+                    ? `Ident · ${liveGsd.label} · ${capture.title} · mosaïque World Imagery`
+                    : "Visible ident · voiture détection · pirogue reconnaissance · homme aucune · identification non atteinte"
+                  : veilleVis
+                    ? "Visible ≤ 50 m · Sentinel-2 · mosaïque · FTTJ 96 km"
+                    : approcheVis
+                    ? "Visible ≤ 50 m · Sentinel-2 · mosaïque · FTTJ 240 km"
+                    : satLayer === "nv"
+                      ? ageSrc
+                        ? `${ageSrc} · ${sceneAgeLabel(ageIso ?? null)} · natif z≤8`
+                        : "Nuit VIIRS DNB · ~750 m · quotidien · natif z≤8"
+                      : satLayer === "rel"
+                        ? "Relief ASTER GDEM ~30 m · ombrage · pas < 1 h"
+                        : satLayer === "ir" || satLayer === "th"
+                          ? ageSrc
+                            ? `${ageSrc} · ${sceneAgeLabel(ageIso ?? null)} · ~1 km (pas 50 m public)`
+                            : "IR / thermique ~1 km · nappe et massif"
+                          : ageSrc
+                            ? `${ageSrc} · ${sceneAgeLabel(ageIso ?? null)}`
+                            : "Visible mosaïque Sentinel-2 · pas géostationnaire 1 km"}
               </p>
             </div>
-          ) : null}
-          <p className="pointer-events-none absolute bottom-3 right-3 z-10 max-w-xs text-right text-xs leading-snug text-muted-foreground lg:bottom-64">
-            {k4Vis
-              ? "Visible ~1 m · World Imagery · mosaïque archive · pas < 1 h"
-              : identVis
-              ? capture
-                ? `Ident · ${liveGsd.label} · ${capture.title} · mosaïque World Imagery`
-                : "Visible ident · voiture détection · pirogue reconnaissance · homme aucune · identification non atteinte"
-              : veilleVis
-                ? "Visible ≤ 50 m · Sentinel-2 · mosaïque · FTTJ 96 km"
-                : approcheVis
-                ? "Visible ≤ 50 m · Sentinel-2 · mosaïque · FTTJ 240 km"
-                : satLayer === "nv"
-                  ? ageSrc
-                    ? `${ageSrc} · ${sceneAgeLabel(ageIso ?? null)} · natif z≤8`
-                    : "Nuit VIIRS DNB · ~750 m · quotidien · natif z≤8"
-                  : satLayer === "rel"
-                    ? "Relief ASTER GDEM ~30 m · ombrage · pas < 1 h"
-                    : satLayer === "ir" || satLayer === "th"
-                      ? ageSrc
-                        ? `${ageSrc} · ${sceneAgeLabel(ageIso ?? null)} · ~1 km (pas 50 m public)`
-                        : "IR / thermique ~1 km · nappe et massif"
-                      : ageSrc
-                        ? `${ageSrc} · ${sceneAgeLabel(ageIso ?? null)}`
-                        : "Visible mosaïque Sentinel-2 · pas géostationnaire 1 km"}
-          </p>
+          </div>
         </section>
         <aside className="hidden min-h-0 lg:block">
           <Dossier />
         </aside>
-        <div className="flex min-h-0 flex-col lg:hidden">
+        <div className="flex min-h-[60dvh] flex-col lg:hidden">
           <div className="flex border-b border-border p-1">
             <button
               type="button"

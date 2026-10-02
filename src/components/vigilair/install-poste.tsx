@@ -57,7 +57,7 @@ export function InstallPoste({
         aria-label="Installer le poste"
       >
         <Download />
-        <span className="hidden sm:inline">Installer</span>
+        <span className="hidden xl:inline">Installer</span>
       </Button>
     );
   }

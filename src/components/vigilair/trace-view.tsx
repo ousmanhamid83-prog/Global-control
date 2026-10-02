@@ -40,8 +40,13 @@ export function TraceView() {
         </p>
       </header>
 
-      <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_320px]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[220px_minmax(0,1fr)_320px]">
         <ul className="order-2 max-h-56 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-surface lg:order-1 lg:max-h-none">
+          {live.length === 0 ? (
+            <li className="px-3 py-6 text-center text-xs text-muted-foreground">
+              Aucune piste en cours.
+            </li>
+          ) : null}
           {live.map((t) => {
             const p = PLATFORM_BY_ID[t.hypotheses[0]?.platformId ?? t.truePlatformId];
             return (
@@ -55,7 +60,7 @@ export function TraceView() {
                   )}
                 >
                   <span className="font-mono text-xs">{t.callsign}</span>
-                  <span className="truncate text-xs text-muted-foreground">
+                  <span className="max-w-full truncate text-xs text-muted-foreground">
                     {p ? `${p.manufacturer} ${p.name}` : "—"}
                   </span>
                 </button>
