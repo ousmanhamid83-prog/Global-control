@@ -75,7 +75,7 @@ export function DivisionView() {
             ni effacer. Les agents n'ont pas de mot de passe — uniquement une
             clé VA- que vous émettez. Une clé se scelle au premier poste.
             Copie du logiciel ou d'un dossier = alerte, déconnexion, dossier
-            hashé — voir Sentinelle. Installez VIGILAIR sur chaque PC de
+            hashé — voir Sentinelle. Installez AfriControl sur chaque PC de
             l'équipe (Chrome / Edge) : c'est le poste réel, pas un simulateur.
           </p>
         </header>
@@ -953,7 +953,7 @@ function BotsPanel() {
       <p className="flex items-start gap-2 text-xs text-muted-foreground">
         <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
         Un logiciel web ne peut pas s'auto-détruire sur la machine d'un agent.
-        VIGILAIR coupe la session, tue la clé, consigne le travail et alerte.
+        AfriControl coupe la session, tue la clé, consigne le travail et alerte.
         Extraire un dump hors bande déclenche la même alerte.
       </p>
     </section>

@@ -9,6 +9,7 @@ import { iffModesLine, m4Label, m4Tone } from "@/lib/vigilair/iff";
 import { PPI_RANGES, TIME_VECTORS, prfHz, type PpiRangeKm } from "@/lib/vigilair/ppi";
 import { useStaff } from "@/lib/vigilair/staff-context";
 import { affiliationLabel, affiliationOf } from "@/lib/vigilair/app6";
+import { rejeuClock } from "@/lib/vigilair/rejeu";
 import { trackVisible, threatOf, useVigilair } from "@/lib/vigilair/store";
 import type { Track } from "@/lib/vigilair/types";
 import { cn } from "@/lib/utils";
@@ -43,7 +44,7 @@ export function RadarView() {
             <p className="mt-1 text-xs text-muted-foreground">
               PPI + coupe altitude RHI — pistes 1090ES / antenne live, pas un
               radar primaire FATL. Symboles APP-6 (le cadre = l'affiliation).
-              Réception seule : VIGILAIR n'émet pas. Espace = pause · L =
+              Réception seule : AfriControl n'émet pas. Espace = pause · L =
               verrouiller · F = amis · T = menace · I = IFF · M = Mode 4 · 1–9 =
               portée · ← → AAR.
             </p>
@@ -313,12 +314,12 @@ const AFFIL_TONE: Record<string, "ok" | "crit" | "warn" | "default"> = {
 };
 
 /**
- * Interception : toutes les données réellement reçues de la piste, en clair. VIGILAIR écoute,
+ * Interception : toutes les données réellement reçues de la piste, en clair. AfriControl écoute,
  * ne répond pas. Rien n'est affiché qui n'ait été entendu — les champs absents restent « — ».
  */
 function Intercept({ t }: { t: Track }) {
   const { affiliation, reason } = affiliationOf(t, threatOf(t));
-  const hex = t.feed === "adsb" ? t.id.replace(/^live-/, "").toUpperCase() : null;
+  const hex = t.feed === "adsb" || t.feed === "rejeu" ? t.id.replace(/^(live|rej)-/, "").toUpperCase() : null;
   const fl = Math.round(t.altM / 30.48);
   const via =
     t.iff?.replies?.[0]?.siteId === "antenne-1090"
@@ -327,7 +328,9 @@ function Intercept({ t }: { t: Track }) {
         ? "1090ES réseau"
         : t.feed === "rid"
           ? "Remote ID"
-          : "COP";
+          : t.feed === "rejeu" && t.rejeu
+            ? `REJEU RÉEL · reçu le ${rejeuClock(t.rejeu.posAt)}`
+            : "COP";
   const rows: [string, string][] = [
     ["Affiliation", `${affiliationLabel(affiliation)} · ${reason}`],
     ["Reçu par", via],
@@ -366,7 +369,7 @@ function Intercept({ t }: { t: Track }) {
         ))}
       </dl>
       <p className="text-[10px] leading-snug text-muted-foreground">
-        Lecture passive 1090ES / Mode S. VIGILAIR n'interroge pas et n'émet pas.
+        Lecture passive 1090ES / Mode S. AfriControl n'interroge pas et n'émet pas.
       </p>
     </div>
   );

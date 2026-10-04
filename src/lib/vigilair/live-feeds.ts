@@ -31,9 +31,10 @@ import {
   type TafRow,
 } from "./live-adsb";
 
+import type { RejeuTape } from "./rejeu";
 import type { ReceiverFeed, ReceiverStatus } from "./rx1090.server";
 
-const UA = "VIGILAIR-COP/10.0 (C-UAS detection N'Djamena; read-only)";
+const UA = "AfriControl-COP/10.0 (C-UAS detection N'Djamena; read-only)";
 
 type Cell = { lat: number; lon: number; label: string };
 
@@ -578,7 +579,7 @@ function withReceiver(net: LivePicture, rx: ReceiverStatus, rxAc: LiveAc[]): Liv
     "Antenne 1090 du poste",
     live,
     !rx.enabled
-      ? "coupée (VIGILAIR_1090=off)"
+      ? "coupée (AFRICONTROL_1090=off)"
       : live
         ? `${rx.positioned} positionnés · ${rx.heard} entendus · ${rx.msgPerS} msg/s · ${rx.endpoint}`
         : rx.connected
@@ -983,7 +984,25 @@ export const fetchLivePicture = createServerFn({ method: "GET" })
         (await Promise.race([pending, new Promise<null>((r) => setTimeout(() => r(null), 1500))])) ??
         emptyPicture("relevé Internet en cours");
     }
-    return withReceiver(net, status, rx.receiverAircraft());
+    const pic = withReceiver(net, status, rx.receiverAircraft());
+    // Bande du poste pour l'inject REJEU RÉEL : seulement ce qui a vraiment été reçu. Une position
+    // réseau en cache vieillit de l'âge du cache, pour être rejouée à sa vraie heure.
+    const now = Date.now();
+    const age = Math.max(0, now - net.at) / 1000;
+    const rec = await import("./rejeu.server");
+    rec.recordFrame(
+      now,
+      pic.aircraft.map((a) => (a.via === "antenne" ? a : { ...a, seenS: a.seenS + age })),
+    );
+    return pic;
+  });
+
+/** Bande de l'inject REJEU RÉEL : ce que ce poste a entendu (30 min), sinon l'archive réelle livrée. */
+export const fetchRejeuTape = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async (): Promise<RejeuTape | null> => {
+    const rec = await import("./rejeu.server");
+    return rec.rejeuTape();
   });
 
 /** Écoute brute de l'antenne : les trames telles qu'elles arrivent, décodées, sans filtre. */
@@ -1091,7 +1110,7 @@ export const briefLivePicture = createServerFn({ method: "POST" })
           `${a.flight} ${a.hex} ${a.icaoType ?? "?"} ${a.reg ?? ""} FL${Math.round(a.altM / 30.48)} nic=${a.nic ?? "?"} ${a.military ? "MIL" : ""} ${a.emergency ?? ""}`.trim(),
       );
     const prompt = [
-      "Officier COP C-UAS VIGILAIR, N'Djamena (FTTJ), Tchad. Briefing opérationnel en français, 12 lignes max, factuel, sans fiction, sans markdown.",
+      "Officier COP C-UAS AfriControl, N'Djamena (FTTJ), Tchad. Briefing opérationnel en français, 12 lignes max, factuel, sans fiction, sans markdown.",
       "Les données ci-dessous sont des capteurs réels (ADS-B 1090ES, METAR NOAA, SIGMET OACI, NOAA SWPC, AWC FTTJ). Ne pas inventer de pistes.",
       `Heure ingest: ${new Date(pic.at).toISOString()}`,
       `1090ES: ${pic.aircraft.length} contacts en Afrique, ${pic.sahelN} au Sahel, ${pic.localN} dans 120 km FTTJ, ${pic.emergencies.length} urgences.`,

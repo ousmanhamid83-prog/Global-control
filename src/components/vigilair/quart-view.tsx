@@ -112,7 +112,7 @@ export function QuartView() {
             Prise de poste · Relève · AAR réel
           </h1>
           <p className="max-w-3xl text-sm text-muted-foreground">
-            Un quart ouvert à la fois. À la prise, VIGILAIR gele le tableau
+            Un quart ouvert à la fois. À la prise, AfriControl gele le tableau
             capteurs réel (1090ES, METAR FTTJ, SIGMET, Kp, RWY, soleil WAT).
             La relève clôture l'AAR du sortant et ouvre le gel du rentrant.
             Le mode veille du COP (bouton Veille) est distinct : il garde le

@@ -200,9 +200,9 @@ function pdfLines(
       ? `${formatCoord(draft.stopLat, draft.stopLon)} · ${formatWhen(draft.stopAt)} · tuile ${draft.stopTile ?? "—"}`
       : "non fixé";
   const blocks: PdfBlock[] = [
-    { kind: "h", text: "VIGILAIR — dossier de preuve C-UAS" },
+    { kind: "h", text: "AfriControl — dossier de preuve C-UAS" },
     { kind: "p", text: "DIFFUSION RESTREINTE · COP N'Djamena · detection / identification" },
-    { kind: "p", text: "VIGILAIR n'emet pas. Pas de prise de controle. Pas d'injection C2." },
+    { kind: "p", text: "AfriControl n'emet pas. Pas de prise de controle. Pas d'injection C2." },
     { kind: "gap" },
     { kind: "k", text: `Bulletin  ${meta.id}` },
     { kind: "k", text: `Verse     ${formatWhen(meta.at)} WAT  ·  ${meta.filedBy} (${meta.role})` },
@@ -241,7 +241,7 @@ function pdfLines(
       kind: "p",
       text:
         draft.iffNote ??
-        "Pas de transpondeur IFF corrélé. VIGILAIR n'émet pas le challenge Mode 4.",
+        "Pas de transpondeur IFF corrélé. AfriControl n'émet pas le challenge Mode 4.",
     },
     { kind: "gap" },
     { kind: "h", text: "SIGINT / effecteur" },
@@ -254,13 +254,13 @@ function pdfLines(
       text: draft.injected
         ? "PISTE INJECTEE — formation / AAR. Ne pas traiter comme contact reel."
         : /1090ES live/.test(draft.method)
-          ? "Piste 1090ES live (adsb.lol / readsb). Pas un UAS injecte. VIGILAIR n'emet pas."
+          ? "Piste 1090ES live (adsb.lol / readsb). Pas un UAS injecte. AfriControl n'emet pas."
           : "Piste issue d'un inject de formation. Ne pas traiter comme contact reel.",
     },
     { kind: "gap" },
     {
       kind: "p",
-      text: "Mandat : detection et identification CN / TR / RU / IR. Hors mandat marque XX. Effecteur RF = demande a l'autorite, jamais une emission VIGILAIR.",
+      text: "Mandat : detection et identification CN / TR / RU / IR. Hors mandat marque XX. Effecteur RF = demande a l'autorite, jamais une emission AfriControl.",
     },
   ];
   return layout(blocks);
@@ -521,7 +521,7 @@ export const getEvidencePdf = createServerFn({ method: "GET" })
         b64: row.pdf_b64,
         sha256: row.pdf_sha256,
         callsign: row.callsign,
-        filename: `VIGILAIR-${row.callsign}-${id.slice(0, 8)}.pdf`,
+        filename: `AfriControl-${row.callsign}-${id.slice(0, 8)}.pdf`,
       };
     },
   );

@@ -51,7 +51,7 @@ export type IffFix = {
   icao24: string | null;
   flightId: string;
   source: "iff-fatl" | "adsb-asecna" | "iff-ssr";
-  /** Mode 4 crypto — réponse à un interrogateur externe, pas une émission VIGILAIR. */
+  /** Mode 4 crypto — réponse à un interrogateur externe, pas une émission AfriControl. */
   m4: IffM4State;
   m4At: number | null;
   m4Site: string | null;
@@ -273,8 +273,10 @@ export type Track = {
   /** FATL / ASECNA — affiliation amie, distincte de l'origine constructeur. */
   friendKind?: FriendKind;
   iff?: IffFix | null;
-  /** Origine de la piste : sim COP, 1090ES live, ou Remote ID. */
-  feed?: "sim" | "adsb" | "rid";
+  /** Origine de la piste : sim COP, 1090ES live, Remote ID, ou rejeu de 1090ES réellement reçu. */
+  feed?: "sim" | "adsb" | "rid" | "rejeu";
+  /** Piste de REJEU RÉEL : heure d'origine de la position et bande d'où elle vient. Jamais live. */
+  rejeu?: { posAt: number; kind: "poste" | "archive"; source: string; trailAt: number };
   icaoType?: string | null;
   reg?: string | null;
   emergency?: string | null;

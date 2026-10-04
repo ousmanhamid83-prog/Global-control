@@ -1,8 +1,8 @@
 /**
- * Symbologie APP-6 / 2525 réduite à ce que VIGILAIR sait vraiment d'une piste : l'affiliation
+ * Symbologie APP-6 / 2525 réduite à ce que AfriControl sait vraiment d'une piste : l'affiliation
  * (donnée par le cadre), la dimension (ici toujours « air »), et quelques amplificateurs.
  *
- * VIGILAIR est un poste de réception : il ne distribue rien, n'interroge rien. L'affiliation est
+ * AfriControl est un poste de réception : il ne distribue rien, n'interroge rien. L'affiliation est
  * une lecture, jamais une désignation de tir. « Inconnu » est l'état par défaut assumé : une piste
  * sans IFF ami et sans mandat connu reste INCONNU, pas HOSTILE.
  */

@@ -1,9 +1,9 @@
 /**
- * Antenne 1090 locale : VIGILAIR se branche sur le port brut de dump1090 (trames AVR, 30002 par
+ * Antenne 1090 locale : AfriControl se branche sur le port brut de dump1090 (trames AVR, 30002 par
  * défaut) et décode lui-même chaque trame. Écoute seule — le poste n'interroge pas, n'émet pas.
  *
- *   VIGILAIR_1090=127.0.0.1:30002   récepteur (hôte:port) ; « off » pour couper la liaison
- *   VIGILAIR_ANTENNE=12.1331,15.0339 position de l'antenne (décodage sol, portée physique)
+ *   AFRICONTROL_1090=127.0.0.1:30002   récepteur (hôte:port) ; « off » pour couper la liaison
+ *   AFRICONTROL_ANTENNE=12.1331,15.0339 position de l'antenne (décodage sol, portée physique)
  */
 
 import net from "node:net";
@@ -85,8 +85,9 @@ const g = globalThis as unknown as { __vigilairRx1090?: RxState };
 
 function state(): RxState {
   if (g.__vigilairRx1090) return g.__vigilairRx1090;
-  const ep = parseEndpoint(env("VIGILAIR_1090"));
-  const antenna = parseAntenna(env("VIGILAIR_ANTENNE"));
+  // Les anciens noms VIGILAIR_* restent lus : un poste déjà déployé ne perd pas son antenne.
+  const ep = parseEndpoint(env("AFRICONTROL_1090") ?? env("VIGILAIR_1090"));
+  const antenna = parseAntenna(env("AFRICONTROL_ANTENNE") ?? env("VIGILAIR_ANTENNE"));
   const st: RxState = {
     ...ep,
     antenna,

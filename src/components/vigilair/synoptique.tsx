@@ -201,7 +201,7 @@ function IdBar({
 }
 
 /**
- * Synoptique : la chaîne VIGILAIR telle qu'elle tourne, de la liaison à la trace. Chaque bloc lit
+ * Synoptique : la chaîne AfriControl telle qu'elle tourne, de la liaison à la trace. Chaque bloc lit
  * l'état réel du poste ; une particule ne circule que sur un lien où passe vraiment une donnée.
  */
 export function Synoptique({ sentinel }: { sentinel: SentinelStats | null }) {
@@ -372,7 +372,7 @@ export function Synoptique({ sentinel }: { sentinel: SentinelStats | null }) {
       h: 78,
       title: "Effecteur RF",
       value: ewArmed ? "armé" : "désarmé",
-      detail: ewArmed ? "demande chef · externe" : "VIGILAIR n'émet pas",
+      detail: ewArmed ? "demande chef · externe" : "AfriControl n'émet pas",
       tone: ewArmed ? "warn" : "idle",
       to: "/division",
     },
@@ -439,7 +439,7 @@ export function Synoptique({ sentinel }: { sentinel: SentinelStats | null }) {
       viewBox={`0 0 ${W} ${H}`}
       className="block h-auto w-full"
       role="group"
-      aria-label="Synoptique de la chaîne VIGILAIR, de la liaison à la trace"
+      aria-label="Synoptique de la chaîne AfriControl, de la liaison à la trace"
     >
       {COLUMNS.map((c, i) => (
         <text
@@ -562,7 +562,7 @@ export function Synoptique({ sentinel }: { sentinel: SentinelStats | null }) {
                 {n.id === "fusion" ? (
                   <>
                     <text x={x + 12} y={n.y + 70} className="fill-muted-foreground font-mono text-[10px]">
-                      Moteur VIGILAIR · n'émet pas
+                      Moteur AfriControl · n'émet pas
                     </text>
                     <IdBar x={x + 12} y={n.y + 82} w={COL_W - 24} mix={idMix} />
                   </>

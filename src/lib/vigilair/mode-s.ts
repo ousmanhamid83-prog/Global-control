@@ -1,4 +1,4 @@
-/** Mode S replies + MLAT TDOA. VIGILAIR n'émet pas. */
+/** Mode S replies + MLAT TDOA. AfriControl n'émet pas. */
 import { destPoint, haversineKm } from "./geo";
 import { SENSOR_SITES } from "./sensors";
 import type {
@@ -11,10 +11,10 @@ import type {
 } from "./types";
 
 export const MODE_S_NOTE =
-  "Réponses Mode S entendues sur 1090 MHz, déclenchées par les interrogateurs SSR des sites radar. VIGILAIR n'émet pas. Pas un réseau MLAT ASECNA live.";
+  "Réponses Mode S entendues sur 1090 MHz, déclenchées par les interrogateurs SSR des sites radar. AfriControl n'émet pas. Pas un réseau MLAT ASECNA live.";
 
 export const M4_CRYPTO_STEALTH =
-  "Le challenge Mode 4 part de l'interrogateur secondaire du site radar (1030 MHz). VIGILAIR n'émet pas, ne stocke pas la clé, ne calcule pas le crypto.";
+  "Le challenge Mode 4 part de l'interrogateur secondaire du site radar (1030 MHz). AfriControl n'émet pas, ne stocke pas la clé, ne calcule pas le crypto.";
 
 export const REPLY_MAX = 8;
 export const WATERFALL_MAX = 28;
@@ -106,7 +106,7 @@ export const M4_DOCTRINE: { id: string; title: string; body: string }[] = [
   {
     id: "crypto",
     title: "Chiffrement — clé du jour",
-    body: "Un calculateur crypto (famille KIR côté interrogateur, KIT côté transpondeur) dérive le challenge et la réponse à partir d'une clé quotidienne classifiée (code of the day), éventuellement segmentée par créneau. VIGILAIR ne voit jamais la clé, ne la stocke pas, ne la simule pas en clair. Seul le verdict valide / invalide / timeout remonte.",
+    body: "Un calculateur crypto (famille KIR côté interrogateur, KIT côté transpondeur) dérive le challenge et la réponse à partir d'une clé quotidienne classifiée (code of the day), éventuellement segmentée par créneau. AfriControl ne voit jamais la clé, ne la stocke pas, ne la simule pas en clair. Seul le verdict valide / invalide / timeout remonte.",
   },
   {
     id: "isls",
@@ -120,8 +120,8 @@ export const M4_DOCTRINE: { id: string; title: string; body: string }[] = [
   },
   {
     id: "emit",
-    title: "VIGILAIR n'émet pas",
-    body: "Le challenge part de l'interrogateur déjà présent sur le site radar 3D. VIGILAIR formule une demande d'interrogation, corrèle la réponse, et s'arrête là. L'opérateur adverse ne voit pas VIGILAIR. Pas d'injection C2, pas de spoof IFF sortant.",
+    title: "AfriControl n'émet pas",
+    body: "Le challenge part de l'interrogateur déjà présent sur le site radar 3D. AfriControl formule une demande d'interrogation, corrèle la réponse, et s'arrête là. L'opérateur adverse ne voit pas AfriControl. Pas d'injection C2, pas de spoof IFF sortant.",
   },
   {
     id: "mode5",
@@ -144,7 +144,7 @@ export const MODE_S_DOCTRINE: { id: string; title: string; body: string }[] = [
   {
     id: "squitter",
     title: "Squitter vs réponse sollicitée",
-    body: "Un squitter part tout seul (DF11 acquisition, DF17 ADS-B ~2 Hz). Une réponse sollicitée (DF4/5/20/21) ne part que si un interrogateur a parlé. VIGILAIR écoute les deux. Il ne parle pas.",
+    body: "Un squitter part tout seul (DF11 acquisition, DF17 ADS-B ~2 Hz). Une réponse sollicitée (DF4/5/20/21) ne part que si un interrogateur a parlé. AfriControl écoute les deux. Il ne parle pas.",
   },
   {
     id: "els",
@@ -419,5 +419,5 @@ export function iffEvidenceLine(track: Track): string | null {
       ? `MLAT ${iff.mlat.nSites} sites, écart ADS-B ${iff.mlat.adsbDeltaKm} km — usurpation suspecte`
       : `MLAT ${iff.mlat.nSites} sites, résidu ${iff.mlat.residualKm.toFixed(2)} km`
     : "pas de MLAT";
-  return `IFF ${m4} · ${ms} · squawk ${iff.squawk} · ${mlat}. VIGILAIR n'émet pas.`;
+  return `IFF ${m4} · ${ms} · squawk ${iff.squawk} · ${mlat}. AfriControl n'émet pas.`;
 }

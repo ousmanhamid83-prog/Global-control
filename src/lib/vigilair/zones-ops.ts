@@ -292,7 +292,7 @@ export const reportZoneBreach = createServerFn({ method: "POST" })
     `;
     if (data.uas && data.kind === "inside") {
       const title = `Intrusion · ${data.zoneName} · ${data.callsign}`;
-      const detail = `${data.callsign} dans la bulle ${data.zoneName} (${data.distKm.toFixed(2)} km du centre). VIGILAIR n'émet pas.`;
+      const detail = `${data.callsign} dans la bulle ${data.zoneName} (${data.distKm.toFixed(2)} km du centre). AfriControl n'émet pas.`;
       const incident = await insertSecurityIncident({
         userId: staff.userId,
         actor: staff.label,

@@ -8,7 +8,7 @@ import { VigilairRuntime } from "@/components/vigilair/vigilair-runtime";
 import { StaffProvider } from "@/lib/vigilair/staff-context";
 import appCss from "../styles.css?url";
 
-const APP_NAME = "VIGILAIR";
+const APP_NAME = "AfriControl";
 
 const fetchSessionUser = createServerFn({ method: "GET" }).handler(async () => {
   const { getSessionUser } = await import("@/lib/auth/verify.server");
@@ -26,7 +26,7 @@ export const Route = createRootRoute({
       {
         name: "description",
         content:
-          "VIGILAIR — COP C-UAS réel, poste installable. 1090ES live, METAR/SIGMET NOAA, FTTJ AWC, GNSS NIC, IFF Mode 4 FATL.",
+          "AfriControl — COP C-UAS réel, poste installable. 1090ES live, METAR/SIGMET NOAA, FTTJ AWC, GNSS NIC, IFF Mode 4 FATL.",
       },
       { name: "theme-color", content: "#09090b" },
       { name: "referrer", content: "no-referrer" },

@@ -4,7 +4,7 @@ import { theaterRank } from "@/lib/vigilair/geo";
 import { autoSatLayer, evaluateWatch } from "@/lib/vigilair/watch-mode";
 import { useVigilair } from "@/lib/vigilair/store";
 
-const TITLE_IDLE = "VIGILAIR";
+const TITLE_IDLE = "AfriControl";
 
 /**
  * Contrôleur mode veille — survit aux routes.
@@ -19,7 +19,7 @@ export function WatchMode() {
       if (!live) return;
       const st = useVigilair.getState();
       if (!st.watchMode) {
-        if (document.title.startsWith("VIGILAIR · RÉVEIL")) {
+        if (document.title.startsWith("AfriControl · RÉVEIL")) {
           document.title = TITLE_IDLE;
         }
         return;
@@ -66,8 +66,8 @@ export function WatchMode() {
 
       const woke = !useVigilair.getState().watchDimmed;
       const want = woke
-        ? `VIGILAIR · RÉVEIL · ${verdict.reason}`
-        : "VIGILAIR · VEILLE";
+        ? `AfriControl · RÉVEIL · ${verdict.reason}`
+        : "AfriControl · VEILLE";
       if (document.title !== want) {
         document.title = want;
         titleRef.current = want;
@@ -78,7 +78,7 @@ export function WatchMode() {
     return () => {
       live = false;
       window.clearInterval(id);
-      if (document.title.startsWith("VIGILAIR ·")) document.title = TITLE_IDLE;
+      if (document.title.startsWith("AfriControl ·")) document.title = TITLE_IDLE;
     };
   }, []);
 

@@ -22,6 +22,7 @@ import {
 } from "@/lib/vigilair/iff";
 import { inferSurveillance, surveillanceLabel } from "@/lib/vigilair/mode-s";
 import type { Track } from "@/lib/vigilair/types";
+import { rejeuClock } from "@/lib/vigilair/rejeu";
 import { treatContact } from "@/lib/vigilair/treat";
 import { useStaff } from "@/lib/vigilair/staff-context";
 import { threatOf, useVigilair } from "@/lib/vigilair/store";
@@ -42,6 +43,10 @@ export function Dossier() {
   const liveN = useVigilair((s) => s.tracks.filter((t) => t.feed === "adsb").length);
   const ewArmed = useVigilair((s) => s.ewArmed);
   const journal = useVigilair((s) => s.journal);
+  const autoPick = useVigilair((s) => s.autoPick);
+  const autoLockOn = useVigilair((s) => s.autoLockOn);
+  const setAutoLockOn = useVigilair((s) => s.setAutoLockOn);
+  const select = useVigilair((s) => s.select);
   const { isSuperadmin } = useStaff();
 
   if (!track) {
@@ -50,13 +55,24 @@ export function Dossier() {
         <Crosshair className="size-8 text-muted" />
         <p className="text-sm font-medium">Veille réelle</p>
         <p className="text-xs text-muted-foreground">
-          Pas de piste verrouillée. Les contacts 1090ES live, METAR, SIGMET et
-          GNSS s'affichent dès qu'un transpondeur est entendu. Un inject n'est
-          qu'un exercice.
+          {autoLockOn
+            ? "Aucun transpondeur entendu pour l'instant. Le verrou auto prendra la première piste réelle : contacts 1090ES live, METAR, SIGMET et GNSS s'afficheront ici. Un inject n'est qu'un exercice."
+            : "Verrou auto coupé, aucune piste choisie. Cliquer une piste sur la carte ou le radar pour l'ouvrir ici. Un inject n'est qu'un exercice."}
         </p>
+        {!autoLockOn ? (
+          <Button size="sm" variant="outline" className="mt-2" onClick={() => setAutoLockOn(true)}>
+            <Crosshair />
+            Réactiver le verrou auto
+          </Button>
+        ) : null}
       </div>
     );
   }
+
+  const isAuto = autoPick?.id === track.id;
+  const rej = track.feed === "rejeu" ? track.rejeu : undefined;
+  // Données transpondeur réelles : live, ou rejouées depuis une bande enregistrée.
+  const heard = track.feed === "adsb" || track.feed === "rejeu";
 
   const topId = track.hypotheses[0]?.platformId ?? (track.idState === "hors-mandat" ? track.truePlatformId : undefined);
   const plat = topId ? PLATFORM_BY_ID[topId] : undefined;
@@ -77,6 +93,46 @@ export function Dossier() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
+      {rej ? (
+        <div className="space-y-1 border-b border-border bg-primary/10 px-4 py-3" data-testid="rejeu-dossier">
+          <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-primary">
+            Rejeu réel · pas un contact live
+          </p>
+          <p className="text-xs text-fg">
+            Position reçue le <span className="font-mono tabular-nums">{rejeuClock(rej.posAt)}</span> ·{" "}
+            {rej.kind === "poste" ? "bande de ce poste" : "archive réelle"}
+          </p>
+          <p className="text-xs text-muted-foreground">{rej.source}</p>
+        </div>
+      ) : null}
+      {isAuto ? (
+        <div className="space-y-2 border-b border-border bg-primary/10 px-4 py-3" data-testid="auto-lock">
+          <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-primary">
+            Verrou auto · piste réelle
+          </p>
+          <p className="text-xs text-fg">{autoPick.reason}</p>
+          <p className="text-[11px] text-muted-foreground">
+            Choisie par la console. Un clic sur une autre piste reprend la main.
+          </p>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => select(track.id)}>
+              Garder cette piste
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setAutoLockOn(false)}>
+              Couper le verrou auto
+            </Button>
+          </div>
+        </div>
+      ) : !autoLockOn ? null : (
+        <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
+          <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted-foreground">
+            Choix opérateur
+          </span>
+          <Button size="sm" variant="ghost" onClick={() => setAutoLockOn(true)}>
+            Rendre au verrou auto
+          </Button>
+        </div>
+      )}
       <div className="flex items-start justify-between gap-3 p-4">
         <div>
           <p className="font-mono text-xs text-muted-foreground">{track.callsign}</p>
@@ -87,6 +143,7 @@ export function Dossier() {
             {track.feed === "adsb" ? (
               <Badge tone="ok">1090ES live</Badge>
             ) : null}
+            {rej ? <Badge tone="warn">REJEU RÉEL</Badge> : null}
             {ami && track.friendKind ? (
               <Badge tone={track.friendKind === "civil" ? "default" : "ok"}>{track.friendKind === "civil" ? "CIVIL" : `AMI ${friendLabel(track.friendKind)}`}</Badge>
             ) : null}
@@ -132,11 +189,13 @@ export function Dossier() {
           value={
             track.feed === "adsb"
               ? "1090ES réseau (passif)"
-              : track.sensors.map(sensorLabel).join(" · ") || "—"
+              : rej
+                ? "1090ES enregistré (rejeu)"
+                : track.sensors.map(sensorLabel).join(" · ") || "—"
           }
         />
         <Item label="Couloir" value={track.corridor ?? "—"} />
-        {track.feed === "adsb" ? (
+        {heard ? (
           <>
             <Item label="Type ICAO" value={track.icaoType ?? "—"} mono />
             <Item label="Immat." value={track.reg ?? "—"} mono />
@@ -216,8 +275,8 @@ export function Dossier() {
             <Item
               label="Affiliation"
               value={
-                track.feed === "adsb"
-                  ? `1090ES live${track.nation ? ` · ${track.nation}` : ""}`
+                heard
+                  ? `${rej ? "1090ES rejeu" : "1090ES live"}${track.nation ? ` · ${track.nation}` : ""}`
                   : track.friendKind
                     ? `${friendLabel(track.friendKind)} · ${
                         track.iff?.source === "iff-fatl"
@@ -358,7 +417,8 @@ export function Dossier() {
           <Fingerprint />
           Inject réel 1090ES
         </Button>
-        {track.feed === "adsb" || track.locked ? <TransponderBlock track={track} /> : null}
+        {/* Le traitement croise la météo et le GNSS d'AUJOURD'HUI : il n'a pas de sens pour un rejeu. */}
+        {(track.feed === "adsb" || track.locked) && !rej ? <TransponderBlock track={track} /> : null}
         <Button
           variant={track.locked ? "default" : "outline"}
           className="w-full"

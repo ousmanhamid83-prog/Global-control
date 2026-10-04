@@ -1,4 +1,4 @@
-/** Statut anonymat — chef seulement. VIGILAIR n'émet pas. */
+/** Statut anonymat — chef seulement. AfriControl n'émet pas. */
 
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";

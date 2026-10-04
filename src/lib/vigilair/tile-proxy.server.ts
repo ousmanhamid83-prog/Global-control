@@ -5,7 +5,7 @@ import path from "node:path";
 import { tileToLat, tileToLon } from "./geo";
 import type { SatLayer, SatMeta } from "./sat";
 
-const UA = "VIGILAIR-COP/21 (C-UAS tiles; no operator identity)";
+const UA = "AfriControl-COP/21 (C-UAS tiles; no operator identity)";
 const GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best";
 const EUM = "https://view.eumetsat.int/geoserver/wms";
 const EOX =
@@ -626,8 +626,8 @@ function img(bytes: Uint8Array, via: string, scene: string, mime?: string): Resp
       "Cache-Control": via.startsWith("GEO") || via === "IR" ? "public, max-age=900" : "public, max-age=1800",
       "X-Content-Type-Options": "nosniff",
       "Referrer-Policy": "no-referrer",
-      "X-Vigilair-Tile": via,
-      ...(scene ? { "X-Vigilair-Sat": scene } : {}),
+      "X-AfriControl-Tile": via,
+      ...(scene ? { "X-AfriControl-Sat": scene } : {}),
     },
   });
 }

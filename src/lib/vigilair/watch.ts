@@ -212,7 +212,7 @@ export function composeAar(opts: {
     (opts.snapIn.metarFttj ?? "") !== (opts.snapOut.metarFttj ?? "") ||
     opts.snapIn.cat !== opts.snapOut.cat;
   const lines = [
-    `QUART VIGILAIR · FTTJ`,
+    `QUART AfriControl · FTTJ`,
     `Agent : ${opts.openedLabel} · ${opts.openedRole} · ${opts.openedTeam}`,
     `Ouverture : ${opts.openedAt}`,
     `Clôture : ${opts.closedAt} · ${opts.closedLabel} · ${hours}`,
@@ -224,7 +224,7 @@ export function composeAar(opts: {
     `GNSS chaud : ${opts.snapIn.jamHot} → ${opts.snapOut.jamHot} · SWPC ${opts.snapIn.swpc} → ${opts.snapOut.swpc}`,
     opts.noteIn ? `Consigne entrée : ${opts.noteIn}` : "Consigne entrée : (aucune)",
     opts.noteOut ? `Consigne sortie : ${opts.noteOut}` : "Consigne sortie : (aucune)",
-    `VIGILAIR n'émet pas. Gel capteurs réels — 0 contact 1090 est un silence capteur, pas une panne du poste.`,
+    `AfriControl n'émet pas. Gel capteurs réels — 0 contact 1090 est un silence capteur, pas une panne du poste.`,
   ];
   return lines.join("\n");
 }

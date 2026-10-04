@@ -1,4 +1,4 @@
-/** Bulles de protection C-UAS — N'Djamena. VIGILAIR n'émet pas. */
+/** Bulles de protection C-UAS — N'Djamena. AfriControl n'émet pas. */
 
 import { isFriend } from "./friends";
 import { haversineKm, headingBetween } from "./geo";
@@ -70,6 +70,8 @@ export function getLiveZones(): ZoneRow[] {
 /** UAS / piste mandatée. Civil 1090ES (hors B6) = trafic, pas une intrusion. */
 export function isUasThreat(t: Track): boolean {
   if (isFriend(t)) return false;
+  // Un rejeu est du passé : il ne déclenche jamais une intrusion (ni son signalement au serveur).
+  if (t.feed === "rejeu") return false;
   if (t.injected) return true;
   if ((t.category ?? "").toUpperCase() === "B6") return true;
   if (t.feed === "rid") return true;

@@ -8,7 +8,7 @@ export const SAR_NOTE =
   "Sentinel-1 C-SAR GRD — appui tout-temps, nuit et harmattan. Pas une scène taskée du jour.";
 
 export const SCENE_NOTE =
-  "Fond optique : mosaïque Sentinel-2 cloudless 2023 (Copernicus / EOX). Les plots SRC / TEL / ARR sont horodatés au versement. Une scène S2 / S1 du jour se demande hors VIGILAIR.";
+  "Fond optique : mosaïque Sentinel-2 cloudless 2023 (Copernicus / EOX). Les plots SRC / TEL / ARR sont horodatés au versement. Une scène S2 / S1 du jour se demande hors AfriControl.";
 
 export function makeLaunchFix(
   lat: number,
@@ -118,7 +118,7 @@ export function evidenceText(track: Track): string {
     ? haversineKm(ev.c2.lat, ev.c2.lon, track.lat, track.lon)
     : null;
   const lines = [
-    `VIGILAIR · fiche de preuve · ${track.callsign}`,
+    `AfriControl · fiche de preuve · ${track.callsign}`,
     plat ? `${plat.manufacturer} ${plat.name} · ${plat.originLabel}` : "",
     `Lancement SRC : ${formatCoord(ev.launch.lat, ev.launch.lon)} · ${formatDate(ev.launch.at)} · ${ev.launch.method} · ${ev.launchTile}`,
     ev.c2
@@ -132,9 +132,9 @@ export function evidenceText(track: Track): string {
     ev.sceneNote,
     ev.sarNote,
     track.ew?.state === "effet"
-      ? "Effet RF simulé (effecteur externe) — VIGILAIR n'émet pas."
+      ? "Effet RF simulé (effecteur externe) — AfriControl n'émet pas."
       : "Écoute SIGINT passive — pas de prise de contrôle.",
-    "Pas de brouillage émis par VIGILAIR. Pas d'injection C2.",
+    "Pas de brouillage émis par AfriControl. Pas d'injection C2.",
   ];
   return lines.filter(Boolean).join("\n");
 }

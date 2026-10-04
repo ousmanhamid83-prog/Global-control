@@ -138,7 +138,7 @@ function Login() {
         <div className="flex items-center gap-3" role="status">
           <Logo />
           <div>
-            <p className="font-display text-xl font-bold uppercase tracking-[0.22em]">Vigilair</p>
+            <p className="font-display text-xl font-bold uppercase tracking-[0.22em]">AfriControl</p>
             <p className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">
               Chargement du poste…
             </p>
@@ -299,7 +299,7 @@ function Login() {
           <div className="flex items-center gap-3">
             <Logo />
             <div className="leading-none">
-              <p className="font-display text-xl font-bold uppercase tracking-[0.22em]">Vigilair</p>
+              <p className="font-display text-xl font-bold uppercase tracking-[0.22em]">AfriControl</p>
               <p className="mt-1.5 font-mono text-[10.5px] uppercase leading-4 tracking-[0.12em] text-muted-foreground">
                 Poste de commandement · FTTJ N'Djamena
               </p>

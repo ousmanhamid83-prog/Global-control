@@ -35,7 +35,7 @@ export function ChefSealHost() {
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
             Acte irréversible (clé, éjection, purge, verrou). Valable 5 minutes.
-            VIGILAIR n'émet pas.
+            AfriControl n'émet pas.
           </p>
         </div>
         <label className="block text-sm">

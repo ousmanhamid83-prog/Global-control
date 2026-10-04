@@ -273,7 +273,7 @@ function Mode4Tab({
       <ol className="grid gap-2 grid-cols-3">
         <FlowStep n="1" title="Challenge 1030" body="ISLS + mot chiffré, interrogateur du site radar." />
         <FlowStep n="2" title="Calculateur crypto" body="KIR/KIT · clé du jour FATL. Jamais affichée." />
-        <FlowStep n="3" title="Réponse 1090" body="Valide / invalide / timeout. Pas d'émission VIGILAIR." />
+        <FlowStep n="3" title="Réponse 1090" body="Valide / invalide / timeout. Pas d'émission AfriControl." />
       </ol>
       <div className="space-y-3">
         {M4_DOCTRINE.map((d) => (

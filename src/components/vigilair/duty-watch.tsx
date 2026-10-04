@@ -256,7 +256,7 @@ export function DutyWatch() {
             : `Copie du logiciel · ${profile?.label ?? "agent"}`,
           detail: folder
             ? "Ctrl+P — tentative d'emporter un dossier hors du COP."
-            : `Raccourci ${e.key} — tentative d'emporter VIGILAIR hors du poste scellé.`,
+            : `Raccourci ${e.key} — tentative d'emporter AfriControl hors du poste scellé.`,
           fingerprint: fpRef.current?.fingerprint,
           machineLabel: fpRef.current?.machineLabel,
         },
@@ -307,7 +307,7 @@ export function DutyWatch() {
         <p className="text-xs font-medium uppercase tracking-wide text-crit">
           Session coupée
         </p>
-        <p className="text-sm font-semibold">Sentinelle VIGILAIR</p>
+        <p className="text-sm font-semibold">Sentinelle AfriControl</p>
         <p className="text-sm text-muted-foreground">{lockMsg}</p>
         <p className="text-xs text-muted-foreground">
           Incident documenté, clé morte, chef de division alerté.

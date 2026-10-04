@@ -6,5 +6,5 @@ screenshots/
 dist/
 .nitro/
 .tanstack/
-# Tuiles locales : elles viennent de VIGILAIR-2 et VIGILAIR-3 (zips)
+# Tuiles locales : elles viennent de AfriControl-2 et AfriControl-3 (zips)
 public/sentinel/

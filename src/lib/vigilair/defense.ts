@@ -116,7 +116,7 @@ export function sopForTrack(track: Track): string[] {
   const global = computePosture([track]);
   const ew = canRequestEw(track);
   const extra = ew.ok
-    ? ["Demander un effet RF à l'autorité pour CN / TR / RU — VIGILAIR n'émet pas."]
+    ? ["Demander un effet RF à l'autorité pour CN / TR / RU — AfriControl n'émet pas."]
     : [ew.reason];
   return [...global.recs, ...extra];
 }

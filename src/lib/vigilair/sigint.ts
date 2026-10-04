@@ -33,7 +33,7 @@ export function sigintStreams(track: Track): SigintStream[] {
         id: "ew",
         label: "Brouillage",
         state: "denied",
-        detail: "Effecteur interdit sur le trafic 1090ES. VIGILAIR n'émet pas.",
+        detail: "Effecteur interdit sur le trafic 1090ES. AfriControl n'émet pas.",
       },
     ];
   }
@@ -83,7 +83,7 @@ export function sigintStreams(track: Track): SigintStream[] {
     label: "Contrôleur adverse",
     state: "lock",
     detail: jammed
-      ? "Perte de liaison côté télépilote — cause indéterminée pour lui. Pas d'indication d'interception, pas d'identité VIGILAIR."
+      ? "Perte de liaison côté télépilote — cause indéterminée pour lui. Pas d'indication d'interception, pas d'identité AfriControl."
       : "Aucune rétroaction. Le télépilote ne voit ni détection, ni lock, ni interception. Écoute passive seulement.",
   });
 
@@ -205,14 +205,14 @@ export function sigintStreams(track: Track): SigintStream[] {
       label: "Brouillage",
       state: "lock",
       detail:
-        "Effet RF simulé par effecteur externe. VIGILAIR n'émet pas. Liaison C2 dégradée. Pas de prise de contrôle.",
+        "Effet RF simulé par effecteur externe. AfriControl n'émet pas. Liaison C2 dégradée. Pas de prise de contrôle.",
     });
   } else if (track.ew?.state === "demande") {
     streams.push({
       id: "ew",
       label: "Brouillage",
       state: "scan",
-      detail: "Demande transmise à l'autorité. En attente d'effet. VIGILAIR n'émet pas.",
+      detail: "Demande transmise à l'autorité. En attente d'effet. AfriControl n'émet pas.",
     });
   } else if (track.ew?.state === "refuse") {
     streams.push({
@@ -227,7 +227,7 @@ export function sigintStreams(track: Track): SigintStream[] {
       label: "Brouillage",
       state: "denied",
       detail:
-        "VIGILAIR n'émet pas. Demande d'effet à l'autorité pour modèles CN / TR / RU identifiés.",
+        "AfriControl n'émet pas. Demande d'effet à l'autorité pour modèles CN / TR / RU identifiés.",
     });
   }
 

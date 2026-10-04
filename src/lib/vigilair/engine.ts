@@ -1,4 +1,4 @@
-/** Fusion capteurs → identification. VIGILAIR n'émet pas. */
+/** Fusion capteurs → identification. AfriControl n'émet pas. */
 import { OUT_OF_MANDATE, PLATFORMS, PLATFORM_BY_ID } from "./catalog";
 import { haversineKm } from "./geo";
 import { iffEvidenceLine } from "./mode-s";
@@ -153,7 +153,7 @@ export function methodBlurb(track: Track): string {
     const nic = track.nic != null ? `NIC ${track.nic}` : "NIC —";
     const nat = track.nation ? ` · ${track.nation}` : "";
     const mil = track.military ? " · militaire (dbFlags)" : "";
-    return `ADS-B 1090ES live · ${iff?.flightId ?? track.callsign} · ${iff?.icao24 ?? "—"} · squawk ${iff?.squawk ?? "—"} · ${nic} · pas de Mode 4 · réseau passif, VIGILAIR n'émet pas${nat}${mil}`;
+    return `ADS-B 1090ES live · ${iff?.flightId ?? track.callsign} · ${iff?.icao24 ?? "—"} · squawk ${iff?.squawk ?? "—"} · ${nic} · pas de Mode 4 · réseau passif, AfriControl n'émet pas${nat}${mil}`;
   }
   if (track.friendKind === "fatl") {
     const iff = track.iff;

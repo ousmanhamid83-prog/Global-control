@@ -1,4 +1,4 @@
-/** Verrou COP — lecture / écriture partagée. VIGILAIR n'émet pas. */
+/** Verrou COP — lecture / écriture partagée. AfriControl n'émet pas. */
 
 import { getSql } from "@/lib/db";
 import { COP_LOCK_MSG, type CopLockState } from "./guard";

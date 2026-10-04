@@ -996,7 +996,7 @@ export const provisionDemoTeam = createServerFn({ method: "POST" })
           {
             kind: "m4",
             title: "Demande Mode 4",
-            detail: "Interrogateur secondaire, VIGILAIR n'émet pas.",
+            detail: "Interrogateur secondaire, AfriControl n'émet pas.",
             agoMin: 70,
           },
           {
@@ -1183,7 +1183,7 @@ export const getSentinelPdf = createServerFn({ method: "GET" })
         b64: row.pdf_b64,
         sha256: row.pdf_sha256 ?? "",
         title: row.title,
-        filename: `VIGILAIR-SENTINELLE-${row.actor.replace(/\s+/g, "_")}-${id.slice(0, 8)}.pdf`,
+        filename: `AfriControl-SENTINELLE-${row.actor.replace(/\s+/g, "_")}-${id.slice(0, 8)}.pdf`,
       };
     },
   );
@@ -1249,7 +1249,7 @@ export const drillExfil = createServerFn({ method: "POST" })
       const specs = {
         software: {
           kind: "sabotage_software" as IncidentKind,
-          title: `Copie du logiciel VIGILAIR · ${target.label}`,
+          title: `Copie du logiciel AfriControl · ${target.label}`,
           detail:
             "Ctrl+S / inspection : tentative d'emporter le COP hors du poste scellé. Exercice chef de division.",
           machineLabel: POSTE_EXERCICE,

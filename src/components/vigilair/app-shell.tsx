@@ -85,7 +85,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="flex h-16 items-center gap-3 border-b border-border px-4">
           <Logo />
           <div>
-            <p className="font-display text-sm font-semibold tracking-tight">VIGILAIR</p>
+            <p className="font-display text-sm font-semibold tracking-tight">AfriControl</p>
             <p className="text-xs text-muted-foreground">Chargement du poste…</p>
           </div>
         </header>
@@ -263,7 +263,7 @@ function ShellBody({ children }: { children: ReactNode }) {
           <Logo />
           <div className="leading-none">
             <p className="font-display text-[17px] font-bold uppercase tracking-[0.22em] text-fg">
-              Vigilair
+              AfriControl
             </p>
             <p className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground">
               COP · FTTJ N'Djamena · silencieux

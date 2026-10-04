@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build VIGILAIR PC + mobile install kits (offline HTML + icons)."""
+"""Build AfriControl PC + mobile install kits (offline HTML + icons)."""
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -33,13 +33,13 @@ PC_HTML = f"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>VIGILAIR — installer le poste PC</title>
+<title>AfriControl — installer le poste PC</title>
 <style>{CSS}</style>
 </head>
 <body>
 <main>
 <p class="kicker">Kit poste · Windows · macOS · Linux</p>
-<h1>Installer VIGILAIR sur l'ordinateur</h1>
+<h1>Installer AfriControl sur l'ordinateur</h1>
 <p>Ceci n'est pas un simulateur. Le COP tourne en application (PWA) dans Chrome ou Edge. Mêmes flux réels : 1090ES, METAR, SIGMET, FTTJ, GNSS.</p>
 <div class="card">
 <p class="ok">Compatible Windows 10/11 (HP EliteBook, Dell, Lenovo), macOS, Linux. Navigateur : Google Chrome ou Microsoft Edge, à jour. Pas de fichier .exe : le poste s'installe comme une application native (raccourci Démarrer / bureau).</p>
@@ -47,7 +47,7 @@ PC_HTML = f"""<!DOCTYPE html>
 <h2>1. Ouvrir le COP</h2>
 <ol>
 <li>Connectez-vous au réseau de la division.</li>
-<li>Ouvrez l'URL VIGILAIR fournie par le chef (publication / serveur de division) dans <strong>Chrome</strong> ou <strong>Edge</strong>.</li>
+<li>Ouvrez l'URL AfriControl fournie par le chef (publication / serveur de division) dans <strong>Chrome</strong> ou <strong>Edge</strong>.</li>
 <li>Chef : e-mail + mot de passe. Agent : e-mail professionnel + clé VA-.</li>
 </ol>
 <h2>2. Installer comme un logiciel</h2>
@@ -69,11 +69,11 @@ PC_HTML = f"""<!DOCTYPE html>
 <li>Ne jamais copier le logiciel (Ctrl+S, F12). Coupure + alerte chef.</li>
 <li>Cinq refus d'identifiants = verrou 15 minutes, COP figé, sessions agents coupées.</li>
 <li>Huit clés fausses en 5 min = spray. Même contre-mesure.</li>
-<li class="warn">VIGILAIR ne riposte pas en réseau : il coupe, consigne, alerte. Pas de hack-back.</li>
+<li class="warn">AfriControl ne riposte pas en réseau : il coupe, consigne, alerte. Pas de hack-back.</li>
 </ul>
 <p>Icônes du poste : dossier <code>icons/</code> (192 et 512). À utiliser si vous créez un raccourci manuel.</p>
 <hr/>
-<p>VIGILAIR · C-UAS N'Djamena · lecture seule 1090ES · n'émet pas.</p>
+<p>AfriControl · C-UAS N'Djamena · lecture seule 1090ES · n'émet pas.</p>
 </main>
 </body>
 </html>
@@ -84,24 +84,24 @@ MOB_HTML = f"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<meta name="apple-mobile-web-app-title" content="VIGILAIR"/>
+<meta name="apple-mobile-web-app-title" content="AfriControl"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
-<title>VIGILAIR — installer Android / iOS</title>
+<title>AfriControl — installer Android / iOS</title>
 <style>{CSS}</style>
 </head>
 <body>
 <main>
 <p class="kicker">Kit mobile · Android · iPhone · iPad</p>
-<h1>Installer VIGILAIR sur le téléphone</h1>
+<h1>Installer AfriControl sur le téléphone</h1>
 <p>Même COP que le poste PC. À installer sur l'écran d'accueil. Pas d'application Play Store / App Store : c'est le poste web scellé de la division.</p>
 <div class="card">
 <p class="ok">Android : Chrome. iPhone / iPad : Safari uniquement (les autres navigateurs iOS n'installent pas correctement). Pas d'APK ni d'IPA.</p>
 </div>
 <h2>Android</h2>
 <ol>
-<li>Ouvrez l'URL VIGILAIR dans <strong>Chrome</strong>.</li>
+<li>Ouvrez l'URL AfriControl dans <strong>Chrome</strong>.</li>
 <li>Menu · <em>Ajouter à l'écran d'accueil</em> / <em>Installer l'application</em>.</li>
-<li>Confirmez. L'icône VIGILAIR apparaît sur l'écran d'accueil.</li>
+<li>Confirmez. L'icône AfriControl apparaît sur l'écran d'accueil.</li>
 <li>Connectez-vous : e-mail + clé VA- (agent) ou e-mail + mot de passe (chef).</li>
 </ol>
 <h2>iPhone / iPad</h2>
@@ -121,18 +121,18 @@ MOB_HTML = f"""<!DOCTYPE html>
 <li>Ne pas transférer la clé VA- sur un second appareil.</li>
 <li>Capture d'écran massive / AirDrop de dossiers = sentinelle, session coupée.</li>
 <li>Réseau : 4G/5G ou Wi-Fi division. Les capteurs (1090, METAR) restent des flux réels.</li>
-<li class="warn">Cinq refus = verrou. VIGILAIR coupe, consigne, alerte. Il n'attaque pas le réseau adverse.</li>
+<li class="warn">Cinq refus = verrou. AfriControl coupe, consigne, alerte. Il n'attaque pas le réseau adverse.</li>
 </ul>
 <p>Icônes : dossier <code>icons/</code>. Fond noir, lisible de jour comme de nuit.</p>
 <hr/>
-<p>VIGILAIR · C-UAS N'Djamena · n'émet pas.</p>
+<p>AfriControl · C-UAS N'Djamena · n'émet pas.</p>
 </main>
 </body>
 </html>
 """
 
-README_PC = """VIGILAIR — kit poste PC
-=======================
+README_PC = """AfriControl — kit poste PC
+==========================
 1. Ouvrez INSTALLER.html (double-clic).
 2. Suivez Chrome / Edge · Installer l'application.
 3. Chef : e-mail + mot de passe. Agent : e-mail + clé VA-.
@@ -140,11 +140,11 @@ README_PC = """VIGILAIR — kit poste PC
 Windows, macOS, Linux. Pas de fichier .exe : le poste est une application web
 installée (PWA), c'est le mode supporté sur tous les ordinateurs de la division.
 
-VIGILAIR n'émet pas. 1090ES / METAR / SIGMET / GNSS = capteurs réels.
+AfriControl n'émet pas. 1090ES / METAR / SIGMET / GNSS = capteurs réels.
 """
 
-README_MOB = """VIGILAIR — kit Android / iOS
-============================
+README_MOB = """AfriControl — kit Android / iOS
+===============================
 1. Ouvrez INSTALLER.html sur le téléphone (ou lisez-le depuis un PC).
 2. Android : Chrome · Ajouter à l'écran d'accueil.
 3. iPhone : Safari · Partager · Sur l'écran d'accueil.
@@ -152,11 +152,11 @@ README_MOB = """VIGILAIR — kit Android / iOS
 Pas d'APK ni d'IPA. L'installation officielle est l'écran d'accueil (PWA),
 valable Android et iOS.
 
-VIGILAIR n'émet pas.
+AfriControl n'émet pas.
 """
 
-IDENTITE = """VIGILAIR — identité
-===================
+IDENTITE = """AfriControl — identité
+======================
 Chef de division
   e-mail + mot de passe (8 caractères minimum).
   Premier compte créé = super-administrateur du contrat.
@@ -172,8 +172,8 @@ L'e-mail sans la bonne clé = refus générique.
 La clé sans le bon e-mail = refus générique.
 """
 
-SECURITE = """VIGILAIR — garde anti-piratage
-==============================
+SECURITE = """AfriControl — garde anti-piratage
+=================================
 Détection
   5 refus e-mail / mot de passe ou clé VA- en 10 min = force brute
   8 clés fausses en 5 min = spray
@@ -186,7 +186,7 @@ Contre-mesure (défensive uniquement)
   Sessions agents coupées (le chef reste pour lever le verrou)
   Incident consigné + alerte chef (Telegram / Signal si configurés)
 
-VIGILAIR n'émet pas. Il ne riposte pas sur le réseau adverse.
+AfriControl n'émet pas. Il ne riposte pas sur le réseau adverse.
 Il coupe, consigne, alerte.
 """
 
@@ -219,5 +219,5 @@ def build(name: str, installer: str, readme: str) -> Path:
 
 
 if __name__ == "__main__":
-    build("VIGILAIR-poste-PC.zip", PC_HTML, README_PC)
-    build("VIGILAIR-poste-mobile.zip", MOB_HTML, README_MOB)
+    build("AfriControl-poste-PC.zip", PC_HTML, README_PC)
+    build("AfriControl-poste-mobile.zip", MOB_HTML, README_MOB)

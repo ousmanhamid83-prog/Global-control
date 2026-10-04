@@ -27,6 +27,7 @@ const FILTERS: { id: FilterOrigin; label: string }[] = [
 export function TrackRail() {
   const tracks = useVigilair((s) => s.tracks);
   const selectedId = useVigilair((s) => s.selectedId);
+  const autoId = useVigilair((s) => s.autoPick?.id ?? null);
   const originFilter = useVigilair((s) => s.originFilter);
   const search = useVigilair((s) => s.search);
   const showFriends = useVigilair((s) => s.showFriends);
@@ -128,6 +129,11 @@ export function TrackRail() {
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-mono text-sm tabular-nums">
                       {t.callsign}
+                      {t.id === autoId ? (
+                        <span className="ml-2 font-mono text-[10px] uppercase tracking-[0.06em] text-primary">
+                          auto
+                        </span>
+                      ) : null}
                     </span>
                     <Badge tone={ami ? (t.friendKind === "civil" ? "default" : "ok") : originTone(t.origin)}>
                       {ami
@@ -158,7 +164,7 @@ export function TrackRail() {
                       </Badge>
                     ) : null}
                     {t.iff ? <IffBadge m4={t.iff.m4} /> : null}
-                    {t.injected ? <Badge tone="warn">INJ</Badge> : null}
+                    {t.feed === "rejeu" ? <Badge tone="warn">REJ</Badge> : t.injected ? <Badge tone="warn">INJ</Badge> : null}
                   </div>
                 </button>
               </li>

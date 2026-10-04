@@ -1,4 +1,4 @@
-/** Sentinelle DLP — une clé VA- est collée au premier poste. VIGILAIR n'émet pas. */
+/** Sentinelle DLP — une clé VA- est collée au premier poste. AfriControl n'émet pas. */
 
 import { POSTE_LABEL } from "./privacy";
 
@@ -19,7 +19,7 @@ export const SENTINEL_DOCTRINE = [
   {
     id: "software",
     title: "Copie du logiciel",
-    body: "Ctrl+S, enregistrer la page, inspection (F12), source (Ctrl+U). L'agent n'emporte pas VIGILAIR. Détection → coupure immédiate, alerte Telegram/Signal si configurés, PDF d'incident scellé SHA-256.",
+    body: "Ctrl+S, enregistrer la page, inspection (F12), source (Ctrl+U). L'agent n'emporte pas AfriControl. Détection → coupure immédiate, alerte Telegram/Signal si configurés, PDF d'incident scellé SHA-256.",
   },
   {
     id: "folder",
@@ -34,7 +34,7 @@ export const SENTINEL_DOCTRINE = [
   {
     id: "brute",
     title: "Force brute et spray de clés",
-    body: "Cinq échecs e-mail / mot de passe ou clé VA- en dix minutes : verrou 15 min, alerte chef, COP figé, sessions agents coupées. Huit clés fausses en cinq minutes = spray. VIGILAIR ne riposte pas sur le réseau adverse : il coupe, consigne, alerte.",
+    body: "Cinq échecs e-mail / mot de passe ou clé VA- en dix minutes : verrou 15 min, alerte chef, COP figé, sessions agents coupées. Huit clés fausses en cinq minutes = spray. AfriControl ne riposte pas sur le réseau adverse : il coupe, consigne, alerte.",
   },
   {
     id: "identite",
@@ -44,7 +44,7 @@ export const SENTINEL_DOCTRINE = [
   {
     id: "anonymat",
     title: "Anonymat du chef et du COP",
-    body: "Aucune police ni carte tierce depuis le navigateur : Google, NASA GIBS et EOX ne voient pas l'IP du poste. Les sessions n'enregistrent ni IP ni User-Agent. L'e-mail du chef n'apparaît pas sur le COP. VIGILAIR n'émet pas, ne riposte pas, ne révèle pas le super-administrateur à un opérateur ou un cybercriminel.",
+    body: "Aucune police ni carte tierce depuis le navigateur : Google, NASA GIBS et EOX ne voient pas l'IP du poste. Les sessions n'enregistrent ni IP ni User-Agent. L'e-mail du chef n'apparaît pas sur le COP. AfriControl n'émet pas, ne riposte pas, ne révèle pas le super-administrateur à un opérateur ou un cybercriminel.",
   },
   {
     id: "sceau",
@@ -86,7 +86,7 @@ export async function machineFingerprint(): Promise<{
       ctx.textBaseline = "top";
       ctx.font = "14px IBM Plex Sans, sans-serif";
       ctx.fillStyle = "#c8ccd4";
-      ctx.fillText("VIGILAIR-M4-SENTINELLE", 2, 4);
+      ctx.fillText("AfriControl-M4-SENTINELLE", 2, 4);
       parts.push(c.toDataURL());
     }
   } catch {

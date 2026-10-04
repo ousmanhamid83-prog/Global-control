@@ -1,4 +1,4 @@
-/** 1090ES dump1090 / readsb — fusion en pistes VIGILAIR. VIGILAIR n'émet pas. */
+/** 1090ES dump1090 / readsb — fusion en pistes AfriControl. AfriControl n'émet pas. */
 
 import type { Phenomenon } from "./capture";
 import { PLATFORM_BY_ID } from "./catalog";
@@ -8,7 +8,7 @@ import { M4_ABSENT_CIVIL } from "./iff";
 import type { IffFix, ModeSReply, Track, UasClass } from "./types";
 
 export const LIVE_CREDIT =
-  "Capteurs réels · antenne 1090 du poste (dump1090) · 1090ES adsb.lol/readsb · METAR/TAF/SIGMET NOAA · GNSS NIC + NOAA SWPC · FTTJ AWC · registre adsbdb. Pas un radar primaire FATL. VIGILAIR n'émet pas.";
+  "Capteurs réels · antenne 1090 du poste (dump1090) · 1090ES adsb.lol/readsb · METAR/TAF/SIGMET NOAA · GNSS NIC + NOAA SWPC · FTTJ AWC · registre adsbdb. Pas un radar primaire FATL. AfriControl n'émet pas.";
 
 export type LiveAc = {
   hex: string;
@@ -219,8 +219,8 @@ export function parseDump1090(ac: unknown[]): LiveAc[] {
     const gsKt = num(r.gs) ?? num(r.tas) ?? 0;
     const track = num(r.track) ?? num(r.true_heading) ?? num(r.mag_heading) ?? 0;
     const roc = num(r.baro_rate) ?? num(r.geom_rate) ?? 0;
-    const flight = String(r.flight ?? r.r ?? hex)
-      .trim()
+    // « @@@@@@@@ » = indicatif non transmis : immatriculation, sinon adresse.
+    const flight = (String(r.flight ?? "").replace(/@/g, "").trim() || String(r.r ?? hex).trim())
       .toUpperCase()
       .slice(0, 8);
     const sq = squawkOf(r.squawk);

@@ -130,7 +130,7 @@ export const authGate = createServerFn({ method: "POST" })
             await raisePirate({
               kind: "brute_force",
               title: `Force brute · ${shown}`,
-              detail: `${n + 1} échecs en 10 min. COP figé. Sessions agents coupées. Identité ${shown}. VIGILAIR n'émet pas.`,
+              detail: `${n + 1} échecs en 10 min. COP figé. Sessions agents coupées. Identité ${shown}. AfriControl n'émet pas.`,
               identityShown: shown,
             });
           }

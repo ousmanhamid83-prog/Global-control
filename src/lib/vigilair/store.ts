@@ -18,6 +18,7 @@ import {
   type ThreatFloor,
 } from "./iff";
 import { INJECTS, spawnInject } from "./inject";
+import { autoLockPick, type AutoPick } from "./auto-lock";
 import type { GpsZone } from "./passability";
 import { iffEvidenceLine, tickModeS } from "./mode-s";
 import { DEFAULT_PPI, type HistSample, type PpiParams } from "./ppi";
@@ -30,10 +31,13 @@ import {
 } from "./replay";
 import { spawnTrack, stepTrack } from "./simulate";
 import {
+  emergencyLabel,
   isLiveFeed,
+  liveAcToTrack,
   mergeLiveTracks,
   type LivePicture,
 } from "./live-adsb";
+import { indexTape, rejeuClock, tapeAt, type RejeuTape, type TapeIndex } from "./rejeu";
 import { treatContact } from "./treat";
 import { preloadAoTiles, preloadAt, SAT_CREDIT, tileRef } from "./tiles";
 import type { SatLayer, SatMeta } from "./sat";
@@ -102,12 +106,31 @@ function saveClips(clips: AudioClip[]) {
 }
 
 export type FilterOrigin = Origin | "ALL" | "AMI" | "LIVE";
+
+/** Inject REJEU RÉEL en cours : la bande, l'heure d'origine lue, la vitesse. */
+export type RejeuState = {
+  kind: RejeuTape["kind"];
+  source: string;
+  from: number;
+  to: number;
+  /** Heure d'origine de l'instant rejoué (ms). */
+  clock: number;
+  speed: number;
+  n: number;
+};
+
+export const REJEU_INJECT_ID = "rejeu-reel";
 export type ClockMode = "live" | "replay";
 export type CopTool = "lock" | "mesure" | "zone";
 
 type VigilairState = {
   tracks: Track[];
   selectedId: string | null;
+  /** Verrou automatique en place (la sélection vient de la console, pas de l'opérateur). */
+  autoPick: AutoPick | null;
+  /** L'opérateur peut couper le verrou auto ; il reste alors sans piste tant qu'il ne choisit pas. */
+  autoLockOn: boolean;
+  rejeu: RejeuState | null;
   alerts: AlertItem[];
   journal: JournalEntry[];
   clips: AudioClip[];
@@ -169,6 +192,7 @@ type VigilairState = {
   stewardLog: { at: number; text: string }[];
   select: (id: string | null) => void;
   lockTrack: (id: string | null) => void;
+  setAutoLockOn: (on: boolean) => void;
   setOriginFilter: (v: FilterOrigin) => void;
   setSearch: (v: string) => void;
   setRunning: (v: boolean) => void;
@@ -207,6 +231,9 @@ type VigilairState = {
   returnToLive: () => void;
   runInject: (id: string) => void;
   lockLive: () => void;
+  startRejeu: (tape: RejeuTape) => void;
+  setRejeuSpeed: (speed: number) => void;
+  stopRejeu: () => void;
   purgeInjects: () => void;
   setInstruction: (v: boolean) => void;
   setShowFriends: (v: boolean) => void;
@@ -275,7 +302,7 @@ function applyZoneAlerts(tracks: Track[], now: number, alerts: AlertItem[]): voi
         at: now,
         level: "critique",
         title: `INTRUSION · ${st.zone.name} · ${c.callsign}`,
-        body: `${c.distKm.toFixed(2)} km du centre. Bulle armée. VIGILAIR n'émet pas.`,
+        body: `${c.distKm.toFixed(2)} km du centre. Bulle armée. AfriControl n'émet pas.`,
         acked: false,
       });
       void reportZoneBreach({
@@ -414,6 +441,9 @@ function goLive(running = true) {
 export const useVigilair = create<VigilairState>()((set, get) => ({
   tracks: [],
   selectedId: null,
+  autoPick: null,
+  autoLockOn: true,
+  rejeu: null,
   alerts: [],
   journal: [],
   clips: [],
@@ -473,13 +503,23 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   weeklyHour: 5,
   lastWeeklyAt: 0,
   stewardLog: [],
-  select: (id) => set({ selectedId: id }),
+  // Un choix de l'opérateur annule le verrou auto : sa main prime toujours.
+  select: (id) => set({ selectedId: id, autoPick: null }),
+  setAutoLockOn: (on) => {
+    const s = get();
+    if (!on) {
+      set({ autoLockOn: false, autoPick: null, selectedId: s.autoPick ? null : s.selectedId });
+      return;
+    }
+    set({ autoLockOn: true, autoPick: null, selectedId: null });
+    applyAutoLock(Date.now());
+  },
   lockTrack: (id) => {
     liveTracks = liveTracks.map((t) => ({ ...t, locked: id != null && t.id === id }));
     if (replayView) {
       replayView = replayView.map((t) => ({ ...t, locked: id != null && t.id === id }));
     }
-    set({ selectedId: id, tracks: peekTracks() });
+    set({ selectedId: id, autoPick: null, tracks: peekTracks() });
     if (id) {
       const t = peekTracks().find((x) => x.id === id);
       emitDuty({
@@ -761,7 +801,7 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
       at: now,
       level: "elevee",
       title: `${t.callsign} · demande d'effet RF`,
-      body: "Transmis à l'autorité. Télépilote non informé. VIGILAIR n'émet pas.",
+      body: "Transmis à l'autorité. Télépilote non informé. AfriControl n'émet pas.",
       acked: false,
     };
     const alerts = [asked, ...useVigilair.getState().alerts].slice(0, 40);
@@ -769,7 +809,7 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
     emitDuty({
       kind: "ew",
       title: `Demande RF ${t.callsign}`,
-      detail: "Transmis à l'autorité. VIGILAIR n'émet pas.",
+      detail: "Transmis à l'autorité. AfriControl n'émet pas.",
       trackId,
       severity: "warn",
     });
@@ -974,6 +1014,7 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
       mapScale: spec.mapScale,
       tracks: liveTracks,
       selectedId: created[0]!.id,
+      autoPick: null,
       now,
       running: true,
       spawned,
@@ -1006,8 +1047,82 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
     });
     get().lockTrack(best.id);
   },
+  startRejeu: (tape) => {
+    if (get().copLock?.locked) return;
+    const now = Date.now();
+    replayView = null;
+    liveTracks = liveTracks.filter((t) => t.feed !== "rejeu");
+    rejeuRun = {
+      tape,
+      index: indexTape(tape),
+      baseT: tape.from,
+      startedAt: now,
+      speed: 1,
+      lastStep: 0,
+      warned: new Set(),
+    };
+    useVigilair.setState({
+      rejeu: {
+        kind: tape.kind,
+        source: tape.source,
+        from: tape.from,
+        to: tape.to,
+        clock: tape.from,
+        speed: 1,
+        n: 0,
+      },
+    });
+    stepRejeu(now, true);
+    // La piste rejouée la plus proche de FTTJ ouvre le dossier ; la carte va la chercher.
+    let focus: Track | null = null;
+    let best = Infinity;
+    for (const t of liveTracks) {
+      if (t.feed !== "rejeu") continue;
+      const d = haversineKm(t.lat, t.lon, HOME.lat, HOME.lon);
+      if (d < best) {
+        best = d;
+        focus = t;
+      }
+    }
+    const heard = Object.keys(tape.ac).length;
+    const alert: AlertItem = {
+      id: `al-rejeu-${now}`,
+      trackId: focus?.id ?? "",
+      at: now,
+      level: "faible",
+      title: `REJEU RÉEL · ${heard} avions enregistrés`,
+      body: `${tape.kind === "poste" ? "Bande de ce poste" : "Archive réelle"} · ${rejeuClock(tape.from)} → ${rejeuClock(tape.to)} · ${tape.source}. Trafic réel rejoué, pas un contact live.`,
+      acked: false,
+      injected: true,
+    };
+    set({
+      clockMode: "live",
+      running: true,
+      instruction: true,
+      lastInject: REJEU_INJECT_ID,
+      tracks: liveTracks,
+      selectedId: focus?.id ?? null,
+      autoPick: null,
+      viewOrigin: focus ? { lat: focus.lat, lon: focus.lon } : get().viewOrigin,
+      mapScale: focus ? "approche" : get().mapScale,
+      now,
+      alerts: [alert, ...get().alerts].slice(0, 48),
+    });
+  },
+  setRejeuSpeed: (speed) => {
+    const run = rejeuRun;
+    const st = get().rejeu;
+    if (!run || !st) return;
+    const now = Date.now();
+    run.baseT = rejeuNow(run, now);
+    run.startedAt = now;
+    run.speed = speed;
+    set({ rejeu: { ...st, speed } });
+  },
+  stopRejeu: () => endRejeu(Date.now(), "arrêté par l'opérateur"),
   purgeInjects: () => {
     liveTracks = liveTracks.filter((t) => t.feed === "adsb" || t.feed === "rid");
+    rejeuRun = null;
     replayView = null;
     mlatWarned.clear();
     const keep = new Set(liveTracks.map((t) => t.id));
@@ -1020,19 +1135,131 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
       now: Date.now(),
       running: true,
       selectedId: selectedId && keep.has(selectedId) ? selectedId : null,
+      rejeu: null,
       alerts: get().alerts.filter(
         (a) => !a.injected && (!a.trackId || keep.has(a.trackId)),
       ),
     });
+    applyAutoLock(Date.now());
   },
 }));
 
+type RejeuRun = {
+  tape: RejeuTape;
+  index: TapeIndex;
+  /** Heure d'origine lue à `startedAt`. */
+  baseT: number;
+  startedAt: number;
+  speed: number;
+  lastStep: number;
+  warned: Set<string>;
+};
+
+let rejeuRun: RejeuRun | null = null;
+
+function rejeuNow(run: RejeuRun, now: number): number {
+  return run.baseT + (now - run.startedAt) * run.speed;
+}
+
+/**
+ * Avance le rejeu (1 Hz) : les pistes prennent la position que la bande avait à cette heure
+ * d'origine. Elles portent feed « rejeu » et l'heure d'origine : jamais comptées comme live.
+ */
+function stepRejeu(now: number, force = false) {
+  const run = rejeuRun;
+  if (!run) return;
+  if (!force && now - run.lastStep < 1000) return;
+  run.lastStep = now;
+  const t = rejeuNow(run, now);
+  if (t > run.tape.to + 45_000) {
+    endRejeu(now, "fin de bande");
+    return;
+  }
+  const prevById = new Map<string, Track>();
+  for (const x of liveTracks) if (x.feed === "rejeu") prevById.set(x.id, x);
+  const next: Track[] = [];
+  const alerts: AlertItem[] = [];
+  for (const p of tapeAt(run.tape, t, run.index)) {
+    const id = `rej-${p.ac.hex}`;
+    const prev = prevById.get(id);
+    const ac = { ...p.ac, emergency: emergencyLabel(p.ac.emergency) };
+    const base = liveAcToTrack(ac, now, prev);
+    const trailAt = prev?.rejeu?.trailAt ?? 0;
+    const moveTrail = !prev || now - trailAt >= 8000;
+    next.push({
+      ...base,
+      id,
+      feed: "rejeu",
+      injected: true,
+      trail: moveTrail ? base.trail : prev.trail,
+      launchFix: base.launchFix ? { ...base.launchFix, method: "REJEU RÉEL 1090ES" } : null,
+      rejeu: {
+        posAt: p.posAt,
+        kind: run.tape.kind,
+        source: run.tape.source,
+        trailAt: moveTrail ? now : trailAt,
+      },
+    });
+    if (ac.emergency && !run.warned.has(id)) {
+      run.warned.add(id);
+      alerts.push({
+        id: `al-rejeu-emg-${id}-${now}`,
+        trackId: id,
+        at: now,
+        level: "moderee",
+        title: `REJEU · ${base.callsign} · ${ac.emergency}`,
+        body: `Urgence réelle enregistrée le ${rejeuClock(p.posAt)}. Rejeu, pas un contact live.`,
+        acked: false,
+        injected: true,
+      });
+    }
+  }
+  liveTracks = [...liveTracks.filter((x) => x.feed !== "rejeu"), ...next];
+  const st = useVigilair.getState();
+  const patch: Partial<VigilairState> = {};
+  if (st.rejeu) patch.rejeu = { ...st.rejeu, clock: t, n: next.length };
+  if (alerts.length > 0) patch.alerts = [...alerts, ...st.alerts].slice(0, 48);
+  useVigilair.setState(patch);
+}
+
+function endRejeu(now: number, why: string) {
+  if (!rejeuRun) return;
+  const run = rejeuRun;
+  rejeuRun = null;
+  liveTracks = liveTracks.filter((t) => t.feed !== "rejeu");
+  const s = useVigilair.getState();
+  const others = liveTracks.some((t) => t.injected);
+  const sel = s.selectedId;
+  useVigilair.setState({
+    rejeu: null,
+    tracks: liveTracks,
+    instruction: others ? s.instruction : false,
+    lastInject: s.lastInject === REJEU_INJECT_ID ? null : s.lastInject,
+    selectedId: sel?.startsWith("rej-") ? null : sel,
+    alerts: [
+      {
+        id: `al-rejeu-fin-${now}`,
+        trackId: "",
+        at: now,
+        level: "faible" as const,
+        title: "REJEU RÉEL terminé",
+        body: `${why} · bande ${rejeuClock(run.tape.from)} → ${rejeuClock(run.tape.to)}. Retour à la veille réelle.`,
+        acked: false,
+        injected: true,
+      },
+      ...s.alerts,
+    ].slice(0, 48),
+  });
+  applyAutoLock(now);
+}
+
 function applySim(dt: number) {
   const now = Date.now();
+  stepRejeu(now);
   const alerts: AlertItem[] = [];
   const armed = useVigilair.getState().ewArmed;
   liveTracks = liveTracks.map((t) => {
-    if (isLiveFeed(t)) return t;
+    if (isLiveFeed(t) || t.feed === "rejeu") return t;
     let next = stepTrack(t, dt, now);
     if (
       next.iff?.m4 === "demande" &&
@@ -1248,6 +1475,7 @@ export function bootVigilair() {
   preloadAoTiles();
   if (!useVigilair.getState().instruction) {
     liveTracks = liveTracks.filter((t) => t.feed === "adsb" || t.feed === "rid");
+    rejeuRun = null;
   }
   if (useVigilair.getState().now === 0) {
     const now = Date.now();
@@ -1365,6 +1593,27 @@ export function sortTracks(tracks: Track[]): Track[] {
 }
 
 
+/**
+ * Verrou automatique : sans choix de l'opérateur (ou si sa piste a disparu), la sélection suit la
+ * piste réelle prioritaire (voir auto-lock.ts). La caméra ne bouge pas : le panneau montre les
+ * données, la veille de FTTJ reste à l'écran.
+ */
+function applyAutoLock(now: number) {
+  const s = useVigilair.getState();
+  if (!s.autoLockOn || s.clockMode === "replay") return;
+  const sel = s.selectedId;
+  const auto = s.autoPick && s.autoPick.id === sel ? s.autoPick : null;
+  if (sel && !auto && liveTracks.some((t) => t.id === sel)) return;
+  const pick = autoLockPick(liveTracks, now, auto);
+  if (!pick) {
+    if (auto || sel) useVigilair.setState({ autoPick: null, selectedId: null });
+    return;
+  }
+  if (pick.id !== sel || pick.reason !== s.autoPick?.reason) {
+    useVigilair.setState({ autoPick: pick, selectedId: pick.id });
+  }
+}
+
 export function ingestLivePicture(pic: LivePicture) {
   const usable =
     pic.aircraft.length > 0 ||
@@ -1395,7 +1644,7 @@ export function ingestLivePicture(pic: LivePicture) {
       at: now,
       level: "critique",
       title: `${tr.callsign} · ${tr.emergency}`,
-      body: `Squawk d'urgence 1090ES live. ${tr.icaoType ?? ""} ${tr.reg ?? ""} · VIGILAIR n'émet pas.`.trim(),
+      body: `Squawk d'urgence 1090ES live. ${tr.icaoType ?? ""} ${tr.reg ?? ""} · AfriControl n'émet pas.`.trim(),
       acked: false,
     });
   }
@@ -1508,6 +1757,7 @@ export function ingestLivePicture(pic: LivePicture) {
     patch.alerts = [...alerts, ...useVigilair.getState().alerts].slice(0, 48);
   }
   useVigilair.setState(patch);
+  applyAutoLock(now);
   const bornUav = born.find((tr) => (tr.category ?? "").toUpperCase() === "B6");
   const stNow = useVigilair.getState();
   const holdCamera = Boolean(stNow.lakeRouteId || stNow.mineId || stNow.waterId);

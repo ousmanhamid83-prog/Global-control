@@ -86,7 +86,7 @@ export function ZoneView() {
             pas une attaque. Les périmètres miniers du Tchad, du Sahel, du
             Maghreb et de l'Afrique de l'Est sont armés à part : même alerte
             si une piste entre. Ils ne dessinent ni un homme ni une voiture.
-            VIGILAIR n'émet pas.
+            AfriControl n'émet pas.
           </p>
         </header>
 

@@ -2,7 +2,7 @@ import { PLATFORM_BY_ID } from "./catalog";
 import { isFriend } from "./friends";
 import type { EwState, Origin, Track } from "./types";
 
-/** Effecteur RF simulé — CN / TR / RU uniquement. VIGILAIR n'émet pas. */
+/** Effecteur RF simulé — CN / TR / RU uniquement. AfriControl n'émet pas. */
 export const EW_ORIGINS: Origin[] = ["CN", "TR", "RU"];
 
 export const STEALTH_NOTE =
@@ -66,8 +66,8 @@ export function canRequestEw(
   return {
     ok: true,
     reason: gnss
-      ? "Demande d'effet RF/GNSS. VIGILAIR n'émet pas. Le télépilote verra une perte de liaison, sans savoir qu'il est intercepté."
-      : "Demande d'effet RF (C2). VIGILAIR n'émet pas. Le contrôleur adverse n'est pas informé de la détection.",
+      ? "Demande d'effet RF/GNSS. AfriControl n'émet pas. Le télépilote verra une perte de liaison, sans savoir qu'il est intercepté."
+      : "Demande d'effet RF (C2). AfriControl n'émet pas. Le contrôleur adverse n'est pas informé de la détection.",
   };
 }
 

@@ -48,7 +48,7 @@ export function PreviewCookieHint() {
     <div className="space-y-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-3 text-sm">
       <p className="font-medium text-fg">Aperçu — cookies bloqués</p>
       <p className="text-muted-foreground">
-        Chrome et Edge refusent les cookies dans un cadre. VIGILAIR n'en a pas
+        Chrome et Edge refusent les cookies dans un cadre. AfriControl n'en a pas
         besoin : la session voyage en jeton interne, sans IP, sans Google. Si
         l'écran reste bloqué, ouvrez le poste en plein écran ou installez-le
         sur le PC (PWA) — là, plus de cadre.

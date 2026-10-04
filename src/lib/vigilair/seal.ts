@@ -1,4 +1,4 @@
-/** Sceau chef + plafond de sessions. VIGILAIR n'émet pas. */
+/** Sceau chef + plafond de sessions. AfriControl n'émet pas. */
 
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";

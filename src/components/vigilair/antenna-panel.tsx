@@ -168,15 +168,15 @@ function Setup({ status }: { status: ReceiverStatus }) {
       <p className="text-fg">Brancher le récepteur</p>
       <p>
         Sur la machine qui porte la clé SDR, lancer dump1090 avec le port brut AVR (et un port web qui ne
-        prend pas 8080, celui de VIGILAIR) :
+        prend pas 8080, celui de AfriControl) :
       </p>
       <pre className="overflow-x-auto rounded-xs bg-bg px-2 py-1.5 font-mono text-[11px] text-fg">
         dump1090 --interactive --net --net-ro-port 30002 --net-http-port 8090 --aggressive
       </pre>
       <p>
-        VIGILAIR s'y connecte seul ({status.enabled ? status.endpoint : "liaison coupée"}). Récepteur sur une
-        autre machine : démarrer le poste avec <code className="text-fg">VIGILAIR_1090=adresse:30002</code>.
-        Position de l'antenne : <code className="text-fg">VIGILAIR_ANTENNE=lat,lon</code>.
+        AfriControl s'y connecte seul ({status.enabled ? status.endpoint : "liaison coupée"}). Récepteur sur une
+        autre machine : démarrer le poste avec <code className="text-fg">AFRICONTROL_1090=adresse:30002</code>.
+        Position de l'antenne : <code className="text-fg">AFRICONTROL_ANTENNE=lat,lon</code>.
       </p>
     </div>
   );

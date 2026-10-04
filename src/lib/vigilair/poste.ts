@@ -1,4 +1,4 @@
-/** Installation du poste VIGILAIR sur l'ordinateur de l'agent. */
+/** Installation du poste AfriControl sur l'ordinateur de l'agent. */
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;

@@ -243,7 +243,7 @@ function AnonymatPanel() {
         <p className="max-w-3xl text-sm text-muted-foreground">
           L'adresse IP du poste n'est plus envoyée à Google (polices) ni à EOX
           (cartes). Les sessions sont nettoyées d'IP et de User-Agent. L'e-mail
-          du chef n'est plus affiché sur le bandeau. VIGILAIR n'émet pas et
+          du chef n'est plus affiché sur le bandeau. AfriControl n'émet pas et
           ne riposte pas sur le réseau adverse.
         </p>
       </header>
@@ -572,7 +572,7 @@ function AttacksPanel() {
         <div>
           <h2 className="text-sm font-semibold">Journal d'accès</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            E-mail / clé masqués. Cinq refus = verrou. VIGILAIR ne riposte pas
+            E-mail / clé masqués. Cinq refus = verrou. AfriControl ne riposte pas
             hors du poste : il coupe, consigne, alerte.
           </p>
         </div>

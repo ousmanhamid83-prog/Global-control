@@ -1,4 +1,4 @@
-/** Garde d'accès — brute-force, spray de clés, verrou COP. VIGILAIR n'émet pas. */
+/** Garde d'accès — brute-force, spray de clés, verrou COP. AfriControl n'émet pas. */
 
 export const AUTH_FAIL_WINDOW_MS = 10 * 60_000;
 export const AUTH_FAIL_LIMIT = 5;
@@ -27,7 +27,7 @@ export const AUTH_FAIL_MSG =
 export const AUTH_LOCK_MSG =
   "Poste verrouillé 15 minutes : trop de tentatives. Le chef de division est alerté.";
 export const COP_LOCK_MSG =
-  "COP figé — tentative d'intrusion. Lecture seule. VIGILAIR ne riposte pas en réseau : il coupe, consigne, alerte.";
+  "COP figé — tentative d'intrusion. Lecture seule. AfriControl ne riposte pas en réseau : il coupe, consigne, alerte.";
 
 export function maskEmail(email: string): string {
   const e = email.trim().toLowerCase();

@@ -1,10 +1,10 @@
 /**
  * OpenDroneID — ASTM F3411-22a / ASD-STAN EN 4709-002.
- * Décodeur binaire réel (25 octets / message). VIGILAIR n'émet pas le broadcast.
+ * Décodeur binaire réel (25 octets / message). AfriControl n'émet pas le broadcast.
  */
 
 export const RID_NOTE =
-  "Remote ID ASTM F3411 / ASD-STAN 4709. Trames Wi-Fi NAN / Bluetooth 4-5. VIGILAIR n'émet pas. Le navigateur n'écoute pas le 2,4 GHz : coller un dump hex terrain, ou lire les trames RID des UAS du COP qui broadcast.";
+  "Remote ID ASTM F3411 / ASD-STAN 4709. Trames Wi-Fi NAN / Bluetooth 4-5. AfriControl n'émet pas. Le navigateur n'écoute pas le 2,4 GHz : coller un dump hex terrain, ou lire les trames RID des UAS du COP qui broadcast.";
 
 export const RID_SIZE = 25;
 export const RID_VERSION = 2;

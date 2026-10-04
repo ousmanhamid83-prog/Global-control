@@ -1,4 +1,4 @@
-/** IFF Mode 4 — crypto FATL. VIGILAIR n'émet pas le challenge. */
+/** IFF Mode 4 — crypto FATL. AfriControl n'émet pas le challenge. */
 import { PLATFORM_BY_ID, threatRank } from "./catalog";
 import { destPoint, haversineKm } from "./geo";
 import { SENSOR_SITES } from "./sensors";
@@ -17,10 +17,10 @@ export type ThreatFloor = "ALL" | "moderee" | "elevee" | "critique";
 export type IffFilter = "ALL" | "m4" | "sans-m4";
 
 export const M4_STEALTH =
-  "Le challenge Mode 4 part d'un interrogateur secondaire existant (radar 3D). VIGILAIR n'émet pas. Un UAS sans transpondeur ne voit rien.";
+  "Le challenge Mode 4 part d'un interrogateur secondaire existant (radar 3D). AfriControl n'émet pas. Un UAS sans transpondeur ne voit rien.";
 
 const M4_VALID =
-  "Réponse crypto Mode 4 valide — clé du jour FATL. Interrogateur externe. VIGILAIR n'émet pas.";
+  "Réponse crypto Mode 4 valide — clé du jour FATL. Interrogateur externe. AfriControl n'émet pas.";
 const M4_INVALID =
   "Transpondeur entendu, crypto Mode 4 invalide (pas la clé FATL). Possible usurpation 3/A.";
 const M4_TIMEOUT =
@@ -30,7 +30,7 @@ export const M4_ABSENT_CIVIL =
 const M4_ABSENT =
   "Pas de Mode 4 corrélé. Interrogation possible via l'interrogateur du site radar.";
 const M4_DEMANDE =
-  "Demande transmise à l'interrogateur secondaire. VIGILAIR n'émet pas.";
+  "Demande transmise à l'interrogateur secondaire. AfriControl n'émet pas.";
 
 export const M4_DELAY_MS = 1400;
 

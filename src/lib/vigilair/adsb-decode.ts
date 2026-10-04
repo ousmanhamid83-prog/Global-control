@@ -1,6 +1,6 @@
 /**
  * Décodeur Mode S / ADS-B 1090ES pour les trames brutes AVR (« *8D4840D6…; ») que dump1090 sert
- * sur son port 30002. VIGILAIR écoute seulement : il n'interroge pas et n'émet pas.
+ * sur son port 30002. AfriControl écoute seulement : il n'interroge pas et n'émet pas.
  *
  * Module autonome (aucun import à l'exécution) : il tourne côté serveur et sous `node --test`.
  * Références : DO-260B, et « The 1090 MHz Riddle » (J. Sun) pour les vecteurs de test.

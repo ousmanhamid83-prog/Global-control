@@ -1,4 +1,4 @@
-/* VIGILAIR — service worker. Poste installable sur ordinateur / téléphone. */
+/* AfriControl — service worker. Poste installable sur ordinateur / téléphone. */
 const CACHE = "vigilair-v51-net";
 
 self.addEventListener("install", (event) => {

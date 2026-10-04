@@ -34,7 +34,7 @@ async function elevations(pts: Sample[]): Promise<number[] | null> {
   try {
     const res = await fetch(url, {
       signal: ctrl.signal,
-      headers: { accept: "application/json", "user-agent": "VIGILAIR-COP/1" },
+      headers: { accept: "application/json", "user-agent": "AfriControl-COP/1" },
     });
     if (!res.ok) return null;
     const body = (await res.json()) as { elevation?: unknown };

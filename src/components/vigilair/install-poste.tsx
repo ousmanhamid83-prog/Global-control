@@ -51,7 +51,7 @@ export function InstallPoste({
         disabled={busy || !can}
         title={
           can
-            ? "Installer VIGILAIR sur cet ordinateur"
+            ? "Installer AfriControl sur cet ordinateur"
             : "Chrome ou Edge : icône + dans la barre d'adresse, puis Installer."
         }
         aria-label="Installer le poste"
@@ -71,7 +71,7 @@ export function InstallPoste({
           </p>
           <h2 className="text-sm font-semibold tracking-tight">
             {standalone
-              ? "VIGILAIR tourne comme un logiciel"
+              ? "AfriControl tourne comme un logiciel"
               : "Installer sur PC"}
           </h2>
         </div>
@@ -84,7 +84,7 @@ export function InstallPoste({
       <p className="text-sm text-muted-foreground">
         {standalone
           ? "Ce poste est hors navigateur, plein écran. Les flux 1090ES, METAR, SIGMET, FTTJ et GNSS sont réels. Pas un simulateur."
-          : "VIGILAIR s'installe sur le PC comme une application (PWA), en fenêtre dédiée. Le kit ZIP contient le mode d'emploi hors-ligne et les icônes."}
+          : "AfriControl s'installe sur le PC comme une application (PWA), en fenêtre dédiée. Le kit ZIP contient le mode d'emploi hors-ligne et les icônes."}
       </p>
       {!standalone ? (
         <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
@@ -106,7 +106,7 @@ export function InstallPoste({
           </Button>
         ) : null}
         <Button type="button" variant="outline" asChild>
-          <a href="/kits/VIGILAIR-poste-PC.zip" download>
+          <a href="/kits/AfriControl-poste-PC.zip" download>
             <Monitor />
             Kit PC
           </a>

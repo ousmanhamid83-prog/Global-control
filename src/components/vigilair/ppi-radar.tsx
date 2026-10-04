@@ -598,7 +598,7 @@ function drawFrame(
   ctx.textAlign = "left";
   ctx.fillStyle = ok;
   ctx.font = "12px IBM Plex Sans, sans-serif";
-  legend("VIGILAIR PPI", 12, 16, 22);
+  legend("AfriControl PPI", 12, 16, 22);
   ctx.fillStyle = muted;
   ctx.font = "11px IBM Plex Mono, ui-monospace, monospace";
   legend(`FTTJ  N'DJAMENA  ·  ${params.rangeKm} km`, 11, 16, 40);

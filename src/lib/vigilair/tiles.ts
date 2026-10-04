@@ -543,7 +543,7 @@ function localSrc(z: number, x: number, y: number) {
 }
 
 /**
- * Mosaïque Sentinel-2 livrée avec le poste (archives VIGILAIR-2 et VIGILAIR-3), centrée sur FTTJ.
+ * Mosaïque Sentinel-2 livrée avec le poste (archives AfriControl-2 et AfriControl-3), centrée sur FTTJ.
  * Rectangles complets, relevés sur les fichiers : on ne demande jamais une tuile absente.
  * Elle s'affiche tout de suite, réseau ou pas ; l'imagerie distante la remplace dès qu'elle arrive.
  */

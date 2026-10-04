@@ -1,4 +1,4 @@
-/** Capture ident — scène Sentinel-2 / World Imagery, détections de gabarit. VIGILAIR n'émet pas. */
+/** Capture ident — scène Sentinel-2 / World Imagery, détections de gabarit. AfriControl n'émet pas. */
 
 import { AERODROMES } from "./aerodromes";
 import {

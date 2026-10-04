@@ -1,4 +1,4 @@
-VIGILAIR — poste
+AfriControl — poste
 Inspection du 1er octobre 2026
 
 Corrigé dans cette livraison
@@ -16,13 +16,30 @@ Installation
 - Le poste écoute sur le port 8080.
 
 Antenne 1090 du poste (clé SDR + dump1090)
-Lancer dump1090 avec le port brut AVR, et un port web qui ne prend pas 8080 (celui de VIGILAIR) :
+Lancer dump1090 avec le port brut AVR, et un port web qui ne prend pas 8080 (celui de AfriControl) :
   dump1090 --interactive --net --net-ro-port 30002 --net-http-port 8090 --aggressive
-VIGILAIR s'y branche seul sur 127.0.0.1:30002 et décode chaque trame (Capteurs > Antenne).
-Récepteur sur une autre machine :  VIGILAIR_1090=192.168.1.50:30002 npm run dev
-  (Windows PowerShell :  $env:VIGILAIR_1090="192.168.1.50:30002"; npm run dev)
-Position de l'antenne :  VIGILAIR_ANTENNE=12.1331,15.0339   Couper la liaison :  VIGILAIR_1090=off
-Réception seule : VIGILAIR décode l'ADS-B / Mode S entendu en clair, il n'interroge ni n'émet.
+AfriControl s'y branche seul sur 127.0.0.1:30002 et décode chaque trame (Capteurs > Antenne).
+Récepteur sur une autre machine :  AFRICONTROL_1090=192.168.1.50:30002 npm run dev
+  (Windows PowerShell :  $env:AFRICONTROL_1090="192.168.1.50:30002"; npm run dev)
+Position de l'antenne :  AFRICONTROL_ANTENNE=12.1331,15.0339   Couper la liaison :  AFRICONTROL_1090=off
+Réception seule : AfriControl décode l'ADS-B / Mode S entendu en clair, il n'interroge ni n'émet.
+Les anciens noms VIGILAIR_1090 / VIGILAIR_ANTENNE sont encore lus : un poste déjà réglé n'a rien à changer.
+
+Verrou auto sur piste réelle
+- Sans choix de l'opérateur, le panneau de droite suit la piste 1090ES réelle prioritaire :
+  urgence (7500/7600/7700) > drone B6 > militaire > GNSS douteux (NIC < 5) > plus proche de FTTJ.
+  Urgence et B6 comptent sur le Tchad, le Darfour et l'AES ; militaire et GNSS sur Tchad et Darfour.
+- Le bandeau « VERROU AUTO » dit pourquoi. Un clic sur une piste reprend la main ; « Rendre au
+  verrou auto » la lui redonne ; « Couper le verrou auto » laisse le panneau vide.
+- Un inject ou un rejeu n'est jamais pris par le verrou auto. La carte ne bouge pas toute seule.
+
+Inject « Rejeu réel »
+- Injecter > Rejeu réel : rejoue de VRAIS avions reçus, pas un scénario. Bande de ce poste (les
+  30 dernières minutes de veille) ou, au démarrage, l'archive réelle livrée (12 min enregistrées
+  le 4 octobre 2026 sur 15 cellules africaines). Entre deux relevés, la position est interpolée.
+- Chaque piste porte « REJ » et son heure d'origine ; le bandeau dit d'où vient la bande. ×1 ou ×4.
+- Un rejeu ne compte jamais comme live, ne déclenche pas d'intrusion de zone et n'est pas
+  croisé avec la météo du jour. Nouvelle archive : node scripts/rejeu-enregistrer.mjs 12 30
 
 Symbologie APP-6 et radar
 - Les pistes portent le cadre OTAN APP-6 (le cadre = l'affiliation ; ouvert en bas = aérien).

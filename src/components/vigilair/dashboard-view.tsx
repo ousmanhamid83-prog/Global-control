@@ -365,7 +365,7 @@ export function DashboardView() {
         <section className="hud rounded-md border border-border bg-surface p-4">
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="text-sm font-semibold uppercase tracking-[0.08em]">
-              Synoptique · chaîne VIGILAIR
+              Synoptique · chaîne AfriControl
             </h2>
             <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted-foreground">
               {(
@@ -751,7 +751,7 @@ export function DashboardView() {
                     : "—"
                 }
               />
-              <Row k="Émission RF" v="Interdite (VIGILAIR n'émet pas)" />
+              <Row k="Émission RF" v="Interdite (AfriControl n'émet pas)" />
               <Row k="Brouillage" v={isSuperadmin ? "Réservé chef de division" : "Masqué — chef seulement"} />
               <Row k="SIGINT" v="1090ES passif · pas de C2 injecté" />
               <Row k="Contrôle objet" v="Jamais — COP seulement" />

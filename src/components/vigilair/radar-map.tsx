@@ -100,7 +100,7 @@ export function snapshotCop(): void {
     const stamp = now.toISOString().replace(/[:.]/g, "").slice(0, 15);
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `VIGILAIR-COP-${scale}-${stamp}.png`;
+    a.download = `AfriControl-COP-${scale}-${stamp}.png`;
     a.click();
     window.setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   }, "image/png");
@@ -332,7 +332,7 @@ function drawMines(
     ctx.globalAlpha = 1;
     const named = on || scale !== "monde";
     if (!named) continue;
-    let lx = p.x + 7;
+    const lx = p.x + 7;
     let ly = p.y - 6;
     for (let n = 0; n < 5; n++) {
       if (!taken.some((s) => Math.abs(s.x - lx) < 72 && Math.abs(s.y - ly) < 11)) break;
@@ -1181,7 +1181,9 @@ function draw(
     ctx.fillStyle = fg;
     ctx.font = "500 10px 'IBM Plex Mono', monospace";
     const tag =
-      t.feed === "adsb"
+      t.feed === "rejeu"
+        ? `${t.callsign} REJ`
+        : t.feed === "adsb"
         ? `${t.callsign}${t.military ? " MIL" : ""}${t.category?.toUpperCase() === "B6" ? " UAV" : ""} 1090`
         : ami
           ? `${t.callsign} AMI`

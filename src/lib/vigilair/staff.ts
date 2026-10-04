@@ -342,7 +342,7 @@ export async function insertSecurityIncident(row: {
     timeZone: "Africa/Ndjamena",
   });
   const lines = layoutEvidence([
-    { kind: "h", text: "VIGILAIR — dossier d'incident sentinelle" },
+    { kind: "h", text: "AfriControl — dossier d'incident sentinelle" },
     { kind: "p", text: "DIFFUSION RESTREINTE · COP N'Djamena · garde logiciel / dossier / clé" },
     { kind: "p", text: "Copie du logiciel ou d'un dossier = alerte, coupure, documentation. Une clé VA- ne voyage pas." },
     { kind: "gap" },
@@ -369,7 +369,7 @@ export async function insertSecurityIncident(row: {
     { kind: "h", text: "Recapitulatif de l'agent" },
     { kind: "mono", text: recap },
     { kind: "gap" },
-    { kind: "p", text: "Mandat : detection et identification. VIGILAIR n'emet pas. Ce dossier est append-only." },
+    { kind: "p", text: "Mandat : detection et identification. AfriControl n'emet pas. Ce dossier est append-only." },
   ]);
   const pdf = buildPdf(lines);
   const { createHash } = await cryptoMod();
@@ -444,7 +444,7 @@ export async function dispatchChefAlert(data: {
       from bot_settings where user_id = ${owner}
     `;
     const cfg = bots[0];
-    const text = `VIGILAIR · ${data.level.toUpperCase()}\n${data.title}\n${data.body}`;
+    const text = `AfriControl · ${data.level.toUpperCase()}\n${data.title}\n${data.body}`;
     if (cfg?.telegram_token && cfg.telegram_chat_id) {
       try {
         const res = await fetch(
@@ -471,7 +471,7 @@ export async function dispatchChefAlert(data: {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            source: "VIGILAIR",
+            source: "AfriControl",
             id: data.id,
             level: data.level,
             title: data.title,
