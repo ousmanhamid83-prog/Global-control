@@ -31,6 +31,8 @@ import {
   type TafRow,
 } from "./live-adsb";
 
+import type { ReceiverFeed, ReceiverStatus } from "./rx1090.server";
+
 const UA = "VIGILAIR-COP/10.0 (C-UAS detection N'Djamena; read-only)";
 
 type Cell = { lat: number; lon: number; nm: number; label: string };
@@ -488,6 +490,83 @@ function health(
   return { id, label, ok, detail };
 }
 
+function nicHealth(ac: LiveAc[], jam: JamCell[]): SourceHealth {
+  return health(
+    "nic",
+    "GNSS NIC (ADS-B)",
+    jam.length > 0 || ac.some((a) => a.nic != null),
+    jam.some((j) => j.level !== "low")
+      ? `${jam.filter((j) => j.level !== "low").length} cellules dégradées`
+      : "pas de jamming mesuré sur le flux",
+  );
+}
+
+/**
+ * Ajoute l'antenne du poste à l'image réseau : ses avions passent devant ceux des agrégateurs
+ * (plus frais, entendus en direct), le registre réseau complète le type et l'immatriculation.
+ */
+function withReceiver(net: LivePicture, rx: ReceiverStatus, rxAc: LiveAc[]): LivePicture {
+  const now = Date.now();
+  const live = rx.enabled && rx.connected && rx.lastLineAt != null && now - rx.lastLineAt < 60_000;
+  const silentS = rx.lastLineAt ? Math.round((now - rx.lastLineAt) / 1000) : null;
+  const rxHealth = health(
+    "rx",
+    "Antenne 1090 du poste",
+    live,
+    !rx.enabled
+      ? "coupée (VIGILAIR_1090=off)"
+      : live
+        ? `${rx.positioned} positionnés · ${rx.heard} entendus · ${rx.msgPerS} msg/s · ${rx.endpoint}`
+        : rx.connected
+          ? `connectée ${rx.endpoint} · aucune trame${silentS != null ? ` depuis ${silentS} s` : ""}`
+          : `${rx.lastError ?? "connexion en cours"} · ${rx.endpoint}`,
+  );
+  const byHex = new Map(net.aircraft.map((a) => [a.hex, a] as const));
+  for (const a of rxAc) {
+    const n = byHex.get(a.hex);
+    byHex.set(
+      a.hex,
+      n
+        ? {
+            ...a,
+            flight: a.flight !== a.hex.toUpperCase() ? a.flight : n.flight,
+            icaoType: n.icaoType,
+            reg: n.reg,
+            military: n.military,
+            category: a.category ?? n.category,
+          }
+        : a,
+    );
+  }
+  const aircraft = [...byHex.values()];
+  const jam = jamFromAircraft(aircraft);
+  const sources: SourceHealth[] = [];
+  for (const src of net.sources) {
+    sources.push(src.id === "nic" ? nicHealth(aircraft, jam) : src);
+    if (src.id === "1090") sources.push(rxHealth);
+  }
+  if (!sources.includes(rxHealth)) sources.unshift(rxHealth);
+  const sourceAt: Record<string, number> = { ...net.sourceAt };
+  for (const src of net.sources) sourceAt[src.id] ??= net.at;
+  sourceAt.rx = now;
+  if (live) sourceAt.nic = now;
+  return {
+    ...net,
+    at: live ? now : net.at,
+    sourceAt,
+    source: live
+      ? `antenne ${rx.endpoint} · ${rxAc.length} avions${net.aircraft.length ? ` + ${net.source}` : ""}`
+      : net.source,
+    aircraft,
+    localN: localN(aircraft),
+    sahelN: aircraft.length,
+    emergencies: aircraft.filter((a) => Boolean(a.emergency)),
+    jam,
+    sources,
+    errors: !live && rx.enabled && rx.lastError ? [...net.errors, `Antenne: ${rx.lastError}`] : net.errors,
+  };
+}
+
 async function pullAirport(): Promise<{ airport: AirportRow | null; errors: string[] }> {
   try {
     const raw = await fetchJson(
@@ -635,182 +714,223 @@ function sigmetsAsPhenomena(rows: { fir: string; hazard: string; raw: string; co
   return out;
 }
 
+/** Image des sources Internet (agrégateurs 1090ES, NOAA, NASA…), mise en cache 20 s. */
+async function pullNetwork(): Promise<LivePicture> {
+  const now = Date.now();
+  if (cache && now - cache.at < TTL_MS) return cache.data;
+  try {
+    const data = await Promise.race([
+      (async () => {
+        const [adsb, wx, space, sig, apt, swpc, nat] = await Promise.all([
+          pullAdsb(),
+          pullMetar(),
+          pullSpace(),
+          pullSigmet(),
+          pullAirport(),
+          pullAlerts(),
+          pullPhenomena(),
+        ]);
+        const jam: JamCell[] = jamFromAircraft(adsb.ac);
+        const emergencies = adsb.ac.filter((a) => Boolean(a.emergency));
+        const solar = solarFttj();
+        const sources: SourceHealth[] = [
+          health(
+            "1090",
+            "1090ES adsb.lol",
+            adsb.ok,
+            adsb.ok
+              ? `${adsb.ac.length} squitters · ${adsb.source}`
+              : adsb.errors[0] ?? "silence",
+          ),
+          health(
+            "metar",
+            "METAR NOAA",
+            wx.metar.length > 0,
+            wx.metar.length
+              ? `${wx.metar.length} aérodromes ASECNA/Sahel`
+              : wx.errors[0] ?? "aucun METAR",
+          ),
+          health(
+            "taf",
+            "TAF NOAA",
+            wx.taf.length > 0,
+            wx.taf.length
+              ? `${wx.taf.length} TAF`
+              : (wx.errors.find((e) => e.startsWith("TAF:")) ?? "aucun TAF"),
+          ),
+          health(
+            "sigmet",
+            "SIGMET OACI",
+            sig.rows.length > 0,
+            sig.rows.length
+              ? `${sig.rows.filter((s) => s.inAo).length} Afrique · ${sig.rows.length} monde`
+              : sig.errors[0] ?? "aucun SIGMET",
+          ),
+          health(
+            "swpc",
+            "NOAA SWPC",
+            space.kpTime != null || space.xrayFlux != null,
+            `Kp ${space.kp} · GOES ${space.xrayClass}`,
+          ),
+          nicHealth(adsb.ac, jam),
+          health(
+            "fttj",
+            "FTTJ AWC",
+            apt.airport != null,
+            apt.airport
+              ? `RWY ${apt.airport.rwy ?? "—"} · ${apt.airport.rwyM ?? "—"} m · ${apt.airport.freqs ?? "TWR"}`
+              : apt.errors[0] ?? "aéroport indisponible",
+          ),
+          health(
+            "alert",
+            "Alertes SWPC",
+            swpc.alerts.length > 0,
+            swpc.alerts.length
+              ? `${swpc.alerts[0]!.kind} · ${swpc.alerts[0]!.title}`
+              : "aucune alerte en cours",
+          ),
+          health(
+            "sol",
+            "Soleil FTTJ",
+            true,
+            solar.nightOps
+              ? `Nuit · lev ${solar.sunrise} WAT`
+              : `Jour · couch ${solar.sunset} WAT`,
+          ),
+          health(
+            "nat",
+            "Phénomènes NASA/USGS/GDACS/FIRMS",
+            nat.rows.length > 0,
+            nat.rows.length
+              ? `${nat.rows.length} événements · ${
+                  nat.rows.filter((p) => p.source === "NASA FIRMS").length
+                } FIRMS · ${nat.rows.filter((p) => p.theater !== "monde").length} théâtre${
+                  nat.errors.find((e) => e.startsWith("FIRMS"))
+                    ? ` · ${nat.errors.find((e) => e.startsWith("FIRMS"))}`
+                    : ""
+                }`
+              : nat.errors[0] ?? "aucun événement",
+          ),
+        ];
+        const phenomena = mergePhenomena([
+          nat.rows,
+          sigmetsAsPhenomena(sig.rows),
+        ]).slice(0, 120);
+        return {
+          at: Date.now(),
+          source: adsb.source,
+          aircraft: adsb.ac,
+          localN: localN(adsb.ac),
+          sahelN: adsb.ac.length,
+          emergencies,
+          metar: wx.metar,
+          taf: wx.taf,
+          space,
+          sigmets: sig.rows,
+          jam,
+          airport: apt.airport,
+          alerts: swpc.alerts,
+          solar,
+          sources,
+          errors: [...adsb.errors, ...wx.errors, ...sig.errors, ...apt.errors, ...swpc.errors, ...nat.errors],
+          phenomena,
+        } satisfies LivePicture;
+      })(),
+      new Promise<LivePicture>((resolve) => {
+        setTimeout(() => resolve(emptyPicture("timeout 12s")), 12000);
+      }),
+    ]);
+    const usable =
+      data.aircraft.length > 0 ||
+      data.metar.length > 0 ||
+      data.taf.length > 0 ||
+      data.sigmets.length > 0 ||
+      data.airport != null ||
+      data.alerts.length > 0;
+    const rateLimited = data.errors.some((e) => e.includes("429"));
+    let next = data;
+    if (
+      data.aircraft.length === 0 &&
+      lastGood &&
+      lastGood.aircraft.length > 0 &&
+      Date.now() - lastGood.at < 180_000 &&
+      rateLimited
+    ) {
+      next = {
+        ...data,
+        aircraft: lastGood.aircraft,
+        localN: lastGood.localN,
+        sahelN: lastGood.sahelN,
+        emergencies: lastGood.emergencies,
+        jam: lastGood.jam,
+        source: `${lastGood.source} · cache 1090`,
+      };
+    }
+    if (usable || next.aircraft.length > 0) {
+      cache = { at: Date.now(), data: next };
+      lastGood = next;
+      return next;
+    }
+    if (lastGood && Date.now() - lastGood.at < 120_000) {
+      return {
+        ...lastGood,
+        errors: [...data.errors, "cache conservé"].slice(0, 6),
+      };
+    }
+    return data;
+  } catch (e) {
+    if (lastGood) return lastGood;
+    return emptyPicture(e instanceof Error ? e.message : "ingest échoué");
+  }
+}
+
+let netPending: Promise<LivePicture> | null = null;
+let netLast: LivePicture | null = null;
+
+/** Un seul relevé Internet à la fois, même quand le poste interroge souvent. */
+function refreshNetwork(): Promise<LivePicture> {
+  netPending ??= pullNetwork()
+    .then((p) => {
+      netLast = p;
+      return p;
+    })
+    .finally(() => {
+      netPending = null;
+    });
+  return netPending;
+}
+
 export const fetchLivePicture = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async (): Promise<LivePicture> => {
-    const now = Date.now();
-    if (cache && now - cache.at < TTL_MS) return cache.data;
-    try {
-      const data = await Promise.race([
-        (async () => {
-          const [adsb, wx, space, sig, apt, swpc, nat] = await Promise.all([
-            pullAdsb(),
-            pullMetar(),
-            pullSpace(),
-            pullSigmet(),
-            pullAirport(),
-            pullAlerts(),
-            pullPhenomena(),
-          ]);
-          const jam: JamCell[] = jamFromAircraft(adsb.ac);
-          const emergencies = adsb.ac.filter((a) => Boolean(a.emergency));
-          const solar = solarFttj();
-          const sources: SourceHealth[] = [
-            health(
-              "1090",
-              "1090ES adsb.lol",
-              adsb.ok,
-              adsb.ok
-                ? `${adsb.ac.length} squitters · ${adsb.source}`
-                : adsb.errors[0] ?? "silence",
-            ),
-            health(
-              "metar",
-              "METAR NOAA",
-              wx.metar.length > 0,
-              wx.metar.length
-                ? `${wx.metar.length} aérodromes ASECNA/Sahel`
-                : wx.errors[0] ?? "aucun METAR",
-            ),
-            health(
-              "taf",
-              "TAF NOAA",
-              wx.taf.length > 0,
-              wx.taf.length
-                ? `${wx.taf.length} TAF`
-                : (wx.errors.find((e) => e.startsWith("TAF:")) ?? "aucun TAF"),
-            ),
-            health(
-              "sigmet",
-              "SIGMET OACI",
-              sig.rows.length > 0,
-              sig.rows.length
-                ? `${sig.rows.filter((s) => s.inAo).length} Afrique · ${sig.rows.length} monde`
-                : sig.errors[0] ?? "aucun SIGMET",
-            ),
-            health(
-              "swpc",
-              "NOAA SWPC",
-              space.kpTime != null || space.xrayFlux != null,
-              `Kp ${space.kp} · GOES ${space.xrayClass}`,
-            ),
-            health(
-              "nic",
-              "GNSS NIC (ADS-B)",
-              jam.length > 0 || adsb.ac.some((a) => a.nic != null),
-              jam.some((j) => j.level !== "low")
-                ? `${jam.filter((j) => j.level !== "low").length} cellules dégradées`
-                : "pas de jamming mesuré sur le flux",
-            ),
-            health(
-              "fttj",
-              "FTTJ AWC",
-              apt.airport != null,
-              apt.airport
-                ? `RWY ${apt.airport.rwy ?? "—"} · ${apt.airport.rwyM ?? "—"} m · ${apt.airport.freqs ?? "TWR"}`
-                : apt.errors[0] ?? "aéroport indisponible",
-            ),
-            health(
-              "alert",
-              "Alertes SWPC",
-              swpc.alerts.length > 0,
-              swpc.alerts.length
-                ? `${swpc.alerts[0]!.kind} · ${swpc.alerts[0]!.title}`
-                : "aucune alerte en cours",
-            ),
-            health(
-              "sol",
-              "Soleil FTTJ",
-              true,
-              solar.nightOps
-                ? `Nuit · lev ${solar.sunrise} WAT`
-                : `Jour · couch ${solar.sunset} WAT`,
-            ),
-            health(
-              "nat",
-              "Phénomènes NASA/USGS/GDACS/FIRMS",
-              nat.rows.length > 0,
-              nat.rows.length
-                ? `${nat.rows.length} événements · ${
-                    nat.rows.filter((p) => p.source === "NASA FIRMS").length
-                  } FIRMS · ${nat.rows.filter((p) => p.theater !== "monde").length} théâtre${
-                    nat.errors.find((e) => e.startsWith("FIRMS"))
-                      ? ` · ${nat.errors.find((e) => e.startsWith("FIRMS"))}`
-                      : ""
-                  }`
-                : nat.errors[0] ?? "aucun événement",
-            ),
-          ];
-          const phenomena = mergePhenomena([
-            nat.rows,
-            sigmetsAsPhenomena(sig.rows),
-          ]).slice(0, 120);
-          return {
-            at: Date.now(),
-            source: adsb.source,
-            aircraft: adsb.ac,
-            localN: localN(adsb.ac),
-            sahelN: adsb.ac.length,
-            emergencies,
-            metar: wx.metar,
-            taf: wx.taf,
-            space,
-            sigmets: sig.rows,
-            jam,
-            airport: apt.airport,
-            alerts: swpc.alerts,
-            solar,
-            sources,
-            errors: [...adsb.errors, ...wx.errors, ...sig.errors, ...apt.errors, ...swpc.errors, ...nat.errors],
-            phenomena,
-          } satisfies LivePicture;
-        })(),
-        new Promise<LivePicture>((resolve) => {
-          setTimeout(() => resolve(emptyPicture("timeout 12s")), 12000);
-        }),
-      ]);
-      const usable =
-        data.aircraft.length > 0 ||
-        data.metar.length > 0 ||
-        data.taf.length > 0 ||
-        data.sigmets.length > 0 ||
-        data.airport != null ||
-        data.alerts.length > 0;
-      const rateLimited = data.errors.some((e) => e.includes("429"));
-      let next = data;
-      if (
-        data.aircraft.length === 0 &&
-        lastGood &&
-        lastGood.aircraft.length > 0 &&
-        Date.now() - lastGood.at < 180_000 &&
-        rateLimited
-      ) {
-        next = {
-          ...data,
-          aircraft: lastGood.aircraft,
-          localN: lastGood.localN,
-          sahelN: lastGood.sahelN,
-          emergencies: lastGood.emergencies,
-          jam: lastGood.jam,
-          source: `${lastGood.source} · cache 1090`,
-        };
-      }
-      if (usable || next.aircraft.length > 0) {
-        cache = { at: Date.now(), data: next };
-        lastGood = next;
-        return next;
-      }
-      if (lastGood && Date.now() - lastGood.at < 120_000) {
-        return {
-          ...lastGood,
-          errors: [...data.errors, "cache conservé"].slice(0, 6),
-        };
-      }
-      return data;
-    } catch (e) {
-      if (lastGood) return lastGood;
-      return emptyPicture(e instanceof Error ? e.message : "ingest échoué");
+    const rx = await import("./rx1090.server");
+    await rx.receiverReady();
+    const status = rx.receiverStatus();
+    let net: LivePicture;
+    if (cache && Date.now() - cache.at < TTL_MS) {
+      net = cache.data;
+    } else if (!status.connected) {
+      net = await refreshNetwork();
+    } else {
+      // Antenne branchée : les pistes locales n'attendent jamais un Internet lent ou coupé.
+      const pending = refreshNetwork();
+      net =
+        netLast ??
+        (await Promise.race([pending, new Promise<null>((r) => setTimeout(() => r(null), 1500))])) ??
+        emptyPicture("relevé Internet en cours");
     }
+    return withReceiver(net, status, rx.receiverAircraft());
+  });
+
+/** Écoute brute de l'antenne : les trames telles qu'elles arrivent, décodées, sans filtre. */
+export const fetchReceiverFeed = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator((raw: { after?: number }) => ({
+    after: typeof raw?.after === "number" && Number.isFinite(raw.after) ? raw.after : 0,
+  }))
+  .handler(async ({ data }): Promise<ReceiverFeed> => {
+    const rx = await import("./rx1090.server");
+    return rx.receiverFeed(data.after);
   });
 
 export type AircraftLookup = {

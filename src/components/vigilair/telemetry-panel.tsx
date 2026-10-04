@@ -73,9 +73,20 @@ export function TelemetryCard() {
   const { samples } = useTelemetry();
   const wall = useWallClock();
   const last = samples[samples.length - 1];
-  const sources = useVigilair((s) => s.livePicture?.sources.length ?? 10);
+  const sources = useVigilair((s) => s.livePicture?.sources.length ?? 11);
+  // Valeurs courantes : la courbe finit sur l'état du poste, pas sur l'échantillon d'il y a 6 s.
+  const now = {
+    tracks: useVigilair((s) => s.tracks.filter((t) => t.idState !== "perdu").length),
+    alerts: useVigilair((s) => s.alerts.filter((a) => !a.acked).length),
+    links: useVigilair((s) => s.livePicture?.sources.filter((x) => x.ok).length ?? 0),
+  };
   const data = last
-    ? samples.map((s) => ({ ...s, x: Math.round((s.at - last.at) / 1000) }))
+    ? [
+        ...samples
+          .map((s) => ({ ...s, x: Math.round((s.at - wall) / 1000) }))
+          .filter((s) => s.x >= -WINDOW_S && s.x < 0),
+        { at: wall, x: 0, ...now },
+      ]
     : [];
   const status: FeedStatus = last
     ? ageStatus(last.at, wall)
@@ -99,7 +110,7 @@ export function TelemetryCard() {
               {s.name}
             </dt>
             <dd className="font-display text-2xl font-semibold tabular-nums leading-tight">
-              {last ? last[s.key] : "—"}
+              {now[s.key]}
               {s.key === "links" ? (
                 <span className="text-sm font-normal text-muted-foreground"> / {sources}</span>
               ) : null}
@@ -125,7 +136,7 @@ export function TelemetryCard() {
               <YAxis stroke="var(--color-muted)" fontSize={10} allowDecimals={false} width={30} />
               <Tooltip
                 contentStyle={tooltipStyle}
-                labelFormatter={(v) => (Number(v) === 0 ? "dernier relevé" : `${v} s`)}
+                labelFormatter={(v) => (Number(v) === 0 ? "maintenant" : `${v} s`)}
               />
               {SERIES.map((s) => (
                 <Line

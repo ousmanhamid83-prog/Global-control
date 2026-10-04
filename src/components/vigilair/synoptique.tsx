@@ -54,9 +54,10 @@ const TONE: Record<Tone, string> = {
 
 const COLUMNS = ["01 · Liaisons", "02 · Fusion", "03 · Évaluation", "04 · Décision", "05 · Action · traces"];
 
-/** Les dix liaisons réelles du poste, dans l'ordre du relevé. */
+/** Les onze liaisons réelles du poste, dans l'ordre du relevé. */
 const SOURCES: { id: string; title: string }[] = [
-  { id: "1090", title: "1090ES · ADS-B" },
+  { id: "1090", title: "1090ES · réseau" },
+  { id: "rx", title: "Antenne 1090" },
   { id: "metar", title: "METAR · NOAA" },
   { id: "taf", title: "TAF · NOAA" },
   { id: "sigmet", title: "SIGMET · OACI" },
@@ -241,8 +242,8 @@ export function Synoptique({ sentinel }: { sentinel: SentinelStats | null }) {
     return {
       id: `src-${src.id}`,
       col: 0,
-      y: 34 + i * 43,
-      h: 36,
+      y: 34 + i * 40,
+      h: 34,
       title: src.title,
       value: LINK_LABEL[state],
       detail: row?.detail ?? "aucun relevé",
@@ -270,7 +271,7 @@ export function Synoptique({ sentinel }: { sentinel: SentinelStats | null }) {
       detail: `${confirmed} confirmée${confirmed > 1 ? "s" : ""} · ${sourcesLive}/${SOURCES.length} liaisons`,
       tone: live.length > 0 || sourcesLive > 0 ? "ok" : "idle",
       to: "/",
-      spark: { values: window6("tracks"), label: "pistes · 6 min" },
+      spark: { values: [...window6("tracks"), live.length], label: "pistes · 6 min" },
     },
     {
       id: "menace",
@@ -319,7 +320,7 @@ export function Synoptique({ sentinel }: { sentinel: SentinelStats | null }) {
       detail: `${alerts.length - open.length} acquittées`,
       tone: open.length ? (unackedCrit ? "crit" : "warn") : "ok",
       to: "/journal",
-      spark: { values: window6("alerts"), label: "ouvertes · 6 min" },
+      spark: { values: [...window6("alerts"), open.length], label: "ouvertes · 6 min" },
     },
     {
       id: "poste",

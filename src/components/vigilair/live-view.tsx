@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Antenna, BookOpen, Radio, Satellite, Wind } from "lucide-react";
+import { Antenna, BookOpen, Radio, RadioTower, Satellite, Wind } from "lucide-react";
+import { AntennaPanel } from "@/components/vigilair/antenna-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,10 +32,11 @@ import {
 import { useVigilair } from "@/lib/vigilair/store";
 import { cn } from "@/lib/utils";
 
-type Tab = "1090" | "metar" | "rid" | "gnss" | "outils";
+type Tab = "1090" | "antenne" | "metar" | "rid" | "gnss" | "outils";
 
 const TABS: { id: Tab; label: string; icon: typeof Radio }[] = [
   { id: "1090", label: "1090ES", icon: Radio },
+  { id: "antenne", label: "Antenne", icon: RadioTower },
   { id: "metar", label: "Météo", icon: Wind },
   { id: "rid", label: "Remote ID", icon: Antenna },
   { id: "gnss", label: "GNSS", icon: Satellite },
@@ -64,7 +66,7 @@ export function LiveView() {
           <p className="max-w-3xl text-sm text-muted-foreground">{LIVE_CREDIT}</p>
         </header>
 
-        <div className="grid gap-2 grid-cols-6">
+        <div className="grid gap-2 grid-cols-7">
           <Stat k="Contacts 1090" v={String(live.n)} />
           <Stat k="Volume ident 120 km" v={String(live.local)} tone={live.local ? "ok" : "default"} />
           <Stat
@@ -138,6 +140,7 @@ export function LiveView() {
         </div>
 
         {tab === "1090" ? <AdsbPanel /> : null}
+        {tab === "antenne" ? <AntennaPanel /> : null}
         {tab === "metar" ? <WxPanel /> : null}
         {tab === "rid" ? <RidPanel /> : null}
         {tab === "gnss" ? <GnssPanel /> : null}

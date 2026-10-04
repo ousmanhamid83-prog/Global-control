@@ -8,7 +8,7 @@ import { M4_ABSENT_CIVIL } from "./iff";
 import type { IffFix, ModeSReply, Track, UasClass } from "./types";
 
 export const LIVE_CREDIT =
-  "Capteurs réels · 1090ES adsb.lol/readsb · METAR/TAF/SIGMET NOAA · GNSS NIC + NOAA SWPC · FTTJ AWC · registre adsbdb. Pas un radar primaire FATL. VIGILAIR n'émet pas.";
+  "Capteurs réels · antenne 1090 du poste (dump1090) · 1090ES adsb.lol/readsb · METAR/TAF/SIGMET NOAA · GNSS NIC + NOAA SWPC · FTTJ AWC · registre adsbdb. Pas un radar primaire FATL. VIGILAIR n'émet pas.";
 
 export type LiveAc = {
   hex: string;
@@ -31,6 +31,8 @@ export type LiveAc = {
   nacp: number | null;
   sil: number | null;
   military: boolean;
+  /** « antenne » : entendu par le récepteur du poste ; sinon agrégateur réseau (adsb.fi / adsb.lol). */
+  via?: "antenne" | "reseau";
 };
 
 export type SigmetRow = {
@@ -63,6 +65,8 @@ export type SourceHealth = {
 
 export type LivePicture = {
   at: number;
+  /** Heure du dernier relevé par liaison, quand elle diffère de `at` (antenne vs réseau en cache). */
+  sourceAt?: Record<string, number>;
   source: string;
   aircraft: LiveAc[];
   localN: number;
@@ -302,8 +306,8 @@ function mintLiveIff(ac: LiveAc, now: number): IffFix {
     label: "ADS-B squitter 1090ES",
     icao24: ac.hex.toUpperCase(),
     at: now,
-    siteId: "live-1090",
-    siteName: "1090ES réseau",
+    siteId: ac.via === "antenne" ? "antenne-1090" : "live-1090",
+    siteName: ac.via === "antenne" ? "1090ES antenne du poste" : "1090ES réseau",
     bds: "0,5",
     payload: `${ac.lat.toFixed(4)} ${ac.lon.toFixed(4)} FL${Math.max(0, Math.round(ac.altM / 30.48))}`,
     solicited: false,

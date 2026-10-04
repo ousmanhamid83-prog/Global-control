@@ -141,7 +141,7 @@ export function startTelemetry(): () => void {
     if (pic && pic.at !== picAt) {
       picAt = pic.at;
       for (const s of pic.sources) {
-        if (s.ok) state.lastOk[s.id] = pic.at;
+        if (s.ok) state.lastOk[s.id] = pic.sourceAt?.[s.id] ?? pic.at;
         const next = linkState(s);
         const before = links[s.id];
         if (before && before !== next) {
