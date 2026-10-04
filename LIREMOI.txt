@@ -29,3 +29,16 @@ Symbologie APP-6 et radar
   Inconnu est l'état par défaut : sans IFF ami ni mandat levé, une piste reste inconnue.
 - PPI : portées jusqu'à 8000 km (couverture Afrique), vecteur vitesse, nord vrai/magnétique,
   bascule symboles APP-6 / formes plateforme. Fiche « interception » : toutes les données reçues.
+
+En ligne (wifi) : domaines contactés par le poste
+Sur un PC avec Internet, rien à régler. Derrière un pare-feu ou dans un environnement cloud,
+autoriser ces domaines (HTTPS, port 443) :
+  Imagerie nette (archive)  : clarity.maptiles.arcgis.com  server.arcgisonline.com
+  Imagerie géostationnaire  : gibs.earthdata.nasa.gov  view.eumetsat.int  tiles.maps.eox.at
+  1090ES réseau / registre  : opendata.adsb.fi  api.adsb.lol  api.adsbdb.com
+  Météo / aéroport          : aviationweather.gov  api.open-meteo.com
+  Météo spatiale            : services.swpc.noaa.gov
+  Phénomènes                : eonet.gsfc.nasa.gov  earthquake.usgs.gov  www.gdacs.org
+                              firms.modaps.eosdis.nasa.gov  services9.arcgis.com
+Imagerie nette = Esri Clarity / World Imagery jusqu'à 0,3 m (zoom 19) : une archive, pas une
+prise du jour. Le crédit en bas de carte dit toujours d'où vient l'image affichée.

@@ -43,10 +43,10 @@ export function satCredit(z: number, layer: SatLayer = "vis", meta?: SatMeta | n
     return "Relief ombrage ~24 m · crêtes et cuvettes";
   }
   if (z >= 18) {
-    return "Mosaïque sol · objets au sol · World Imagery · toute région";
+    return "Esri Clarity / World Imagery · 0,3–0,6 m · archive en ligne, pas une prise du jour";
   }
   if (z >= 11) {
-    return "Mosaïque World Imagery · sol lisible";
+    return "Esri World Imagery · archive en ligne · sol lisible";
   }
   const age = meta?.visAt ? sceneAgeLabel(meta.visAt) : "pas de scène ≤ 60 min";
   const src = meta?.visSrc || "Meteosat";
@@ -968,8 +968,11 @@ export function requestTiles(
   if (typeof window === "undefined" || w < 8 || h < 8) return;
   const top = Math.min(z, layerNative(layer));
   loadSpan(layer, top, w, h, sizeKm, origin);
-  if (layer === "vis" && z > 17) loadSpan(layer, 17, w, h, sizeKm, origin);
-  else if (top > 2 && top === z) loadSpan(layer, top - 1, w, h, sizeKm, origin);
+  // Au-delà de z17, on demande aussi chaque niveau intermédiaire : si la tuile 0,3 m manque,
+  // la 0,6 m (z18) passe avant la 1,2 m (z17).
+  if (layer === "vis" && z > 17) {
+    for (let lz = z - 1; lz >= 17; lz--) loadSpan(layer, lz, w, h, sizeKm, origin);
+  } else if (top > 2 && top === z) loadSpan(layer, top - 1, w, h, sizeKm, origin);
 }
 
 function paintTile(
@@ -1001,7 +1004,9 @@ function paintTile(
   else if (refineTiles && paintLayer === "vis") ctx.filter = "contrast(1.2) saturate(1.16)";
   else if (paintLayer === "vis" && z < 11) ctx.filter = "contrast(1.08) saturate(1.08)";
   else ctx.filter = "none";
-  const stretch = Math.max(dw / Math.max(sw, 1), dh / Math.max(sh, 1));
+  // Agrandissement réel en pixels d'écran (écran Retina/4K : × devicePixelRatio).
+  const dpr = ctx.getTransform().a || 1;
+  const stretch = Math.max((dw * dpr) / Math.max(sw, 1), (dh * dpr) / Math.max(sh, 1));
   ctx.imageSmoothingEnabled = stretch > 1.4;
   ctx.imageSmoothingQuality = stretch > 1.4 ? "high" : "low";
   ctx.drawImage(img, sx, sy, sw, sh, nw.x, nw.y, dw, dh);
@@ -1092,10 +1097,15 @@ export function drawTiles(
   if (layer === "vis") requestLocal(w, h, z, sizeKm, origin);
   let drawZ = z;
   if (layer === "vis" && z > 17) {
-    const tx = Math.floor(lonToTileX(origin.lon, z));
-    const ty = Math.floor(latToTileY(origin.lat, z));
-    const hit = cache.get(key(layer, z, tx, ty));
-    if (!hit || hit === "fail") drawZ = 17;
+    // Le niveau le plus fin réellement reçu au centre de la vue : z19, sinon z18, sinon z17.
+    drawZ = 17;
+    for (let lz = z; lz > 17; lz--) {
+      const hit = cache.get(key(layer, lz, Math.floor(lonToTileX(origin.lon, lz)), Math.floor(latToTileY(origin.lat, lz))));
+      if (hit && hit !== "fail") {
+        drawZ = lz;
+        break;
+      }
+    }
   }
   const cap = tileCap(drawZ);
   const b = tileBounds(w, h, drawZ, sizeKm, cap, origin);

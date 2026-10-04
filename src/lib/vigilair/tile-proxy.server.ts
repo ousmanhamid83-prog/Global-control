@@ -51,7 +51,8 @@ const meta = (g.__vigilairSatMeta ??= {
 
 function inWorld(z: number, x: number, y: number): boolean {
   if (!Number.isInteger(z) || !Number.isInteger(x) || !Number.isInteger(y)) return false;
-  if (z < 1 || z > 18) return false;
+  // z19 = vue « 0,3 m » : Esri la sert sur les villes ; la refuser ici bridait la vue la plus nette.
+  if (z < 1 || z > 19) return false;
   const max = 2 ** z;
   if (x < 0 || y < 0 || x >= max || y >= max) return false;
   const lat = (tileToLat(y, z) + tileToLat(y + 1, z)) / 2;
@@ -508,10 +509,18 @@ export async function serveTile(
 
   if (layer === "vis") {
     if (z >= 11) {
-      const sharp = (await esriTile(z, x, y)) ?? (await clarityTile(z, x, y));
-      if (sharp) {
-        remember(key, sharp.bytes, "ESRI", "mosaic");
-        return img(sharp.bytes, "ESRI", "mosaic");
+      // Zoom rapproché (≥ 15) : Clarity d'abord — la couche Esri la plus fine et la plus récente,
+      // servie sans le délai de cache de World Imagery. Plus large : World Imagery, plus rapide.
+      const order: [string, typeof esriTile][] =
+        z >= 15
+          ? [["CLARITY", clarityTile], ["ESRI", esriTile]]
+          : [["ESRI", esriTile], ["CLARITY", clarityTile]];
+      for (const [via, fetchTile] of order) {
+        const sharp = await fetchTile(z, x, y);
+        if (sharp) {
+          remember(key, sharp.bytes, via, "mosaic");
+          return img(sharp.bytes, via, "mosaic");
+        }
       }
       return new Response(null, { status: 404 });
     }
