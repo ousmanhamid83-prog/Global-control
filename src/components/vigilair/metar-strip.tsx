@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { obsAge } from "@/lib/vigilair/taf";
 import { formatClock } from "@/lib/vigilair/format";
 import { LIVE_CREDIT } from "@/lib/vigilair/live-adsb";
 import { useVigilair } from "@/lib/vigilair/store";
@@ -15,7 +16,7 @@ export function MetarStrip() {
   const liveAt = useVigilair((s) => s.liveAt);
   const liveError = useVigilair((s) => s.liveError);
   const showLive = useVigilair((s) => s.showLive);
-  const n = pic?.sahelN ?? 0;
+  const n = pic?.aircraft.length ?? 0;
   const local = pic?.localN ?? 0;
   const fttj = pic?.metar.find((m) => m.icao === "FTTJ");
   const kp = pic?.space.kp;
@@ -32,7 +33,11 @@ export function MetarStrip() {
         </span>
         {fttj ? (
           <>
-            <Badge tone={catTone(fttj.cat)}>{fttj.cat ?? "METAR"}</Badge>
+            {obsAge(fttj.obsAt)?.stale ? (
+              <Badge tone="warn">METAR {obsAge(fttj.obsAt)!.label}</Badge>
+            ) : (
+              <Badge tone={catTone(fttj.cat)}>{fttj.cat ?? "METAR"}</Badge>
+            )}
             <p className="min-w-0 truncate font-mono text-xs text-muted-foreground">
               FTTJ {fttj.raw.replace(/^METAR\s+/, "")}
             </p>

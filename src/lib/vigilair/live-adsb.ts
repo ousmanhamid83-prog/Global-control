@@ -3,7 +3,7 @@
 import type { Phenomenon } from "./capture";
 import { PLATFORM_BY_ID } from "./catalog";
 import { FRIEND_BY_ID } from "./catalog-friends";
-import { AO, haversineKm } from "./geo";
+import { AO, haversineKm, theaterOf } from "./geo";
 import { M4_ABSENT_CIVIL } from "./iff";
 import type { IffFix, ModeSReply, Track, UasClass } from "./types";
 
@@ -396,7 +396,13 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
     locked: prev?.locked ?? false,
     corridor,
     ew: null,
-    friendKind: uav ? undefined : (plat.friendKind ?? "asecna"),
+    // ASECNA = trafic du théâtre (bande Sahel, AES, Tchad). Ailleurs sur le continent (Maghreb,
+    // Égypte, Afrique australe) : civil coopératif, neutre — pas « ami ASECNA ».
+    friendKind: uav
+      ? undefined
+      : theaterOf(ac.lat, ac.lon) !== "monde"
+        ? (plat.friendKind ?? "asecna")
+        : "civil",
     iff: mintLiveIff(ac, now),
     feed: "adsb",
     icaoType: ac.icaoType,

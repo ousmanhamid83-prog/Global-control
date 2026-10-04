@@ -71,6 +71,11 @@ describe("affiliation APP-6", () => {
     assert.equal(affiliationOf(t, FAIBLE).affiliation, "neutre");
   });
 
+  it("un civil hors zone ASECNA est NEUTRE, pas ami", () => {
+    const t = track({ feed: "adsb", idState: "confirme", origin: "XX", friendKind: "civil", category: "A3" });
+    assert.equal(affiliationOf(t, FAIBLE).affiliation, "neutre");
+  });
+
   it("une urgence 1090ES porte l'amplificateur emergency", () => {
     const t = track({ feed: "adsb", origin: "XX", emergency: "7700 urgence générale" });
     assert.equal(app6Of(t, FAIBLE).emergency, true);

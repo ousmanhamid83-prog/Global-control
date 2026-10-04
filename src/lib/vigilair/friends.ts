@@ -78,15 +78,27 @@ const ASECNA_CS = [
 let fatlSeq = 0;
 let asecnaSeq = 0;
 
+/**
+ * Trafic coopératif : ce n'est pas une piste C-UAS (posture, raids, bulles l'ignorent). Inclut le
+ * trafic civil hors zone ASECNA, qui n'est pas « ami » pour autant (voir isAlly).
+ */
 export function isFriend(t: { friendKind?: FriendKind | null }): boolean {
+  return t.friendKind === "fatl" || t.friendKind === "asecna" || t.friendKind === "civil";
+}
+
+/** Affiliation amie au sens strict : FATL ou trafic ASECNA du théâtre. */
+export function isAlly(t: { friendKind?: FriendKind | null }): boolean {
   return t.friendKind === "fatl" || t.friendKind === "asecna";
 }
 
 export function friendLabel(kind: FriendKind): string {
-  return kind === "fatl" ? "FATL" : "ASECNA";
+  return kind === "fatl" ? "FATL" : kind === "civil" ? "Civil" : "ASECNA";
 }
 
 export function friendBlurb(kind: FriendKind): string {
+  if (kind === "civil") {
+    return "Trafic civil 1090ES hors zone ASECNA — coopératif, affiliation neutre. Pas une piste C-UAS.";
+  }
   return kind === "fatl"
     ? "Force aérienne tchadienne — IFF Mode 4 (crypto clé du jour). Affiliation amie, pas une piste C-UAS."
     : "Trafic IFR ASECNA (FIR FTTT) — ADS-B / Mode S, pas de Mode 4. Plan de vol civil, pas un UAS.";

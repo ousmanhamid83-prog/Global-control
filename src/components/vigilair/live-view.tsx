@@ -30,6 +30,7 @@ import {
   type AircraftLookup,
 } from "@/lib/vigilair/live-feeds";
 import { useVigilair } from "@/lib/vigilair/store";
+import { obsAge, tafValidity } from "@/lib/vigilair/taf";
 import { cn } from "@/lib/utils";
 
 type Tab = "1090" | "antenne" | "metar" | "rid" | "gnss" | "outils";
@@ -364,14 +365,20 @@ function WxPanel() {
           </p>
         ) : (
           <ul className="space-y-2">
-            {taf.map((t) => (
+            {taf.map((t) => {
+              const v = tafValidity(t.raw);
+              return (
               <li key={t.icao} className="rounded-md border border-border bg-surface p-3 hud">
-                <p className="text-xs font-medium">{t.icao}</p>
+                <p className="flex items-center justify-between gap-2 text-xs font-medium">
+                  {t.icao}
+                  {v ? <Badge tone={v.expired ? "warn" : "default"}>{v.label}</Badge> : null}
+                </p>
                 <p className="mt-1 font-mono text-xs leading-relaxed text-muted-foreground">
                   {t.raw}
                 </p>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </div>
@@ -413,13 +420,17 @@ function WxPanel() {
 }
 
 function MetarCard({ m }: { m: MetarRow }) {
+  const age = obsAge(m.obsAt);
   return (
     <li className="rounded-md border border-border bg-surface p-3 hud">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-medium">
           {m.icao} · {m.name}
         </p>
-        {m.cat ? <Badge tone={catTone(m.cat)}>{m.cat}</Badge> : null}
+        <span className="flex shrink-0 items-center gap-1.5">
+          {age ? <Badge tone={age.stale ? "warn" : "default"}>{age.label}</Badge> : null}
+          {m.cat && !age?.stale ? <Badge tone={catTone(m.cat)}>{m.cat}</Badge> : null}
+        </span>
       </div>
       <p className="mt-1 font-mono text-xs leading-relaxed text-muted-foreground">{m.raw}</p>
       <p className="mt-2 font-mono text-xs tabular-nums text-fg">

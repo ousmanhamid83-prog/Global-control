@@ -129,7 +129,7 @@ export function TrackRail() {
                     <span className="font-mono text-sm tabular-nums">
                       {t.callsign}
                     </span>
-                    <Badge tone={ami ? "ok" : originTone(t.origin)}>
+                    <Badge tone={ami ? (t.friendKind === "civil" ? "default" : "ok") : originTone(t.origin)}>
                       {ami
                         ? friendLabel(t.friendKind!)
                         : t.origin
@@ -153,8 +153,8 @@ export function TrackRail() {
                     <Badge tone={threatTone(threat)}>{threat}</Badge>
                     <Badge>{idStateLabel(t.idState)}</Badge>
                     {ami ? (
-                      <Badge tone="ok">
-                        AMI {friendLabel(t.friendKind!)}
+                      <Badge tone={t.friendKind === "civil" ? "default" : "ok"}>
+                        {t.friendKind === "civil" ? "CIVIL" : `AMI ${friendLabel(t.friendKind!)}`}
                       </Badge>
                     ) : null}
                     {t.iff ? <IffBadge m4={t.iff.m4} /> : null}

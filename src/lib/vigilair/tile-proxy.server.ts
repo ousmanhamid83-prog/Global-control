@@ -509,12 +509,13 @@ export async function serveTile(
 
   if (layer === "vis") {
     if (z >= 11) {
-      // Zoom rapproché (≥ 15) : Clarity d'abord — la couche Esri la plus fine et la plus récente,
-      // servie sans le délai de cache de World Imagery. Plus large : World Imagery, plus rapide.
-      const order: [string, typeof esriTile][] =
-        z >= 15
-          ? [["CLARITY", clarityTile], ["ESRI", esriTile]]
-          : [["ESRI", esriTile], ["CLARITY", clarityTile]];
+      // World Imagery d'abord : comparé en réel sur N'Djamena au zoom 19, il est nettement plus
+      // précis que Clarity (désormais redirigé vers Wayback, une version plus ancienne et voilée).
+      // Clarity ne sert qu'en secours, si World Imagery ne répond pas ou n'a pas la tuile.
+      const order: [string, typeof esriTile][] = [
+        ["ESRI", esriTile],
+        ["CLARITY", clarityTile],
+      ];
       for (const [via, fetchTile] of order) {
         const sharp = await fetchTile(z, x, y);
         if (sharp) {

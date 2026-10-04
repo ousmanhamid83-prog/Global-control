@@ -35,15 +35,46 @@ import type { ReceiverFeed, ReceiverStatus } from "./rx1090.server";
 
 const UA = "VIGILAIR-COP/10.0 (C-UAS detection N'Djamena; read-only)";
 
-type Cell = { lat: number; lon: number; nm: number; label: string };
+type Cell = { lat: number; lon: number; label: string };
 
-/** Cellules où le 1090ES a réellement des récepteurs — FTTJ est souvent vide, c'est le réel. */
-const CELLS: Cell[] = [
-  { lat: 12.1348, lon: 15.0557, nm: 400, label: "FTTJ" },
-  { lat: 6.577, lon: 3.321, nm: 420, label: "Lagos" },
-  { lat: 15.589, lon: 32.553, nm: 400, label: "Khartoum" },
-  { lat: 13.481, lon: 2.184, nm: 400, label: "Niamey" },
+/** adsb.fi répond vide au-delà de 250 NM : même rayon partout. */
+const CELL_NM = 250;
+
+/**
+ * Théâtre, interrogé à chaque relevé. Mesuré en réel (octobre 2026) : les agrégateurs n'y ont
+ * presque aucun récepteur — 0 avion à FTTJ, Niamey, Khartoum, 2 à Douala. Seul un récepteur
+ * local (dump1090, « Antenne 1090 ») y donne de vrais avions. On interroge quand même : le jour
+ * où un récepteur apparaît, il est pris.
+ */
+const THEATRE_CELLS: Cell[] = [
+  { lat: 12.1348, lon: 15.0557, label: "FTTJ" },
+  { lat: 4.006, lon: 9.719, label: "Douala" },
+  { lat: 13.481, lon: 2.184, label: "Niamey" },
+  { lat: 15.589, lon: 32.553, label: "Khartoum" },
 ];
+
+/**
+ * Continent : les zones où les agrégateurs ont réellement des récepteurs (Maghreb, Égypte,
+ * Afrique de l'Est et australe). Interrogées en rotation, trois par relevé, pour rester sous les
+ * limites de débit des API ; chaque cellule reste affichée 100 s.
+ */
+const CONTINENT_CELLS: Cell[] = [
+  { lat: 36.7, lon: 3.2, label: "Alger" },
+  { lat: 36.8, lon: 10.2, label: "Tunis" },
+  { lat: 32.7, lon: 13.2, label: "Tripoli" },
+  { lat: 32.1, lon: 20.1, label: "Benghazi" },
+  { lat: 30.1, lon: 31.4, label: "Le Caire" },
+  { lat: 33.4, lon: -7.6, label: "Casablanca" },
+  { lat: 30.4, lon: -9.6, label: "Agadir" },
+  { lat: -1.3, lon: 36.9, label: "Nairobi" },
+  { lat: -26.1, lon: 28.2, label: "Johannesburg" },
+  { lat: -29.9, lon: 31.0, label: "Durban" },
+  { lat: -33.9, lon: 18.6, label: "Le Cap" },
+];
+const CONTINENT_PER_PULL = 3;
+const CONTINENT_TTL_MS = 100_000;
+let continentNext = 0;
+const continentCache = new Map<string, { at: number; ac: LiveAc[] }>();
 
 let cache: { at: number; data: LivePicture } | null = null;
 let lastGood: LivePicture | null = null;
@@ -175,6 +206,24 @@ function asList(v: unknown): unknown[] {
   return [];
 }
 
+/** Une cellule : adsb.lol d'abord (limites larges), adsb.fi en secours. */
+async function pullCell(c: Cell): Promise<{ ac: LiveAc[] | null; refused: boolean; err: string }> {
+  let refused = false;
+  let err = "";
+  for (const base of ["https://api.adsb.lol/v2", "https://opendata.adsb.fi/api/v2"]) {
+    try {
+      const value = await fetchJson(`${base}/lat/${c.lat}/lon/${c.lon}/dist/${CELL_NM}`, 8000);
+      if (value == null) continue;
+      return { ac: parseDump1090(asList(value)), refused, err };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg === "429") refused = true;
+      else if (msg) err = msg;
+    }
+  }
+  return { ac: null, refused, err };
+}
+
 async function pullAdsb(): Promise<{
   ac: LiveAc[];
   errors: string[];
@@ -186,26 +235,8 @@ async function pullAdsb(): Promise<{
   let ok = 0;
   let refused = 0;
   let lastErr = "";
-  for (const c of CELLS) {
-    let value: unknown = null;
-    let heard = false;
-    for (const base of [
-      "https://opendata.adsb.fi/api/v2",
-      "https://api.adsb.lol/v2",
-    ]) {
-      try {
-        value = await fetchJson(`${base}/lat/${c.lat}/lon/${c.lon}/dist/${c.nm}`, 8000);
-        heard = true;
-        break;
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : "";
-        if (msg === "429") refused += 1;
-        else if (msg) lastErr = msg;
-      }
-    }
-    if (!heard || value == null) continue;
-    ok += 1;
-    for (const ac of parseDump1090(asList(value))) {
+  const merge = (list: LiveAc[]) => {
+    for (const ac of list) {
       const prev = byHex.get(ac.hex);
       if (!prev || ac.seenS <= prev.seenS) {
         byHex.set(ac.hex, {
@@ -217,6 +248,34 @@ async function pullAdsb(): Promise<{
         byHex.set(ac.hex, { ...prev, emergency: ac.emergency });
       }
     }
+  };
+  const rotation = Array.from(
+    { length: CONTINENT_PER_PULL },
+    (_, i) => CONTINENT_CELLS[(continentNext + i) % CONTINENT_CELLS.length]!,
+  );
+  continentNext = (continentNext + CONTINENT_PER_PULL) % CONTINENT_CELLS.length;
+  for (const c of [...THEATRE_CELLS, ...rotation]) {
+    const got = await pullCell(c);
+    if (got.refused) refused += 1;
+    if (got.err) lastErr = got.err;
+    if (got.ac) {
+      ok += 1;
+      if (THEATRE_CELLS.includes(c)) merge(got.ac);
+      else continentCache.set(c.label, { at: Date.now(), ac: got.ac });
+    }
+    // Courtoisie envers les API publiques : un relevé n'est pas une rafale.
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  let continentLive = 0;
+  for (const [label, hit] of continentCache) {
+    const age = Date.now() - hit.at;
+    if (age > CONTINENT_TTL_MS) {
+      continentCache.delete(label);
+      continue;
+    }
+    continentLive += 1;
+    // L'âge du cache s'ajoute à celui de la position : rien ne paraît plus frais qu'il n'est.
+    merge(hit.ac.map((a) => ({ ...a, seenS: a.seenS + age / 1000 })));
   }
   if (refused > 0 && ok === 0) errors.push("1090ES refusé (429)");
   // Aucune cellule jointe : c'est une coupure de liaison, pas un ciel vide.
@@ -227,10 +286,15 @@ async function pullAdsb(): Promise<{
     errors: [...new Set(errors)].slice(0, 4),
     source:
       ok > 0
-        ? `1090ES adsb.fi / adsb.lol · ${ok}/${CELLS.length} cellules · ${ac.length} squitters`
+        ? `1090ES adsb.lol / adsb.fi · théâtre ${THEATRE_CELLS.length} cellules · continent ${continentLive}/${CONTINENT_CELLS.length} · ${ac.length} squitters`
         : "1090ES indisponible",
     ok: ok > 0,
   };
+}
+
+/** Avions au-dessus du Sahel (Tchad, Darfour, AES, bande Dakar → mer Rouge). */
+function sahelCount(ac: LiveAc[]): number {
+  return ac.filter((a) => theaterOf(a.lat, a.lon) !== "monde").length;
 }
 
 function visToM(v: unknown): number | null {
@@ -559,7 +623,7 @@ function withReceiver(net: LivePicture, rx: ReceiverStatus, rxAc: LiveAc[]): Liv
       : net.source,
     aircraft,
     localN: localN(aircraft),
-    sahelN: aircraft.length,
+    sahelN: sahelCount(aircraft),
     emergencies: aircraft.filter((a) => Boolean(a.emergency)),
     jam,
     sources,
@@ -821,7 +885,7 @@ async function pullNetwork(): Promise<LivePicture> {
           source: adsb.source,
           aircraft: adsb.ac,
           localN: localN(adsb.ac),
-          sahelN: adsb.ac.length,
+          sahelN: sahelCount(adsb.ac),
           emergencies,
           metar: wx.metar,
           taf: wx.taf,
@@ -1030,7 +1094,7 @@ export const briefLivePicture = createServerFn({ method: "POST" })
       "Officier COP C-UAS VIGILAIR, N'Djamena (FTTJ), Tchad. Briefing opérationnel en français, 12 lignes max, factuel, sans fiction, sans markdown.",
       "Les données ci-dessous sont des capteurs réels (ADS-B 1090ES, METAR NOAA, SIGMET OACI, NOAA SWPC, AWC FTTJ). Ne pas inventer de pistes.",
       `Heure ingest: ${new Date(pic.at).toISOString()}`,
-      `1090ES: ${pic.sahelN} contacts, ${pic.localN} dans 120 km FTTJ, ${pic.emergencies.length} urgences.`,
+      `1090ES: ${pic.aircraft.length} contacts en Afrique, ${pic.sahelN} au Sahel, ${pic.localN} dans 120 km FTTJ, ${pic.emergencies.length} urgences.`,
       `METAR FTTJ: ${fttj?.raw ?? "absent (station parfois muette — c'est réel)"}`,
       `Piste FTTJ: ${pic.airport ? `RWY ${pic.airport.rwy ?? "—"} ${pic.airport.rwyM ?? "—"} m · ${pic.airport.freqs ?? ""}` : "AWC indisponible"}`,
       `Soleil FTTJ WAT: lev ${pic.solar.sunrise} civil ${pic.solar.civilBegin} / coucher ${pic.solar.sunset} · ${pic.solar.nightOps ? "nuit" : "jour"}`,

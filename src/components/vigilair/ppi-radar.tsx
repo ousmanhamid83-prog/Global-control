@@ -480,8 +480,12 @@ function drawFrame(
         ctx.stroke();
       }
     }
+    // Portée continentale : des centaines d'avions réels — petits cadres, étiquettes réservées
+    // à ce qui compte (sélection, verrou, urgence, piste non coopérative).
+    const wide = params.rangeKm >= 2500;
+    const quiet = wide && ami && !tr.locked && tr.id !== selectedId && !tr.emergency;
     if (params.symbols) {
-      drawApp6Air(ctx, p.x, p.y, tr.locked ? 9 : 7, affil, tr.locked ? warn : color, hexAlpha(color, 0.12));
+      drawApp6Air(ctx, p.x, p.y, tr.locked ? 9 : wide ? 5 : 7, affil, tr.locked ? warn : color, hexAlpha(color, 0.12));
     } else {
       drawBlip(
         ctx,
@@ -509,7 +513,7 @@ function drawFrame(
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    if (params.labels && vis > 0.45) {
+    if (params.labels && vis > 0.45 && !quiet) {
       ctx.fillStyle = fg;
       ctx.font = "10px IBM Plex Mono, ui-monospace, monospace";
       ctx.textAlign = "left";

@@ -42,3 +42,14 @@ autoriser ces domaines (HTTPS, port 443) :
                               firms.modaps.eosdis.nasa.gov  services9.arcgis.com
 Imagerie nette = Esri Clarity / World Imagery jusqu'à 0,3 m (zoom 19) : une archive, pas une
 prise du jour. Le crédit en bas de carte dit toujours d'où vient l'image affichée.
+
+Couverture 1090ES réelle (mesurée en ligne, octobre 2026)
+Les agrégateurs publics (adsb.lol, adsb.fi) n'ont presque aucun récepteur au Sahel et en Afrique
+centrale/de l'Ouest : 0 avion à N'Djamena, Niamey, Khartoum, Kano, Abuja, Bamako, Dakar ; 2 à Douala.
+Ils en ont au Maghreb, en Égypte, en Afrique de l'Est et australe : le poste les interroge en
+rotation (couverture continentale). Pour de vrais avions au-dessus de N'Djamena, il faut l'antenne
+du poste (dump1090, voir plus haut). Le trafic hors zone ASECNA est marqué « CIVIL » (neutre APP-6).
+
+Derrière un proxy d'entreprise
+Le serveur du poste (Node) n'utilise un proxy que si on le lui dit :
+  NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://proxy:port npm run dev   (Node 22.21 ou plus récent)

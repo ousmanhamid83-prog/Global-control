@@ -1474,7 +1474,12 @@ export function ingestLivePicture(pic: LivePicture) {
   let autoPhenom: (typeof pic.phenomena)[number] | null = null;
   for (const p of pic.phenomena ?? []) {
     if (phenomWarned.has(p.id)) continue;
-    if (p.kind === "sigmet" && theaterRank(p.theater) < 3) continue;
+    const rank = theaterRank(p.theater);
+    // Une alerte se mérite. Hors théâtre (« monde »), le phénomène reste sur la carte et dans les
+    // graphiques sans sonner ; les feux FIRMS ne sonnent qu'au Tchad et au Darfour : en saison
+    // sèche il y en a des dizaines par jour au Sahel, ils noieraient les alertes drone et intrusion.
+    if (rank < 3) continue;
+    if (p.kind === "feu" && rank < 4) continue;
     phenomWarned.add(p.id);
     alerts.push({
       id: `al-nat-${p.id}`,
@@ -1487,11 +1492,9 @@ export function ingestLivePicture(pic: LivePicture) {
       lat: p.lat,
       lon: p.lon,
     });
-    if (
-      theaterRank(p.theater) >= 3 &&
-      (p.level === "elevee" || p.level === "critique") &&
-      !autoPhenom
-    ) {
+    // La caméra ne part seule que pour un événement critique au Tchad ; le reste attend le clic
+    // « ouvrir capture » de l'opérateur, pour ne pas lui arracher la veille de FTTJ.
+    if (rank >= 5 && p.level === "critique" && !autoPhenom) {
       autoPhenom = p;
     }
   }

@@ -417,7 +417,7 @@ export function DashboardView() {
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={byPhen} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="var(--color-border)" vertical={false} />
-                  <XAxis dataKey="name" stroke="var(--color-muted)" fontSize={11} />
+                  <XAxis dataKey="name" stroke="var(--color-muted)" fontSize={10} tickMargin={6} interval={0} />
                   <YAxis stroke="var(--color-muted)" fontSize={11} allowDecimals={false} width={28} />
                   <Tooltip contentStyle={tooltipStyle} formatter={(value) => [`${value}`, "n"]} />
                   <Bar dataKey="n" fill="var(--color-series-1)" />
@@ -731,7 +731,7 @@ export function DashboardView() {
               <Row k="Balayage" v={`${ppi.rpm} tr/min`} />
               <Row k="Gain / clutter" v={`${ppi.gain.toFixed(2)} / ${Math.round(ppi.clutter * 100)} %`} />
               <Row k="Mandat" v="CN · TR · RU · IR" />
-              <Row k="1090ES live" v={pic ? `${pic.sahelN} Sahel · ${pic.localN} ident` : "en attente"} />
+              <Row k="1090ES live" v={pic ? `${pic.aircraft.length} Afrique · ${pic.sahelN} Sahel · ${pic.localN} ident` : "en attente"} />
               <Row k="SIGMET Afrique" v={String(pic?.sigmets.filter((s) => s.inAo).length ?? 0)} />
               <Row k="GNSS NIC" v={pic?.jam.some((j) => j.level !== "low") ? "dégradé" : "nominal"} />
               <Row k="GOES X-ray" v={pic?.space.xrayClass ?? "—"} />

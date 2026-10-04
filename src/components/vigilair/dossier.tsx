@@ -88,7 +88,7 @@ export function Dossier() {
               <Badge tone="ok">1090ES live</Badge>
             ) : null}
             {ami && track.friendKind ? (
-              <Badge tone="ok">AMI {friendLabel(track.friendKind)}</Badge>
+              <Badge tone={track.friendKind === "civil" ? "default" : "ok"}>{track.friendKind === "civil" ? "CIVIL" : `AMI ${friendLabel(track.friendKind)}`}</Badge>
             ) : null}
             <Badge tone={ami ? "ok" : originTone(track.origin)}>
               {track.origin ? originLabel(track.origin) : "Origine indéterminée"}

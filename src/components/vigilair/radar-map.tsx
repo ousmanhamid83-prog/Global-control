@@ -1012,6 +1012,9 @@ function draw(
 
   const vecS = vectorSeconds(sizeKm);
   const symbols = st.ppi.symbols;
+  // Échelles continentales : des centaines d'avions réels. Petits symboles, et une étiquette
+  // seulement pour ce qui compte (sélection, verrou, urgence, drone B6, piste non coopérative).
+  const wide = scale === "aes" || scale === "sahel" || scale === "monde";
   for (const t of tracks) {
     if (!trackVisible(t, selectedId)) continue;
     const ami = isFriend(t);
@@ -1116,50 +1119,65 @@ function draw(
 
     // Cadre APP-6 (affiliation) autour du marqueur, non pivoté ; le glyphe plateforme reste dessous.
     if (symbols) {
-      drawApp6Air(ctx, p.x, p.y, t.locked ? 13 : 11, affil, color, hexA(color, 0.1));
+      drawApp6Air(ctx, p.x, p.y, t.locked ? 13 : wide ? 6 : 11, affil, color, hexA(color, 0.1));
     }
 
-    ctx.save();
-    ctx.translate(p.x, p.y);
-    if (!ami || t.feed === "adsb") ctx.rotate(rad);
-    ctx.fillStyle = color;
     const plat = PLATFORM_BY_ID[t.truePlatformId];
-    const chasse = plat?.uasClass === "chasse";
-    const wingish =
-      plat &&
-      (chasse ||
-        plat.uasClass === "fixed-wing" ||
-        plat.uasClass === "male" ||
-        plat.uasClass === "ucav" ||
-        plat.uasClass === "vtol" ||
-        plat.uasClass === "loitering");
-    ctx.beginPath();
-    if (t.feed === "adsb") {
-      ctx.moveTo(0, -7);
-      ctx.lineTo(7, 0);
-      ctx.lineTo(0, 7);
-      ctx.lineTo(-7, 0);
-    } else if (ami) {
-      ctx.rect(-5, -5, 10, 10);
-    } else if (chasse) {
-      ctx.moveTo(0, -12);
-      ctx.lineTo(8, 8);
-      ctx.lineTo(0, 3);
-      ctx.lineTo(-8, 8);
-    } else if (wingish) {
-      ctx.moveTo(0, -8);
-      ctx.lineTo(5, 6);
-      ctx.lineTo(0, 3);
-      ctx.lineTo(-5, 6);
+    if (symbols && wide) {
+      // Échelle continentale : le cadre APP-6 suffit, plus un point au centre.
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 1.5, 0, Math.PI * 2);
+      ctx.fill();
     } else {
-      ctx.moveTo(0, -7);
-      ctx.lineTo(6, 5);
-      ctx.lineTo(-6, 5);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      if (!ami || t.feed === "adsb") ctx.rotate(rad);
+      ctx.fillStyle = color;
+      const chasse = plat?.uasClass === "chasse";
+      const wingish =
+        plat &&
+        (chasse ||
+          plat.uasClass === "fixed-wing" ||
+          plat.uasClass === "male" ||
+          plat.uasClass === "ucav" ||
+          plat.uasClass === "vtol" ||
+          plat.uasClass === "loitering");
+      ctx.beginPath();
+      if (t.feed === "adsb") {
+        ctx.moveTo(0, -7);
+        ctx.lineTo(7, 0);
+        ctx.lineTo(0, 7);
+        ctx.lineTo(-7, 0);
+      } else if (ami) {
+        ctx.rect(-5, -5, 10, 10);
+      } else if (chasse) {
+        ctx.moveTo(0, -12);
+        ctx.lineTo(8, 8);
+        ctx.lineTo(0, 3);
+        ctx.lineTo(-8, 8);
+      } else if (wingish) {
+        ctx.moveTo(0, -8);
+        ctx.lineTo(5, 6);
+        ctx.lineTo(0, 3);
+        ctx.lineTo(-5, 6);
+      } else {
+        ctx.moveTo(0, -7);
+        ctx.lineTo(6, 5);
+        ctx.lineTo(-6, 5);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
     }
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
 
+    const quiet =
+      wide &&
+      ami &&
+      !isSel &&
+      !t.emergency &&
+      t.category?.toUpperCase() !== "B6";
+    if (quiet) continue;
     ctx.fillStyle = fg;
     ctx.font = "500 10px 'IBM Plex Mono', monospace";
     const tag =

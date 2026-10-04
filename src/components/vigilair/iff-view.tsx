@@ -544,7 +544,7 @@ function SelectedDecode({
         </div>
         <div className="flex flex-wrap gap-1">
           {isFriend(track) && track.friendKind ? (
-            <Badge tone="ok">AMI {friendLabel(track.friendKind)}</Badge>
+            <Badge tone={track.friendKind === "civil" ? "default" : "ok"}>{track.friendKind === "civil" ? "CIVIL" : `AMI ${friendLabel(track.friendKind)}`}</Badge>
           ) : null}
           {iff ? (
             <Badge tone={m4Tone(iff.m4)}>{m4Label(iff.m4)}</Badge>

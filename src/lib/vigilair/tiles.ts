@@ -43,7 +43,7 @@ export function satCredit(z: number, layer: SatLayer = "vis", meta?: SatMeta | n
     return "Relief ombrage ~24 m · crêtes et cuvettes";
   }
   if (z >= 18) {
-    return "Esri Clarity / World Imagery · 0,3–0,6 m · archive en ligne, pas une prise du jour";
+    return "Esri World Imagery · 0,3–0,6 m · archive en ligne, pas une prise du jour";
   }
   if (z >= 11) {
     return "Esri World Imagery · archive en ligne · sol lisible";

@@ -25,8 +25,12 @@ export type Telemetry = {
   events: TelemetryEvent[];
 };
 
-/** Le poste interroge les flux toutes les 12 s : au-delà de 30 s la donnée retarde, de 2 min elle est perdue. */
-export const FRESH_MS = 30_000;
+/**
+ * Âge normal d'une trame : cache serveur 20 s + relevé toutes les 12 s + ~5 s de collecte, soit
+ * 37 s au plus (mesuré en réel : médiane 17 s, max 37 s). Au-delà de 45 s la donnée retarde, de
+ * 2 min elle est perdue.
+ */
+export const FRESH_MS = 45_000;
 export const STALE_MS = 120_000;
 const SAMPLE_EVERY = 6_000;
 const SAMPLE_MAX = 60;

@@ -1,6 +1,7 @@
 export type Origin = "CN" | "TR" | "RU" | "IR" | "XX";
 
-export type FriendKind = "fatl" | "asecna";
+/** fatl / asecna : affiliation amie ; civil : trafic 1090ES coopératif hors zone ASECNA (neutre). */
+export type FriendKind = "fatl" | "asecna" | "civil";
 
 export type IffMode = "3/A" | "S" | "ADS-B" | "4";
 
