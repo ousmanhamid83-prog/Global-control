@@ -1,5 +1,10 @@
-export const PPI_RANGES = [50, 120, 250, 500, 1200, 2500, 4000] as const;
+// Jusqu'à 8 000 km : tout le continent africain depuis N'Djamena (le point le plus éloigné,
+// Le Cap, est à ≈ 5 400 km ; Gibraltar ≈ 3 900 km).
+export const PPI_RANGES = [50, 120, 250, 500, 1200, 2500, 4000, 6000, 8000] as const;
 export type PpiRangeKm = (typeof PPI_RANGES)[number];
+
+/** Vecteur vitesse (temps projeté, en minutes) : où sera la piste dans N minutes. 0 = aucun. */
+export const TIME_VECTORS = [0, 1, 2, 5] as const;
 
 export type PpiParams = {
   rangeKm: PpiRangeKm;
@@ -10,6 +15,12 @@ export type PpiParams = {
   labels: boolean;
   trails: boolean;
   iff: boolean;
+  /** Cadres APP-6 (affiliation) au lieu des formes plateforme. */
+  symbols: boolean;
+  /** Minutes de vecteur vitesse projeté sur l'écran. */
+  timeVector: (typeof TIME_VECTORS)[number];
+  /** Nord géographique (true) ou magnétique (déclinaison locale appliquée aux relèvements). */
+  northTrue: boolean;
 };
 
 export const DEFAULT_PPI: PpiParams = {
@@ -21,7 +32,13 @@ export const DEFAULT_PPI: PpiParams = {
   labels: true,
   trails: true,
   iff: true,
+  symbols: true,
+  timeVector: 1,
+  northTrue: true,
 };
+
+/** Déclinaison magnétique à N'Djamena ≈ +1,2° E (WMM 2025). Nord mag = nord vrai − déclinaison. */
+export const MAG_DECLINATION_DEG = 1.2;
 
 /** PRF théorique pour une portée non ambiguë (c / 2R). */
 export function prfHz(rangeKm: number): number {

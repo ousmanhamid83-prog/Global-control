@@ -6,9 +6,11 @@ import { Button } from "@/components/ui/button";
 import { PLATFORM_BY_ID, classLabel, originLabel } from "@/lib/vigilair/catalog";
 import { AO, formatCoord, haversineKm, headingBetween } from "@/lib/vigilair/geo";
 import { iffModesLine, m4Label, m4Tone } from "@/lib/vigilair/iff";
-import { PPI_RANGES, prfHz, type PpiRangeKm } from "@/lib/vigilair/ppi";
+import { PPI_RANGES, TIME_VECTORS, prfHz, type PpiRangeKm } from "@/lib/vigilair/ppi";
 import { useStaff } from "@/lib/vigilair/staff-context";
-import { trackVisible, useVigilair } from "@/lib/vigilair/store";
+import { affiliationLabel, affiliationOf } from "@/lib/vigilair/app6";
+import { trackVisible, threatOf, useVigilair } from "@/lib/vigilair/store";
+import type { Track } from "@/lib/vigilair/types";
 import { cn } from "@/lib/utils";
 import { Crosshair, EyeOff, Fingerprint } from "lucide-react";
 
@@ -39,11 +41,11 @@ export function RadarView() {
             </p>
             <h2 className="text-base font-semibold">Écran radar FTTJ</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              PPI + coupe altitude RHI — affichage des pistes 1090ES live, pas un
-              radar primaire FATL. Carrés verts = amis. Filtre menace / Mode 4.
-              Pupitre IFF : crypto Mode 4 (exercice), réponses Mode S. Espace =
-              pause · L = verrouiller · F = amis · T = menace · I = IFF · M =
-              Mode 4 · 1–7 = portée · ← → AAR.
+              PPI + coupe altitude RHI — pistes 1090ES / antenne live, pas un
+              radar primaire FATL. Symboles APP-6 (le cadre = l'affiliation).
+              Réception seule : VIGILAIR n'émet pas. Espace = pause · L =
+              verrouiller · F = amis · T = menace · I = IFF · M = Mode 4 · 1–9 =
+              portée · ← → AAR.
             </p>
           </div>
 
@@ -101,10 +103,12 @@ export function RadarView() {
           <div className="grid grid-cols-2 gap-1">
             {(
               [
+                ["symbols", "Symboles APP-6"],
                 ["afterglow", "Afterglow"],
                 ["labels", "Étiquettes"],
                 ["trails", "Trajectoires"],
                 ["iff", "IFF / ADS-B"],
+                ["northTrue", ppi.northTrue ? "Nord vrai" : "Nord mag."],
               ] as const
             ).map(([key, lab]) => (
               <button
@@ -122,6 +126,29 @@ export function RadarView() {
               </button>
             ))}
           </div>
+
+          <div>
+            <p className="mb-2 text-xs text-muted-foreground">Vecteur vitesse</p>
+            <div className="flex flex-wrap gap-1">
+              {TIME_VECTORS.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setPpi({ timeVector: m })}
+                  className={cn(
+                    "h-9 rounded-md px-3 text-xs transition-colors duration-150",
+                    ppi.timeVector === m
+                      ? "bg-secondary text-fg"
+                      : "text-muted-foreground hover:bg-secondary hover:text-fg",
+                  )}
+                >
+                  {m === 0 ? "aucun" : `${m} min`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {ppi.symbols ? <App6Legend /> : null}
 
           <dl className="grid grid-cols-2 gap-2 text-xs">
             <Item label="PRF" value={`${prfHz(ppi.rangeKm)} Hz`} />
@@ -190,6 +217,7 @@ export function RadarView() {
               ) : (
                 <p className="text-xs text-muted-foreground">Sans transpondeur IFF.</p>
               )}
+              <Intercept t={selected} />
               <Button
                 variant={selected.locked ? "default" : "outline"}
                 size="sm"
@@ -221,6 +249,125 @@ export function RadarView() {
           )}
         </div>
       </aside>
+    </div>
+  );
+}
+
+const APP6_LEGEND: { a: string; label: string; color: string; shape: string }[] = [
+  { a: "ami", label: "Ami (FATL / ASECNA)", color: "var(--color-ok)", shape: "arc" },
+  { a: "hostile", label: "Hostile (mandat + menace)", color: "var(--color-crit)", shape: "diamond" },
+  { a: "suspect", label: "Suspect (à lever)", color: "var(--color-warn)", shape: "diamond" },
+  { a: "neutre", label: "Neutre (civil hors mandat)", color: "var(--color-series-2)", shape: "square" },
+  { a: "inconnu", label: "Inconnu (par défaut)", color: "var(--color-muted-foreground)", shape: "clover" },
+];
+
+/** Petit glyphe APP-6 air (ouvert en bas) pour la légende. */
+function GlyphAir({ shape, color }: { shape: string; color: string }) {
+  const common = { fill: "none", stroke: color, strokeWidth: 1.6, strokeLinejoin: "round" as const };
+  return (
+    <svg width="20" height="16" viewBox="-10 -9 20 18" aria-hidden className="shrink-0">
+      {shape === "arc" ? (
+        <path d="M -6 7 L -6 0 A 6 6 0 0 1 6 0 L 6 7" {...common} />
+      ) : shape === "diamond" ? (
+        <path d="M -7 1 L 0 -8 L 7 1" {...common} />
+      ) : shape === "square" ? (
+        <path d="M -6 7 L -6 -6 L 6 -6 L 6 7" {...common} />
+      ) : (
+        <path
+          d="M -7 4 A 4 4 0 0 1 -7 -4 A 4 4 0 0 1 0 -4 A 4 4 0 0 1 7 -4 A 4 4 0 0 1 7 4"
+          {...common}
+        />
+      )}
+    </svg>
+  );
+}
+
+function App6Legend() {
+  return (
+    <div className="rounded-md border border-border p-3">
+      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Symbologie APP-6 · air
+      </p>
+      <ul className="space-y-1.5">
+        {APP6_LEGEND.map((row) => (
+          <li key={row.a} className="flex items-center gap-2 text-xs">
+            <GlyphAir shape={row.shape} color={row.color} />
+            <span className="text-fg">{row.label}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
+        Le cadre dit l'affiliation, ouvert en bas = aérien. Inconnu est l'état assumé : sans IFF
+        ami ni mandat levé, une piste reste inconnue, jamais hostile par défaut.
+      </p>
+    </div>
+  );
+}
+
+const AFFIL_TONE: Record<string, "ok" | "crit" | "warn" | "default"> = {
+  ami: "ok",
+  hostile: "crit",
+  suspect: "warn",
+  neutre: "default",
+  inconnu: "default",
+};
+
+/**
+ * Interception : toutes les données réellement reçues de la piste, en clair. VIGILAIR écoute,
+ * ne répond pas. Rien n'est affiché qui n'ait été entendu — les champs absents restent « — ».
+ */
+function Intercept({ t }: { t: Track }) {
+  const { affiliation, reason } = affiliationOf(t, threatOf(t));
+  const hex = t.feed === "adsb" ? t.id.replace(/^live-/, "").toUpperCase() : null;
+  const fl = Math.round(t.altM / 30.48);
+  const via =
+    t.iff?.replies?.[0]?.siteId === "antenne-1090"
+      ? "Antenne du poste"
+      : t.feed === "adsb"
+        ? "1090ES réseau"
+        : t.feed === "rid"
+          ? "Remote ID"
+          : "COP";
+  const rows: [string, string][] = [
+    ["Affiliation", `${affiliationLabel(affiliation)} · ${reason}`],
+    ["Reçu par", via],
+    ["ICAO24", hex ?? "—"],
+    ["Indicatif", t.callsign || "—"],
+    ["Type / immat.", `${t.icaoType ?? "—"}${t.reg ? ` · ${t.reg}` : ""}`],
+    ["Nationalité", t.nation ?? "—"],
+    ["Catégorie", t.category ?? "—"],
+    ["Altitude", `${Math.round(t.altM)} m · FL${String(Math.max(0, fl)).padStart(3, "0")}`],
+    ["Vitesse sol", `${Math.round(t.speedKmh)} km/h`],
+    ["Cap", `${Math.round(t.heading)}°`],
+    ["Montée", t.climbMs ? `${t.climbMs > 0 ? "+" : ""}${Math.round(t.climbMs * 196.85)} ft/min` : "—"],
+    ["Squawk", t.iff?.squawk ?? "—"],
+    ["Intégrité GNSS", t.nic != null ? `NIC ${t.nic}${t.nic < 5 ? " · dégradé" : ""}` : "—"],
+    ["Précision", t.nacp != null ? `NACp ${t.nacp}` : "—"],
+    ["Signal", t.rssi != null ? `${t.rssi.toFixed(1)} dBFS` : "—"],
+    ["Militaire", t.military ? "indicatif militaire" : "—"],
+    ["Urgence", t.emergency ?? "—"],
+  ];
+  return (
+    <div className="space-y-2 rounded-md border border-border bg-bg/40 p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Interception · données reçues
+        </p>
+        <Badge tone={AFFIL_TONE[affiliation] ?? "default"}>{affiliationLabel(affiliation)}</Badge>
+      </div>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[11px]">
+        {rows.map(([k, v]) => (
+          <div key={k} className="contents">
+            <dt className="text-muted-foreground">{k}</dt>
+            <dd className={cn("truncate text-right tabular-nums", v === "—" ? "text-muted-foreground" : "text-fg")} title={v}>
+              {v}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <p className="text-[10px] leading-snug text-muted-foreground">
+        Lecture passive 1090ES / Mode S. VIGILAIR n'interroge pas et n'émet pas.
+      </p>
     </div>
   );
 }

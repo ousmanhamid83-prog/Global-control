@@ -1,10 +1,11 @@
 import { useEffect, useRef, type MouseEvent } from "react";
 import { PLATFORM_BY_ID } from "@/lib/vigilair/catalog";
 import { AO, haversineKm, headingBetween } from "@/lib/vigilair/geo";
-import { prfHz, type PpiParams } from "@/lib/vigilair/ppi";
+import { MAG_DECLINATION_DEG, prfHz, type PpiParams } from "@/lib/vigilair/ppi";
+import { affiliationColorVar, affiliationOf, drawApp6Air, type Affiliation } from "@/lib/vigilair/app6";
 import { detectRaids, raidTrackIds } from "@/lib/vigilair/raid";
 import { getLiveZones } from "@/lib/vigilair/zones";
-import { peekTracks, trackVisible, useVigilair } from "@/lib/vigilair/store";
+import { peekTracks, threatOf, trackVisible, useVigilair } from "@/lib/vigilair/store";
 import { isFriend } from "@/lib/vigilair/friends";
 import { m4Short } from "@/lib/vigilair/iff";
 import type { Origin, Track, UasClass } from "@/lib/vigilair/types";
@@ -303,6 +304,7 @@ function drawFrame(
     IR: token(root, "--color-ir", "#b89b7a"),
     XX: token(root, "--color-xx", "#71717a"),
   };
+  const affilColor = (a: Affiliation) => token(root, affiliationColorVar(a), muted);
 
   const { cx, cy, radius } = scopeGeom(w, h);
   canvas.dataset.scope = `${cx.toFixed(1)},${cy.toFixed(1)},${radius.toFixed(1)}`;
@@ -441,7 +443,14 @@ function drawFrame(
     if (vis < 0.08) continue;
     const plat = PLATFORM_BY_ID[tr.hypotheses[0]?.platformId ?? tr.truePlatformId];
     const origin = tr.origin ?? plat?.origin ?? "XX";
-    const color = ami ? ok : params.iff ? origins[origin] : ok;
+    const affil = affiliationOf(tr, threatOf(tr)).affiliation;
+    const color = params.symbols
+      ? affilColor(affil)
+      : ami
+        ? ok
+        : params.iff
+          ? origins[origin]
+          : ok;
     ctx.globalAlpha = vis;
     if (tr.locked && params.trails) {
       ctx.strokeStyle = hexAlpha(warn, 0.5);
@@ -452,16 +461,39 @@ function drawFrame(
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    drawBlip(
-      ctx,
-      p.x,
-      p.y,
-      tr.heading,
-      plat?.uasClass ?? tr.classGuess,
-      tr.locked ? warn : color,
-      tr.locked ? 7 : 5,
-      ami,
-    );
+    // Vecteur vitesse : la piste projetée dans params.timeVector minutes, au cap et à la vitesse.
+    if (params.timeVector > 0 && tr.speedKmh > 5) {
+      const projKm = (tr.speedKmh * params.timeVector) / 60;
+      const dLat = (projKm * Math.cos((tr.heading * Math.PI) / 180)) / 111.32;
+      const dLon =
+        (projKm * Math.sin((tr.heading * Math.PI) / 180)) /
+        (111.32 * Math.cos((tr.lat * Math.PI) / 180));
+      const rng2 = haversineKm(AO.airport.lat, AO.airport.lon, tr.lat + dLat, tr.lon + dLon);
+      if (rng2 <= params.rangeKm) {
+        const brg2 = headingBetween(AO.airport.lat, AO.airport.lon, tr.lat + dLat, tr.lon + dLon);
+        const q = polar(cx, cy, brg2, (rng2 / params.rangeKm) * radius);
+        ctx.strokeStyle = tr.locked ? warn : color;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(q.x, q.y);
+        ctx.stroke();
+      }
+    }
+    if (params.symbols) {
+      drawApp6Air(ctx, p.x, p.y, tr.locked ? 9 : 7, affil, tr.locked ? warn : color, hexAlpha(color, 0.12));
+    } else {
+      drawBlip(
+        ctx,
+        p.x,
+        p.y,
+        tr.heading,
+        plat?.uasClass ?? tr.classGuess,
+        tr.locked ? warn : color,
+        tr.locked ? 7 : 5,
+        ami,
+      );
+    }
     if (raidIds.has(tr.id)) {
       ctx.strokeStyle = hexAlpha(crit, 0.7);
       ctx.lineWidth = 1.2;
@@ -567,17 +599,19 @@ function drawFrame(
   ctx.font = "11px IBM Plex Mono, ui-monospace, monospace";
   legend(`FTTJ  N'DJAMENA  ·  ${params.rangeKm} km`, 11, 16, 40);
   legend(`BALAYAGE ${params.rpm} tr/min  ·  PRF ${prfHz(params.rangeKm)} Hz`, 11, 16, 56);
-  legend(
-    params.rangeKm >= 2500 ? "THÉÂTRE SAHEL · AES INCLUS" : `AZ ${sweep.toFixed(0).padStart(3, "0")}°`,
-    11,
-    16,
-    72,
-  );
+  const azShown = params.northTrue ? sweep : (sweep - MAG_DECLINATION_DEG + 360) % 360;
+  const coverage =
+    params.rangeKm >= 6000
+      ? "COUVERTURE AFRIQUE"
+      : params.rangeKm >= 2500
+        ? "THÉÂTRE SAHEL · AES INCLUS"
+        : `AZ ${azShown.toFixed(0).padStart(3, "0")}° ${params.northTrue ? "VRAI" : "MAG"}`;
+  legend(coverage, 11, 16, 72, false);
 
   ctx.textAlign = "right";
   ctx.fillStyle = muted;
-  legend("SILENCIEUX · PAS D'ÉMISSION", 11, w - 16, 22, true);
-  legend("CN / TR / RU / IR", 11, w - 16, 38, true);
+  legend("SILENCIEUX · RÉCEPTION SEULE", 11, w - 16, 22, true);
+  legend(params.symbols ? "APP-6 · AMI / HOSTILE / INCONNU" : "CN / TR / RU / IR", 11, w - 16, 38, true);
 
   if (selected && selected.idState !== "perdu") {
     const plat =
@@ -614,8 +648,9 @@ function drawFrame(
       by + 36,
     );
     ctx.font = "11px IBM Plex Mono, ui-monospace, monospace";
+    const brgShown = params.northTrue ? brg : (brg - MAG_DECLINATION_DEG + 360) % 360;
     ctx.fillText(
-      `BRG ${brg.toFixed(0)}°  RNG ${rng.toFixed(1)} km  ALT ${Math.round(selected.altM)} m`,
+      `BRG ${brgShown.toFixed(0)}°${params.northTrue ? "" : "M"}  RNG ${rng.toFixed(1)} km  ALT ${Math.round(selected.altM)} m`,
       bx + 10,
       by + 54,
     );

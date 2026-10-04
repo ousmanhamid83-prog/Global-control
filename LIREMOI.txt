@@ -14,3 +14,18 @@ Constat, pas un défaut du poste
 Installation
 - Node 22. Dans ce dossier : npm install, puis npm run dev.
 - Le poste écoute sur le port 8080.
+
+Antenne 1090 du poste (clé SDR + dump1090)
+Lancer dump1090 avec le port brut AVR, et un port web qui ne prend pas 8080 (celui de VIGILAIR) :
+  dump1090 --interactive --net --net-ro-port 30002 --net-http-port 8090 --aggressive
+VIGILAIR s'y branche seul sur 127.0.0.1:30002 et décode chaque trame (Capteurs > Antenne).
+Récepteur sur une autre machine :  VIGILAIR_1090=192.168.1.50:30002 npm run dev
+  (Windows PowerShell :  $env:VIGILAIR_1090="192.168.1.50:30002"; npm run dev)
+Position de l'antenne :  VIGILAIR_ANTENNE=12.1331,15.0339   Couper la liaison :  VIGILAIR_1090=off
+Réception seule : VIGILAIR décode l'ADS-B / Mode S entendu en clair, il n'interroge ni n'émet.
+
+Symbologie APP-6 et radar
+- Les pistes portent le cadre OTAN APP-6 (le cadre = l'affiliation ; ouvert en bas = aérien).
+  Inconnu est l'état par défaut : sans IFF ami ni mandat levé, une piste reste inconnue.
+- PPI : portées jusqu'à 8000 km (couverture Afrique), vecteur vitesse, nord vrai/magnétique,
+  bascule symboles APP-6 / formes plateforme. Fiche « interception » : toutes les données reçues.

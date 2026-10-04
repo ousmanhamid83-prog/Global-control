@@ -33,7 +33,7 @@ import {
 } from "@/lib/vigilair/terrain";
 import { ACOUSTIC_SITES, SENSOR_SITES } from "@/lib/vigilair/sensors";
 import { getLiveZones } from "@/lib/vigilair/zones";
-import { peekTracks, trackVisible, useVigilair } from "@/lib/vigilair/store";
+import { peekTracks, threatOf, trackVisible, useVigilair } from "@/lib/vigilair/store";
 import { satCredit, drawTiles, liveGsd, pixelBudgetLine, formatPx, pixelSpan, pixelDetections, pixelClassLabel, scanCenterTile, localImageryShare, LOCAL_CREDIT } from "@/lib/vigilair/tiles";
 import { formatFireAge, lockFire, fireAgeMs } from "@/lib/vigilair/fire-clock";
 import { placeGpsZone, focusMine, focusWater } from "@/lib/vigilair/place-zone";
@@ -42,6 +42,7 @@ import { LAKE_ROUTES, routeKm } from "@/lib/vigilair/lake-routes";
 import { MINES } from "@/lib/vigilair/mines";
 import { HYDRO, hydroKm, waterAt } from "@/lib/vigilair/hydro";
 import { isFriend } from "@/lib/vigilair/friends";
+import { affiliationColorVar, affiliationOf, drawApp6Air } from "@/lib/vigilair/app6";
 import { m4Short } from "@/lib/vigilair/iff";
 import type { Origin, Track } from "@/lib/vigilair/types";
 import { cn } from "@/lib/utils";
@@ -49,6 +50,14 @@ import { cn } from "@/lib/utils";
 function token(el: HTMLElement, name: string, fallback: string) {
   const v = getComputedStyle(el).getPropertyValue(name).trim();
   return v || fallback;
+}
+
+/** Remplissage translucide d'une couleur #rrggbb pour un cadre APP-6. */
+function hexA(hex: string, a: number) {
+  const h = hex.replace("#", "").trim();
+  if (h.length !== 6) return hex;
+  const n = parseInt(h, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
 
 function clampPt(x: number, y: number, w: number, h: number) {
@@ -1002,12 +1011,20 @@ function draw(
   }
 
   const vecS = vectorSeconds(sizeKm);
+  const symbols = st.ppi.symbols;
   for (const t of tracks) {
     if (!trackVisible(t, selectedId)) continue;
     const ami = isFriend(t);
     const p = pj(t.lat, t.lon);
     if (p.x < -30 || p.x > w + 30 || p.y < -30 || p.y > h + 30) continue;
-    const color = ami ? ok : t.origin && originStroke[t.origin] ? originStroke[t.origin] : ice;
+    const affil = affiliationOf(t, threatOf(t)).affiliation;
+    const color = symbols
+      ? token(root, affiliationColorVar(affil), mutedFg)
+      : ami
+        ? ok
+        : t.origin && originStroke[t.origin]
+          ? originStroke[t.origin]
+          : ice;
     ctx.strokeStyle = color;
     ctx.globalAlpha = t.locked ? 0.85 : 0.4;
     ctx.lineWidth = t.locked ? 2.2 : 1.2;
@@ -1095,6 +1112,11 @@ function draw(
       ctx.arc(p.x, p.y, 16, 0, Math.PI * 2);
       ctx.stroke();
       ctx.globalAlpha = 1;
+    }
+
+    // Cadre APP-6 (affiliation) autour du marqueur, non pivoté ; le glyphe plateforme reste dessous.
+    if (symbols) {
+      drawApp6Air(ctx, p.x, p.y, t.locked ? 13 : 11, affil, color, hexA(color, 0.1));
     }
 
     ctx.save();
