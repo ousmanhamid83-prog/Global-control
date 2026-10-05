@@ -1106,6 +1106,14 @@ export const downloadArchive = createServerFn({ method: "GET" })
     return json ? { id: data.id, json } : null;
   });
 
+/** Imagerie Sentinel-2 Copernicus : la clé gratuite de l'opérateur est-elle configurée et valide ? */
+export const sentinelCheck = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async (): Promise<{ configured: boolean; ok: boolean; error: string | null }> => {
+    const sh = await import("./sentinelhub.server");
+    return sh.sentinelCheck();
+  });
+
 /** Phonie ATC — état de l'enregistrement du flux public (réception seule). */
 export const atcStatus = createServerFn({ method: "GET" })
   .middleware([authMiddleware])

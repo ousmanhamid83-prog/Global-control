@@ -75,6 +75,17 @@ Alertes feu (FIRMS) — ce que le capteur peut, honnêtement
   pas un flux public rafraîchi toutes les 30 min. Sans clé d'un fournisseur commercial, le poste
   n'affiche pas un faux « live » : le crédit en carte dit toujours la vraie source et le vrai âge.
 
+Imagerie Sentinel-2 fraîche (Copernicus) — Capteurs > Outils, couche « Sentinel-2 »
+- Le poste ne possède pas de satellite. Il interroge l'API Copernicus avec le compte GRATUIT de
+  l'opérateur (Copernicus Data Space Ecosystem) : images Sentinel-2 fraîches, 10 m natif. On lit une
+  piste, un bâtiment, un convoi — pas une voiture isolée. Composite « moins nuageux » ≤ 20 jours,
+  crédité honnêtement (fenêtre réelle, jamais un faux « live »).
+- Clé gratuite : compte sur dataspace.copernicus.eu, client OAuth, puis
+  AFRICONTROL_SENTINEL_ID=<id> AFRICONTROL_SENTINEL_SECRET=<secret> npm run dev
+- « Tester la clé » dans Outils vérifie que le jeton est obtenu. Lecture seule : le poste lit des
+  images publiques, il ne commande aucun satellite. Pour le sous-métrique (30 cm), il faut une clé
+  commerciale (Planet/Maxar) — je ne simule pas ce que le compte gratuit ne donne pas.
+
 Durcissement défensif
 - En-têtes de sécurité sur chaque réponse (nosniff, Referrer-Policy no-referrer, Permissions-Policy
   capteurs coupés). Aucune télémétrie tierce. Les sources externes (1090ES, météo…) sont
@@ -86,6 +97,7 @@ Sur un PC avec Internet, rien à régler. Derrière un pare-feu ou dans un envir
 autoriser ces domaines (HTTPS, port 443) :
   Imagerie nette (archive)  : clarity.maptiles.arcgis.com  server.arcgisonline.com
   Imagerie géostationnaire  : gibs.earthdata.nasa.gov  view.eumetsat.int  tiles.maps.eox.at
+  Sentinel-2 Copernicus     : sh.dataspace.copernicus.eu  identity.dataspace.copernicus.eu
   1090ES réseau / registre  : opendata.adsb.fi  api.adsb.lol  api.adsbdb.com
   Météo / aéroport          : aviationweather.gov  api.open-meteo.com
   Météo spatiale            : services.swpc.noaa.gov

@@ -1,9 +1,10 @@
-export type SatLayer = "vis" | "ir" | "th" | "nv" | "rel";
+export type SatLayer = "vis" | "s2" | "ir" | "th" | "nv" | "rel";
 
-export const SAT_LAYERS: SatLayer[] = ["vis", "ir", "th", "nv", "rel"];
+export const SAT_LAYERS: SatLayer[] = ["vis", "s2", "ir", "th", "nv", "rel"];
 
 export const SAT_LAYER_LABEL: Record<SatLayer, string> = {
   vis: "Visible",
+  s2: "Sentinel-2",
   ir: "IR 10.5",
   th: "Thermique",
   nv: "Nuit",
@@ -12,11 +13,13 @@ export const SAT_LAYER_LABEL: Record<SatLayer, string> = {
 
 export type SatMeta = {
   visAt: string | null;
+  s2At: string | null;
   irAt: string | null;
   thAt: string | null;
   nvAt: string | null;
   relAt: string | null;
   visSrc: string;
+  s2Src: string;
   irSrc: string;
   thSrc: string;
   nvSrc: string;
@@ -24,7 +27,7 @@ export type SatMeta = {
 };
 
 export function parseSatLayer(v: string | null | undefined): SatLayer {
-  if (v === "ir" || v === "th" || v === "vis" || v === "nv" || v === "rel") return v;
+  if (v === "ir" || v === "th" || v === "vis" || v === "s2" || v === "nv" || v === "rel") return v;
   return "vis";
 }
 

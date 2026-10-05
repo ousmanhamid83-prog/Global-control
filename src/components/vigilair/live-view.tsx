@@ -33,6 +33,7 @@ import {
   downloadAtcSegment,
   fetchArchives,
   lookupAircraft,
+  sentinelCheck,
   setAutoArchive,
   setContinentSweep,
   type AircraftLookup,
@@ -983,6 +984,64 @@ function ArchivesSection() {
   );
 }
 
+/**
+ * Imagerie Sentinel-2 fraîche (Copernicus) — le poste ne possède pas de satellite. Il interroge
+ * l'API Copernicus avec le compte GRATUIT de l'opérateur. 10 m natif : une piste, un bâtiment, un
+ * convoi — pas une voiture. Réel et daté honnêtement ; aucune image inventée.
+ */
+function SentinelSection() {
+  const [st, setSt] = useState<{ configured: boolean; ok: boolean; error: string | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const test = () => {
+    setBusy(true);
+    sentinelCheck()
+      .then(setSt)
+      .catch((e: unknown) => setSt({ configured: true, ok: false, error: e instanceof Error ? e.message : "échec" }))
+      .finally(() => setBusy(false));
+  };
+  useEffect(() => {
+    test();
+  }, []);
+  const tone = !st ? "default" : !st.configured ? "warn" : st.ok ? "ok" : "crit";
+  const label = !st ? "…" : !st.configured ? "clé requise" : st.ok ? "clé valide" : "clé en échec";
+  return (
+    <section className="space-y-3 rounded-md border border-border bg-surface p-4 col-span-2 hud">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-medium">Imagerie Sentinel-2 fraîche · Copernicus (gratuit)</h2>
+        <div className="flex items-center gap-2">
+          <Badge tone={tone}>{label}</Badge>
+          <Button size="sm" variant="outline" disabled={busy} onClick={test}>
+            {busy ? "…" : "Tester la clé"}
+          </Button>
+        </div>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Le poste ne possède pas de satellite : il interroge Copernicus avec <strong>ton compte
+        gratuit</strong>. Résolution 10 m (on lit une piste, un bâtiment, un convoi — pas une voiture
+        isolée), images fraîches datées honnêtement. La couche « Sentinel-2 » apparaît sur la carte
+        une fois la clé posée.
+      </p>
+      {st?.error ? <p className="font-mono text-xs text-crit">{st.error}</p> : null}
+      {!st?.configured ? (
+        <div className="space-y-2 rounded-sm border border-border bg-bg/60 p-3 text-xs text-muted-foreground">
+          <p className="text-fg">Brancher la clé Copernicus (gratuite)</p>
+          <ol className="list-decimal space-y-1 pl-4">
+            <li>
+              Créer un compte gratuit sur dataspace.copernicus.eu, puis un client OAuth
+              (Sentinel Hub &gt; User settings &gt; OAuth clients).
+            </li>
+            <li>Démarrer le poste avec les deux identifiants :</li>
+          </ol>
+          <pre className="overflow-x-auto rounded-xs bg-bg px-2 py-1.5 font-mono text-[11px] text-fg">
+            AFRICONTROL_SENTINEL_ID=&lt;client id&gt; AFRICONTROL_SENTINEL_SECRET=&lt;secret&gt; npm run dev
+          </pre>
+          <p>Lecture seule : le poste lit des images publiques, il ne commande aucun satellite.</p>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function ToolsPanel() {
   const [hex, setHex] = useState("");
   const [lookup, setLookup] = useState<AircraftLookup | null>(null);
@@ -1095,6 +1154,7 @@ function ToolsPanel() {
         ) : null}
       </section>
       <ArchivesSection />
+      <SentinelSection />
       <section className="rounded-md border border-border bg-surface p-4 col-span-2 hud">
         <h2 className="text-sm font-medium">Ce qui est réel</h2>
         <ul className="mt-2 grid gap-2 text-sm text-muted-foreground grid-cols-2">

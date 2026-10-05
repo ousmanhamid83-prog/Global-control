@@ -38,11 +38,13 @@ const hits = (g.__vigilairTileHits ??= { t: Date.now(), n: 0 });
 const eumQ = (g.__vigilairEumQ ??= { n: 0, wait: [] });
 const meta = (g.__vigilairSatMeta ??= {
   visAt: null,
+  s2At: null,
   irAt: null,
   thAt: null,
   nvAt: null,
   relAt: null,
   visSrc: "",
+  s2Src: "",
   irSrc: "",
   thSrc: "",
   nvSrc: "",
@@ -191,6 +193,11 @@ function note(layer: SatLayer, scene: string, src: string) {
     if (newer(meta.visAt, iso)) {
       meta.visAt = iso;
       meta.visSrc = src;
+    }
+  } else if (layer === "s2") {
+    if (newer(meta.s2At, iso)) {
+      meta.s2At = iso;
+      meta.s2Src = src;
     }
   } else if (layer === "ir") {
     if (newer(meta.irAt, iso)) {
@@ -483,6 +490,7 @@ function ttlOf(via: string): number {
   if (via.startsWith("GEO") || via.startsWith("EUM") || via === "IR") return GEO_TTL;
   if (via === "LOCAL") return 12 * 60 * 60 * 1000;
   if (via === "S2" || via === "ESRI" || via === "CLARITY") return 6 * 60 * 60 * 1000;
+  if (via === "S2LIVE") return 3 * 60 * 60 * 1000;
   if (via === "GDEM" || via === "BMARBLE" || via === "CITY") return 12 * 60 * 60 * 1000;
   return DAILY_TTL;
 }
@@ -534,6 +542,31 @@ export async function serveTile(
         remember(key, geo.bytes, "GEO", stamp);
         return img(geo.bytes, "GEO", stamp);
       }
+    }
+    return new Response(null, { status: 404 });
+  }
+
+  if (layer === "s2") {
+    // Sentinel-2 10 m via le compte Copernicus gratuit de l'opérateur. Natif ~z13 ; au-delà on
+    // laisse jusqu'à z15 (suréchantillonné, honnête dans le crédit). Non configuré → le crédit le dit.
+    const { sentinelConfigured, sentinelTile } = await import("./sentinelhub.server");
+    if (!sentinelConfigured()) {
+      meta.s2Src = "clé Copernicus requise (Capteurs > Outils)";
+      return new Response(null, { status: 404 });
+    }
+    if (z < 6 || z > 15) return new Response(null, { status: 404 });
+    try {
+      const s2 = await sentinelTile(z, x, y);
+      if (s2) {
+        // Pas d'horodatage « maintenant » : un composite n'est pas une prise de l'instant. Le crédit
+        // porte la fenêtre réelle (≤ 20 j), pas un faux « < 1 min ».
+        meta.s2Src = s2.src;
+        remember(key, s2.bytes, "S2LIVE", s2.src);
+        return img(s2.bytes, "S2LIVE", s2.src);
+      }
+    } catch (e) {
+      meta.s2Src = `Sentinel-2 · ${e instanceof Error ? e.message : "échec"}`;
+      return new Response(null, { status: e instanceof Error && e.message === "429" ? 429 : 502 });
     }
     return new Response(null, { status: 404 });
   }

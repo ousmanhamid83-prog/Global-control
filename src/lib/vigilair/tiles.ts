@@ -17,6 +17,15 @@ export const SAT_CREDIT =
   "Vue proche : World Imagery jusqu'à z19, objets au sol, toute région. Vue large : Meteosat ≤ 60 min.";
 
 export function satCredit(z: number, layer: SatLayer = "vis", meta?: SatMeta | null): string {
+  if (layer === "s2") {
+    const src = meta?.s2Src;
+    if (!src || src.includes("requise")) {
+      return "Sentinel-2 Copernicus · clé gratuite à configurer (Capteurs > Outils) · 10 m";
+    }
+    if (src.startsWith("Sentinel-2 ·")) return src; // message d'erreur serveur
+    const far = z > 14 ? " · agrandi au-delà de z14" : "";
+    return `${src}${far}`;
+  }
   if (layer === "ir") {
     const age = meta?.irAt ? sceneAgeLabel(meta.irAt) : "10 min";
     if (z >= 12) {
@@ -65,6 +74,11 @@ export function layerGsd(layer: SatLayer, z: number, lat: number): GsdRead {
   }
   if (layer === "rel") {
     return { m: 24, label: "GSD 24 m", vis: false };
+  }
+  if (layer === "s2") {
+    // Sentinel-2 : 10 m natif. On ne prétend jamais mieux, même agrandi.
+    const m = Math.max(10, visGsdM(z, lat));
+    return { m, label: `GSD ${formatGsdM(m)}`, vis: true };
   }
   const px = visGsdM(z, lat);
   return { m: px, label: `GSD ${formatGsdM(px)}`, vis: true };
