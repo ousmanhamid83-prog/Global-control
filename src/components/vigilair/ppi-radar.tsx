@@ -605,11 +605,13 @@ function drawFrame(
   legend(`BALAYAGE ${params.rpm} tr/min  ·  PRF ${prfHz(params.rangeKm)} Hz`, 11, 16, 56);
   const azShown = params.northTrue ? sweep : (sweep - MAG_DECLINATION_DEG + 360) % 360;
   const coverage =
-    params.rangeKm >= 6000
-      ? "COUVERTURE AFRIQUE"
-      : params.rangeKm >= 2500
-        ? "THÉÂTRE SAHEL · AES INCLUS"
-        : `AZ ${azShown.toFixed(0).padStart(3, "0")}° ${params.northTrue ? "VRAI" : "MAG"}`;
+    params.rangeKm >= 12000
+      ? "COUVERTURE MONDE · TOUS CONTINENTS"
+      : params.rangeKm >= 6000
+        ? "COUVERTURE AFRIQUE"
+        : params.rangeKm >= 2500
+          ? "THÉÂTRE SAHEL · AES INCLUS"
+          : `AZ ${azShown.toFixed(0).padStart(3, "0")}° ${params.northTrue ? "VRAI" : "MAG"}`;
   legend(coverage, 11, 16, 72, false);
 
   ctx.textAlign = "right";

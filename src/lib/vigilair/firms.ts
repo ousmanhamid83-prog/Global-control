@@ -15,10 +15,13 @@ export function parseFirms(csv: string, sensor: string): Phenomenon[] {
   const iConf = col("confidence");
   const iFrp = col("frp");
   const iSat = col("satellite");
+  const iDn = col("daynight");
   if (iLat < 0 || iLon < 0) return [];
   const pixelM = /modis/i.test(sensor) ? 1000 : 375;
   type Row = Phenomenon & { frp: number };
   const best = new Map<string, Row>();
+  // Nombre de points chauds bruts tombés dans la même cellule (foyer groupé), par clé de grille.
+  const count = new Map<string, number>();
   for (let i = 1; i < lines.length; i++) {
     const c = lines[i]!.split(",");
     const lat = Number(c[iLat]);
@@ -35,17 +38,24 @@ export function parseFirms(csv: string, sensor: string): Phenomenon[] {
     const at = Date.parse(`${day}T${clock.slice(0, 2)}:${clock.slice(2, 4)}:00Z`);
     const theater = theaterOf(lat, lon);
     const high = confRaw === "h" || confRaw === "high" || confN >= 80;
-    const level: Threat =
-      theaterRank(theater) >= 2 && (high || frpOk >= 40) ? "elevee" : "moderee";
     const sat = iSat >= 0 && c[iSat] ? c[iSat] : sensor;
+    const dnRaw = iDn >= 0 ? (c[iDn] ?? "").trim().toUpperCase() : "";
+    const daynight = dnRaw === "D" ? "jour" : dnRaw === "N" ? "nuit" : null;
+    const confLabel = high ? "haute" : "nominale";
     const key = `${Math.round(lat * 20) / 20}:${Math.round(lon * 20) / 20}`;
+    count.set(key, (count.get(key) ?? 0) + 1);
+    // Un foyer étendu (plusieurs points) ou très chaud au théâtre monte en « élevée ».
+    const level: Threat =
+      theaterRank(theater) >= 2 && (high || frpOk >= 40 || (count.get(key) ?? 1) >= 3)
+        ? "elevee"
+        : "moderee";
     const prev = best.get(key);
     if (prev && prev.frp >= frpOk) continue;
     best.set(key, {
       id: `firms-${sensor}-${key}-${day}`,
       kind: "feu",
       title: `Point chaud ${sat}`,
-      body: `NASA FIRMS · ${sensor} · thermique · FRP ${frpOk.toFixed(1)} MW · confiance ${confRaw || "—"} · pixel ${pixelM} m · pas un feu de voiture`,
+      body: `NASA FIRMS · ${sensor} · thermique · FRP ${frpOk.toFixed(1)} MW · confiance ${confLabel}${daynight ? ` · ${daynight}` : ""} · pixel ${pixelM} m · détection thermique, pas un feu de voiture`,
       lat,
       lon,
       at: Number.isFinite(at) ? at : Date.now(),
@@ -53,9 +63,14 @@ export function parseFirms(csv: string, sensor: string): Phenomenon[] {
       level,
       source: "NASA FIRMS",
       frp: frpOk,
+      fire: { frp: frpOk, conf: confLabel, pixelM, daynight, count: 1 },
     });
   }
-  const rows = [...best.values()];
+  const rows = [...best.values()].map((r) => {
+    const key = `${Math.round(r.lat * 20) / 20}:${Math.round(r.lon * 20) / 20}`;
+    if (r.fire) r.fire.count = count.get(key) ?? 1;
+    return r;
+  });
   rows.sort((a, b) => theaterRank(b.theater) - theaterRank(a.theater) || b.frp - a.frp);
   return rows.slice(0, 40).map(({ frp: _frp, ...p }) => p);
 }

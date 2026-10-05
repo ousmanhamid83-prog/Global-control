@@ -63,3 +63,8 @@ export async function rejeuTape(): Promise<RejeuTape | null> {
   if (tapeUsable(tp)) return structuredClone(tp);
   return loadArchive();
 }
+
+/** La bande du poste telle quelle (pour l'archivage), même courte. */
+export function currentPosteTape(): RejeuTape {
+  return tape();
+}

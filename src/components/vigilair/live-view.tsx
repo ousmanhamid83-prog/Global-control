@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Antenna, BookOpen, Radio, RadioTower, Satellite, Wind } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Antenna, BookOpen, Headphones, Radio, RadioTower, Satellite, Wind } from "lucide-react";
 import { AntennaPanel } from "@/components/vigilair/antenna-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,19 +25,33 @@ import {
   type RidDecoded,
 } from "@/lib/vigilair/remote-id";
 import {
+  archiveNow,
+  atcStatus,
+  atcToggle,
   briefLivePicture,
+  downloadArchive,
+  downloadAtcSegment,
+  fetchArchives,
   lookupAircraft,
+  setAutoArchive,
+  setContinentSweep,
   type AircraftLookup,
 } from "@/lib/vigilair/live-feeds";
+import type { ArchiveMeta } from "@/lib/vigilair/archive.server";
+import type { AtcSegment, AtcStatus } from "@/lib/vigilair/atc.server";
+import { rejeuClock } from "@/lib/vigilair/rejeu";
+import { useStaff } from "@/lib/vigilair/staff-context";
 import { useVigilair } from "@/lib/vigilair/store";
 import { obsAge, tafValidity } from "@/lib/vigilair/taf";
+import { formatAge, useWallClock } from "@/lib/vigilair/telemetry";
 import { cn } from "@/lib/utils";
 
-type Tab = "1090" | "antenne" | "metar" | "rid" | "gnss" | "outils";
+type Tab = "1090" | "antenne" | "phonie" | "metar" | "rid" | "gnss" | "outils";
 
 const TABS: { id: Tab; label: string; icon: typeof Radio }[] = [
   { id: "1090", label: "1090ES", icon: Radio },
   { id: "antenne", label: "Antenne", icon: RadioTower },
+  { id: "phonie", label: "Phonie ATC", icon: Headphones },
   { id: "metar", label: "Météo", icon: Wind },
   { id: "rid", label: "Remote ID", icon: Antenna },
   { id: "gnss", label: "GNSS", icon: Satellite },
@@ -140,8 +154,14 @@ export function LiveView() {
           })}
         </div>
 
-        {tab === "1090" ? <AdsbPanel /> : null}
+        {tab === "1090" ? (
+          <div className="space-y-3">
+            <ContinentSweepControl />
+            <AdsbPanel />
+          </div>
+        ) : null}
         {tab === "antenne" ? <AntennaPanel /> : null}
+        {tab === "phonie" ? <AtcPanel /> : null}
         {tab === "metar" ? <WxPanel /> : null}
         {tab === "rid" ? <RidPanel /> : null}
         {tab === "gnss" ? <GnssPanel /> : null}
@@ -198,6 +218,192 @@ function Stat({
         {v}
       </p>
     </div>
+  );
+}
+
+/**
+ * Phonie ATC — réception seule. Le poste enregistre un flux audio produit par le PROPRE récepteur
+ * de l'opérateur (clé SDR + rtl_airband/rtl_fm, bande aéronautique VHF publique). AfriControl
+ * n'accorde aucune radio et n'émet rien : il lit un flux public en clair et l'archive, sans limite,
+ * activable/désactivable. Il ne décode pas la parole.
+ */
+function AtcPanel() {
+  const [status, setStatus] = useState<AtcStatus | null>(null);
+  const [segments, setSegments] = useState<AtcSegment[]>([]);
+  const [busy, setBusy] = useState(false);
+  const wall = useWallClock();
+
+  const refresh = () => {
+    atcStatus()
+      .then((r) => {
+        setStatus(r.status);
+        setSegments(r.segments);
+      })
+      .catch(() => undefined);
+  };
+  useEffect(() => {
+    refresh();
+    const id = window.setInterval(refresh, 4000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const toggle = () => {
+    setBusy(true);
+    atcToggle({ data: { on: !status?.recording } })
+      .then((r) => setStatus(r.status))
+      .catch(() => undefined)
+      .finally(() => {
+        setBusy(false);
+        refresh();
+      });
+  };
+
+  const download = (id: string) => {
+    downloadAtcSegment({ data: { id } })
+      .then((r) => {
+        if (!r) return;
+        const bin = Uint8Array.from(atob(r.b64), (c) => c.charCodeAt(0));
+        const blob = new Blob([bin], { type: "application/octet-stream" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = r.id;
+        a.click();
+        URL.revokeObjectURL(url);
+      })
+      .catch(() => undefined);
+  };
+
+  const live = status?.recording && status.connected && status.lastChunkAt != null && wall - status.lastChunkAt < 15_000;
+  const tone = !status ? "default" : live ? "ok" : status.recording ? "warn" : "default";
+  const label = !status
+    ? "…"
+    : !status.configured
+      ? "non configuré"
+      : !status.recording
+        ? "à l'arrêt"
+        : live
+          ? "enregistrement"
+          : status.connected
+            ? "connecté · silence"
+            : "flux injoignable";
+
+  return (
+    <div className="space-y-4">
+      <section className="hud space-y-3 rounded-md border border-border bg-surface p-4">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.08em]">Phonie ATC · réception seule</h2>
+          <Badge tone={tone}>{label}</Badge>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Enregistre le flux audio de <strong>ton propre récepteur</strong> (bande aéronautique VHF
+          publique). AfriControl n'accorde rien et n'émet rien : il lit un flux public et l'archive,
+          sans limite de durée. Pas de décodage de parole, pas d'écoute d'autre chose que l'aéro.
+        </p>
+        <dl className="grid grid-cols-4 gap-3 font-mono text-[12px]">
+          <Stat k="Flux" v={status?.endpoint ?? "—"} />
+          <Stat k="Enregistré" v={status ? `${(status.bytes / 1e6).toFixed(1)} Mo` : "—"} tone={status?.recording ? "ok" : "default"} />
+          <Stat k="Segments" v={status ? String(status.segments) : "—"} />
+          <Stat
+            k="Dernier son"
+            v={status?.lastChunkAt ? `il y a ${formatAge(wall - status.lastChunkAt)}` : "—"}
+          />
+        </dl>
+        {status?.lastError ? <p className="font-mono text-xs text-warn">{status.lastError}</p> : null}
+        <div className="flex items-center gap-2">
+          <Button
+            variant={status?.recording ? "default" : "outline"}
+            size="sm"
+            disabled={busy || !status?.configured}
+            onClick={toggle}
+          >
+            {busy ? "…" : status?.recording ? "Arrêter l'enregistrement" : "Démarrer l'enregistrement"}
+          </Button>
+        </div>
+        {!status?.configured ? (
+          <div className="space-y-2 rounded-sm border border-border bg-bg/60 p-3 text-xs text-muted-foreground">
+            <p className="text-fg">Brancher la phonie</p>
+            <p>
+              Sur la machine qui porte la clé SDR, exposer la bande aéro publique en flux HTTP (par
+              ex. rtl_airband → Icecast), puis démarrer le poste avec l'adresse du flux :
+            </p>
+            <pre className="overflow-x-auto rounded-xs bg-bg px-2 py-1.5 font-mono text-[11px] text-fg">
+              AFRICONTROL_ATC=http://127.0.0.1:8000/atc.mp3 npm run dev
+            </pre>
+            <p>Réception seule : le poste lit ce flux public et l'enregistre, il n'émet jamais.</p>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="hud rounded-md border border-border bg-surface p-4">
+        <div className="mb-3 flex items-baseline justify-between gap-3">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.08em]">Enregistrements archivés</h2>
+          <span className="font-mono text-[10.5px] uppercase tracking-[0.06em] text-muted-foreground">
+            {segments.length} segment(s) · 10 min chacun
+          </span>
+        </div>
+        {segments.length === 0 ? (
+          <p className="py-6 text-center font-mono text-xs uppercase tracking-[0.06em] text-muted-foreground">
+            Aucun segment. Démarrer l'enregistrement pour archiver la phonie.
+          </p>
+        ) : (
+          <ul className="divide-y divide-border/60 font-mono text-xs">
+            {segments.map((seg) => (
+              <li key={seg.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
+                <span className="text-fg">{new Date(seg.at).toISOString().slice(0, 19).replace("T", " ")} Z</span>
+                <span className="text-muted-foreground">{(seg.bytes / 1e6).toFixed(2)} Mo</span>
+                <Button size="sm" variant="ghost" onClick={() => download(seg.id)}>
+                  Télécharger
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/**
+ * Balayage continental — réservé au chef de division. Par défaut le poste interroge 3 cellules du
+ * continent par relevé (courtoisie envers les API publiques) ; le balayage total les interroge
+ * toutes à chaque relevé, pour la photo continentale la plus complète. Lecture passive : seul le
+ * nombre de cellules change, rien n'est émis.
+ */
+function ContinentSweepControl() {
+  const { isSuperadmin } = useStaff();
+  const sweep = useVigilair((s) => s.livePicture?.continentSweep ?? false);
+  const liveN = useVigilair((s) => s.tracks.filter((t) => t.feed === "adsb" && t.idState !== "perdu").length);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  if (!isSuperadmin) return null;
+  const toggle = () => {
+    setBusy(true);
+    setErr(null);
+    setContinentSweep({ data: { on: !sweep } })
+      .then((r) => useVigilair.setState((s) => (s.livePicture ? { livePicture: { ...s.livePicture, continentSweep: r.on } } : {})))
+      .catch((e: unknown) => setErr(e instanceof Error ? e.message : "refusé"))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <section className="hud flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface p-4">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.08em]">Balayage continental</h3>
+          <Badge tone={sweep ? "ok" : "default"}>{sweep ? "total" : "rotation 3"}</Badge>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {sweep
+            ? "Toutes les cellules Afrique interrogées à chaque relevé. Chef de division."
+            : "3 cellules par relevé (courtoisie API). Le chef peut tout activer."}{" "}
+          {liveN} pistes 1090ES réelles en vue.
+        </p>
+        {err ? <p className="mt-1 font-mono text-xs text-crit">{err}</p> : null}
+      </div>
+      <Button variant={sweep ? "default" : "outline"} size="sm" disabled={busy} onClick={toggle}>
+        {busy ? "…" : sweep ? "Revenir en rotation" : "Activer le balayage total"}
+      </Button>
+    </section>
   );
 }
 
@@ -665,6 +871,118 @@ function GnssPanel() {
   );
 }
 
+/**
+ * Enregistrements archivés : bandes de vrai trafic 1090ES entendu par le poste, écrites sur disque,
+ * consultables et téléchargeables. Archivage auto (chef) + archivage manuel. C'est une copie de ce
+ * qui a été reçu, avec son heure d'origine — jamais une invention.
+ */
+function ArchivesSection() {
+  const { isSuperadmin } = useStaff();
+  const [list, setList] = useState<ArchiveMeta[]>([]);
+  const [auto, setAuto] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const refresh = () => {
+    fetchArchives()
+      .then((r) => {
+        setList(r.archives);
+        setAuto(r.auto);
+      })
+      .catch(() => undefined);
+  };
+  useEffect(() => {
+    refresh();
+    const id = window.setInterval(refresh, 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const saveNow = () => {
+    setBusy(true);
+    setMsg(null);
+    archiveNow()
+      .then((r) => {
+        if (r.ok) {
+          setMsg(`Archivé : ${r.meta!.frames} images · ${r.meta!.aircraft} avions`);
+          refresh();
+        } else setMsg(r.error ?? "archivage impossible");
+      })
+      .catch((e: unknown) => setMsg(e instanceof Error ? e.message : "archivage impossible"))
+      .finally(() => setBusy(false));
+  };
+
+  const toggleAuto = () => {
+    setAutoArchive({ data: { on: !auto } })
+      .then((r) => setAuto(r.auto))
+      .catch((e: unknown) => setMsg(e instanceof Error ? e.message : "refusé"));
+  };
+
+  const download = (id: string) => {
+    downloadArchive({ data: { id } })
+      .then((r) => {
+        if (!r) {
+          setMsg("archive introuvable");
+          return;
+        }
+        const blob = new Blob([r.json], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${r.id}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      })
+      .catch((e: unknown) => setMsg(e instanceof Error ? e.message : "téléchargement échoué"));
+  };
+
+  return (
+    <section className="space-y-3 rounded-md border border-border bg-surface p-4 col-span-2 hud">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-medium">Enregistrements archivés · 1090ES réel</h2>
+        <div className="flex items-center gap-2">
+          <Badge tone={auto ? "ok" : "default"}>auto {auto ? "activé" : "coupé"}</Badge>
+          {isSuperadmin ? (
+            <Button size="sm" variant="ghost" onClick={toggleAuto}>
+              {auto ? "Couper l'auto" : "Activer l'auto"}
+            </Button>
+          ) : null}
+          <Button size="sm" variant="outline" disabled={busy} onClick={saveNow}>
+            {busy ? "…" : "Archiver maintenant"}
+          </Button>
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Copie de ce que le poste a réellement entendu (veille des 30 dernières minutes), écrite sur
+        disque dans <code className="text-fg">recordings/</code>. Archivage auto toutes les 15 min dès
+        3 min de veille. Téléchargeable en JSON (format du rejeu réel).
+      </p>
+      {msg ? <p className="font-mono text-xs text-warn">{msg}</p> : null}
+      {list.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Aucune archive pour l'instant. Il faut 3 min de veille réelle avant la première bande.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border/60 font-mono text-xs">
+          {list.map((m) => (
+            <li key={m.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
+              <span className="text-fg">
+                {rejeuClock(m.from)} → {rejeuClock(m.to).slice(6)}
+              </span>
+              <span className="text-muted-foreground">
+                {m.frames} images · {m.aircraft} avions · {(m.bytes / 1024).toFixed(0)} Ko ·{" "}
+                {m.trigger}
+              </span>
+              <Button size="sm" variant="ghost" onClick={() => download(m.id)}>
+                Télécharger
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function ToolsPanel() {
   const [hex, setHex] = useState("");
   const [lookup, setLookup] = useState<AircraftLookup | null>(null);
@@ -776,6 +1094,7 @@ function ToolsPanel() {
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-fg">{brief}</p>
         ) : null}
       </section>
+      <ArchivesSection />
       <section className="rounded-md border border-border bg-surface p-4 col-span-2 hud">
         <h2 className="text-sm font-medium">Ce qui est réel</h2>
         <ul className="mt-2 grid gap-2 text-sm text-muted-foreground grid-cols-2">

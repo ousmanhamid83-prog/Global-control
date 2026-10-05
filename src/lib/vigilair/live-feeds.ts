@@ -31,6 +31,8 @@ import {
   type TafRow,
 } from "./live-adsb";
 
+import type { ArchiveMeta } from "./archive.server";
+import type { AtcSegment, AtcStatus } from "./atc.server";
 import type { RejeuTape } from "./rejeu";
 import type { ReceiverFeed, ReceiverStatus } from "./rx1090.server";
 
@@ -72,10 +74,42 @@ const CONTINENT_CELLS: Cell[] = [
   { lat: -29.9, lon: 31.0, label: "Durban" },
   { lat: -33.9, lon: 18.6, label: "Le Cap" },
 ];
+/**
+ * Ancres mondiales (hors Afrique) : les zones où les agrégateurs publics ont une couverture dense.
+ * Interrogées seulement en balayage total (chef), pour que le radar « tous continents » montre de
+ * VRAIS contacts 1090ES — Europe, Amériques, Asie, Océanie — et pas une carte vide.
+ */
+const WORLD_CELLS: Cell[] = [
+  { lat: 48.9, lon: 2.4, label: "Paris" },
+  { lat: 51.5, lon: -0.2, label: "Londres" },
+  { lat: 50.0, lon: 8.6, label: "Francfort" },
+  { lat: 41.0, lon: 28.9, label: "Istanbul" },
+  { lat: 25.3, lon: 55.4, label: "Dubaï" },
+  { lat: 40.6, lon: -73.8, label: "New York" },
+  { lat: 33.9, lon: -118.4, label: "Los Angeles" },
+  { lat: -23.4, lon: -46.5, label: "São Paulo" },
+  { lat: 1.36, lon: 103.99, label: "Singapour" },
+  { lat: 35.55, lon: 139.78, label: "Tokyo" },
+  { lat: 19.1, lon: 72.9, label: "Mumbai" },
+  { lat: -33.95, lon: 151.18, label: "Sydney" },
+];
 const CONTINENT_PER_PULL = 3;
 const CONTINENT_TTL_MS = 100_000;
 let continentNext = 0;
 const continentCache = new Map<string, { at: number; ac: LiveAc[] }>();
+
+/**
+ * Balayage continental complet : par défaut 3 cellules par relevé (courtoisie envers les API
+ * publiques). Le chef de division peut activer le balayage total — toutes les cellules à chaque
+ * relevé — pour la photo continentale la plus complète. Toujours de la lecture passive.
+ */
+let continentSweep = false;
+export function getContinentSweep(): boolean {
+  return continentSweep;
+}
+export function setContinentSweepFlag(on: boolean): void {
+  continentSweep = on;
+}
 
 let cache: { at: number; data: LivePicture } | null = null;
 let lastGood: LivePicture | null = null;
@@ -250,22 +284,40 @@ async function pullAdsb(): Promise<{
       }
     }
   };
-  const rotation = Array.from(
-    { length: CONTINENT_PER_PULL },
-    (_, i) => CONTINENT_CELLS[(continentNext + i) % CONTINENT_CELLS.length]!,
-  );
-  continentNext = (continentNext + CONTINENT_PER_PULL) % CONTINENT_CELLS.length;
-  for (const c of [...THEATRE_CELLS, ...rotation]) {
+  // Balayage total (chef) : toutes les cellules Afrique + ancres mondiales à chaque relevé, pour un
+  // radar « tous continents » avec de vrais contacts. Sinon rotation de 3, par courtoisie API.
+  const rotation = continentSweep
+    ? [...CONTINENT_CELLS, ...WORLD_CELLS]
+    : Array.from(
+        { length: CONTINENT_PER_PULL },
+        (_, i) => CONTINENT_CELLS[(continentNext + i) % CONTINENT_CELLS.length]!,
+      );
+  if (!continentSweep) continentNext = (continentNext + CONTINENT_PER_PULL) % CONTINENT_CELLS.length;
+  // Théâtre d'abord (prioritaire), séquentiel : peu de cellules, le cœur de la veille.
+  for (const c of THEATRE_CELLS) {
     const got = await pullCell(c);
     if (got.refused) refused += 1;
     if (got.err) lastErr = got.err;
     if (got.ac) {
       ok += 1;
-      if (THEATRE_CELLS.includes(c)) merge(got.ac);
-      else continentCache.set(c.label, { at: Date.now(), ac: got.ac });
+      merge(got.ac);
     }
-    // Courtoisie envers les API publiques : un relevé n'est pas une rafale.
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  // Continent / monde : par lots parallèles bornés. La concurrence limitée tient lieu de courtoisie
+  // (pas de rafale illimitée) et tient le balayage total sous le budget de temps du relevé.
+  const POOL = 4;
+  for (let i = 0; i < rotation.length; i += POOL) {
+    const batch = rotation.slice(i, i + POOL);
+    const got = await Promise.all(batch.map((c) => pullCell(c)));
+    got.forEach((g, j) => {
+      if (g.refused) refused += 1;
+      if (g.err) lastErr = g.err;
+      if (g.ac) {
+        ok += 1;
+        continentCache.set(batch[j]!.label, { at: Date.now(), ac: g.ac });
+      }
+    });
   }
   let continentLive = 0;
   for (const [label, hit] of continentCache) {
@@ -287,7 +339,7 @@ async function pullAdsb(): Promise<{
     errors: [...new Set(errors)].slice(0, 4),
     source:
       ok > 0
-        ? `1090ES adsb.lol / adsb.fi · théâtre ${THEATRE_CELLS.length} cellules · continent ${continentLive}/${CONTINENT_CELLS.length} · ${ac.length} squitters`
+        ? `1090ES adsb.lol / adsb.fi · théâtre ${THEATRE_CELLS.length} cellules · ${continentSweep ? `monde ${continentLive}/${CONTINENT_CELLS.length + WORLD_CELLS.length} · balayage total` : `continent ${continentLive}/${CONTINENT_CELLS.length}`} · ${ac.length} squitters`
         : "1090ES indisponible",
     ok: ok > 0,
   };
@@ -543,6 +595,7 @@ function emptyPicture(err: string): LivePicture {
     sources: [],
     errors: [err],
     phenomena: [],
+    continentSweep,
   };
 }
 
@@ -899,6 +952,7 @@ async function pullNetwork(): Promise<LivePicture> {
           sources,
           errors: [...adsb.errors, ...wx.errors, ...sig.errors, ...apt.errors, ...swpc.errors, ...nat.errors],
           phenomena,
+          continentSweep,
         } satisfies LivePicture;
       })(),
       new Promise<LivePicture>((resolve) => {
@@ -994,6 +1048,9 @@ export const fetchLivePicture = createServerFn({ method: "GET" })
       now,
       pic.aircraft.map((a) => (a.via === "antenne" ? a : { ...a, seenS: a.seenS + age })),
     );
+    // Archivage automatique périodique de la bande réelle (si activé, bande ≥ 3 min).
+    const arch = await import("./archive.server");
+    void arch.maybeAutoArchive(rec.currentPosteTape());
     return pic;
   });
 
@@ -1003,6 +1060,93 @@ export const fetchRejeuTape = createServerFn({ method: "GET" })
   .handler(async (): Promise<RejeuTape | null> => {
     const rec = await import("./rejeu.server");
     return rec.rejeuTape();
+  });
+
+/** Liste des enregistrements archivés (bandes réelles 1090ES). */
+export const fetchArchives = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async (): Promise<{ archives: ArchiveMeta[]; auto: boolean }> => {
+    const arch = await import("./archive.server");
+    return { archives: await arch.listArchives(), auto: arch.autoArchiveOn() };
+  });
+
+/** Archive la bande réelle en cours (manuel). Rejette une veille de moins de 3 minutes. */
+export const archiveNow = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .handler(async (): Promise<{ ok: boolean; meta?: ArchiveMeta; error?: string }> => {
+    const rec = await import("./rejeu.server");
+    const arch = await import("./archive.server");
+    try {
+      const meta = await arch.saveBand(rec.currentPosteTape(), "manuel");
+      return { ok: true, meta };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "archivage impossible" };
+    }
+  });
+
+/** Active / désactive l'archivage automatique (superadmin). */
+export const setAutoArchive = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { on?: boolean }) => ({ on: Boolean(raw?.on) }))
+  .handler(async ({ data, context }): Promise<{ auto: boolean }> => {
+    const { requireSuperadmin } = await import("./staff");
+    await requireSuperadmin(context.userId);
+    const arch = await import("./archive.server");
+    arch.setAutoArchive(data.on);
+    return { auto: arch.autoArchiveOn() };
+  });
+
+/** Contenu JSON d'une archive, pour téléchargement (base64 pour franchir le transport). */
+export const downloadArchive = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator((raw: { id?: string }) => ({ id: String(raw?.id ?? "") }))
+  .handler(async ({ data }): Promise<{ id: string; json: string } | null> => {
+    const arch = await import("./archive.server");
+    const json = await arch.getArchiveJson(data.id);
+    return json ? { id: data.id, json } : null;
+  });
+
+/** Phonie ATC — état de l'enregistrement du flux public (réception seule). */
+export const atcStatus = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async (): Promise<{ status: AtcStatus; segments: AtcSegment[] }> => {
+    const atc = await import("./atc.server");
+    return { status: atc.atcStatus(), segments: await atc.atcSegments() };
+  });
+
+/** Active / coupe l'enregistrement de la phonie ATC publique (réception seule, sans limite). */
+export const atcToggle = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { on?: boolean }) => ({ on: Boolean(raw?.on) }))
+  .handler(async ({ data }): Promise<{ status: AtcStatus }> => {
+    const atc = await import("./atc.server");
+    return { status: data.on ? atc.atcStart() : atc.atcStop() };
+  });
+
+/** Un segment de phonie ATC (audio, base64) pour téléchargement. */
+export const downloadAtcSegment = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator((raw: { id?: string }) => ({ id: String(raw?.id ?? "") }))
+  .handler(async ({ data }): Promise<{ id: string; b64: string } | null> => {
+    const atc = await import("./atc.server");
+    return atc.atcSegmentData(data.id);
+  });
+
+/**
+ * Balayage continental : le chef de division active l'interrogation de toutes les cellules à chaque
+ * relevé (au lieu de 3 en rotation). Lecture passive — seul le nombre de cellules change. Réservé
+ * au superadmin ; le relevé suivant reflète le changement.
+ */
+export const setContinentSweep = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { on?: boolean }) => ({ on: Boolean(raw?.on) }))
+  .handler(async ({ data, context }): Promise<{ on: boolean }> => {
+    const { requireSuperadmin } = await import("./staff");
+    await requireSuperadmin(context.userId);
+    setContinentSweepFlag(data.on);
+    // Le cache réseau est invalidé pour que le balayage parte au prochain relevé, pas dans 20 s.
+    cache = null;
+    return { on: getContinentSweep() };
   });
 
 /** Écoute brute de l'antenne : les trames telles qu'elles arrivent, décodées, sans filtre. */

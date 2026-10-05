@@ -44,8 +44,42 @@ Inject « Rejeu réel »
 Symbologie APP-6 et radar
 - Les pistes portent le cadre OTAN APP-6 (le cadre = l'affiliation ; ouvert en bas = aérien).
   Inconnu est l'état par défaut : sans IFF ami ni mandat levé, une piste reste inconnue.
-- PPI : portées jusqu'à 8000 km (couverture Afrique), vecteur vitesse, nord vrai/magnétique,
-  bascule symboles APP-6 / formes plateforme. Fiche « interception » : toutes les données reçues.
+- PPI : portées jusqu'à 20 000 km, vecteur vitesse, nord vrai/magnétique, bascule symboles APP-6 /
+  formes plateforme. Fiche « interception » : toutes les données reçues. À 8000 km « couverture
+  Afrique », à 12 000+ « couverture monde · tous continents ».
+
+Balayage continental (chef de division) — Capteurs > 1090ES
+- Par défaut le poste interroge 3 cellules du continent par relevé (courtoisie envers les API
+  publiques). Le chef active le balayage total : toutes les cellules Afrique + ancres mondiales
+  (Europe, Amériques, Asie, Océanie) à chaque relevé — le radar « tous continents » montre alors
+  de VRAIS contacts 1090ES, pas une carte vide. Les cellules partent en lots parallèles bornés.
+- Toute piste réelle est verrouillable : un clic sur l'indicatif dans la liste 1090ES l'ouvre.
+
+Enregistrements archivés — Capteurs > Outils
+- Copie de ce que le poste a réellement entendu (veille 30 min), écrite sur disque dans recordings/.
+  Archivage auto toutes les 15 min dès 3 min de veille (activable/désactivable par le chef), plus
+  « Archiver maintenant ». Téléchargeable en JSON (format du rejeu réel).
+
+Phonie ATC — réception seule (Capteurs > Phonie ATC)
+- Enregistre le flux audio de TON propre récepteur (clé SDR + rtl_airband/rtl_fm, bande aéro VHF
+  publique) : AFRICONTROL_ATC=http://127.0.0.1:8000/atc.mp3 npm run dev
+- Réception seule : le poste lit un flux public et l'archive, sans limite (segments de 10 min),
+  activable/désactivable. Il n'accorde aucune radio, ne décode pas la parole, n'émet jamais.
+  Segments téléchargeables. Pas d'écoute d'autre chose que l'aéronautique en clair.
+
+Alertes feu (FIRMS) — ce que le capteur peut, honnêtement
+- Détection thermique VIIRS : foyers groupés, puissance FRP (MW), confiance, jour/nuit, ville la
+  plus proche. Seuil abaissé au théâtre élargi (Tchad, Darfour, AES).
+- Limite physique : le pixel VIIRS fait 375 m. On repère un FOYER, pas l'image d'une voiture.
+  Voir une voiture qui brûle demande du sous-métrique (30 cm) commercial et taské (Maxar, Planet) —
+  pas un flux public rafraîchi toutes les 30 min. Sans clé d'un fournisseur commercial, le poste
+  n'affiche pas un faux « live » : le crédit en carte dit toujours la vraie source et le vrai âge.
+
+Durcissement défensif
+- En-têtes de sécurité sur chaque réponse (nosniff, Referrer-Policy no-referrer, Permissions-Policy
+  capteurs coupés). Aucune télémétrie tierce. Les sources externes (1090ES, météo…) sont
+  interrogées PAR LE SERVEUR : l'adresse IP de l'opérateur n'est jamais exposée aux agrégateurs.
+- Audit des dépendances : 0 vulnérabilité (npm audit, dépendances de production).
 
 En ligne (wifi) : domaines contactés par le poste
 Sur un PC avec Internet, rien à régler. Derrière un pare-feu ou dans un environnement cloud,

@@ -220,6 +220,20 @@ export const SAHEL_CITIES: SahelCity[] = [
   { name: "Kufra", lat: 24.183, lon: 23.283, tier: 2 },
 ];
 
+/** Ville connue la plus proche d'un point, avec la distance en km (pour situer un foyer). */
+export function nearestCity(lat: number, lon: number): { name: string; distKm: number } {
+  let best = SAHEL_CITIES[0]!;
+  let bestD = Infinity;
+  for (const c of SAHEL_CITIES) {
+    const d = haversineKm(lat, lon, c.lat, c.lon);
+    if (d < bestD) {
+      bestD = d;
+      best = c;
+    }
+  }
+  return { name: best.name, distKm: bestD };
+}
+
 export type SahelState = {
   id: string;
   name: string;

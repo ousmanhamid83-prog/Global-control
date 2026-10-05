@@ -74,6 +74,14 @@ export type Phenomenon = {
   theater: TheaterId;
   level: Threat;
   source: string;
+  /** Feu thermique FIRMS : puissance radiative (MW), confiance, pixel capteur, jour/nuit, foyers groupés. */
+  fire?: {
+    frp: number;
+    conf: string;
+    pixelM: number;
+    daynight: string | null;
+    count: number;
+  };
 };
 
 export const KIND_LABEL: Record<CaptureKind, string> = {

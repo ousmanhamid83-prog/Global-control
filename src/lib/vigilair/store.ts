@@ -3,7 +3,7 @@ import { PLATFORM_BY_ID, threatRank } from "./catalog";
 import { methodBlurb } from "./engine";
 import { bulletinToJournal, fileEvidence } from "./evidence-store";
 import { canRequestEw } from "./ew";
-import { AO, HOME, SCALE, haversineKm, theaterRank, type GeoOrigin, type MapScale } from "./geo";
+import { AO, HOME, SCALE, haversineKm, nearestCity, theaterRank, type GeoOrigin, type MapScale } from "./geo";
 import { countFriends, isFriend, spawnFriendTrack } from "./friends";
 import {
   beginM4Request,
@@ -1725,18 +1725,28 @@ export function ingestLivePicture(pic: LivePicture) {
     if (phenomWarned.has(p.id)) continue;
     const rank = theaterRank(p.theater);
     // Une alerte se mérite. Hors théâtre (« monde »), le phénomène reste sur la carte et dans les
-    // graphiques sans sonner ; les feux FIRMS ne sonnent qu'au Tchad et au Darfour : en saison
-    // sèche il y en a des dizaines par jour au Sahel, ils noieraient les alertes drone et intrusion.
+    // graphiques sans sonner. Les feux FIRMS sonnent sur le théâtre élargi (Tchad, Darfour, AES) ;
+    // au-delà (Sahel large, monde) ils restent muets : en saison sèche il y en a des dizaines par
+    // jour, ils noieraient les alertes drone et intrusion.
     if (rank < 3) continue;
-    if (p.kind === "feu" && rank < 4) continue;
     phenomWarned.add(p.id);
+    // Feu : corps enrichi — foyers groupés, FRP, confiance, jour/nuit, ville la plus proche —
+    // en gardant la vérité du capteur (pixel 375 m : un foyer, pas l'image d'une voiture).
+    let body = `${p.body} · ouvrir capture 10 m`;
+    let title = p.title;
+    if (p.kind === "feu" && p.fire) {
+      const city = nearestCity(p.lat, p.lon);
+      const foyers = p.fire.count > 1 ? `${p.fire.count} foyers groupés · ` : "";
+      title = `Feu ${p.title.replace(/^Point chaud /, "")} · ${p.fire.frp.toFixed(0)} MW`;
+      body = `${foyers}${p.body} · ${city.name} à ${Math.round(city.distKm)} km · ouvrir capture 10 m`;
+    }
     alerts.push({
       id: `al-nat-${p.id}`,
       trackId: "",
       at: now,
       level: p.level,
-      title: p.title,
-      body: `${p.body} · ouvrir capture 10 m`,
+      title,
+      body,
       acked: false,
       lat: p.lat,
       lon: p.lon,

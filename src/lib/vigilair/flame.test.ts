@@ -77,4 +77,18 @@ describe("parseFirms", () => {
     assert.ok(rows.some((r) => r.theater === "monde"));
     assert.equal(rows.some((r) => Math.abs(r.lat - 14) < 0.01), false);
   });
+
+  it("porte le détail feu (FRP, confiance, pixel, foyers groupés)", () => {
+    const csv = [
+      "latitude,longitude,bright_ti4,scan,track,acq_date,acq_time,satellite,instrument,confidence,version,bright_ti5,frp,daynight",
+      "12.40,15.10,330,0.4,0.4,2026-10-01,1430,N,VIIRS,h,2.0,290,18.2,D",
+      "12.42,15.11,340,0.4,0.4,2026-10-01,1432,N,VIIRS,n,2.0,295,55.0,D",
+    ].join("\n");
+    const chad = parseFirms(csv, "VIIRS SNPP").find((r) => r.theater === "tchad");
+    assert.ok(chad?.fire);
+    assert.equal(chad!.fire!.pixelM, 375);
+    assert.equal(chad!.fire!.count, 2, "les deux points voisins comptent comme un foyer groupé");
+    assert.equal(chad!.fire!.frp, 55, "le FRP retenu est celui du point le plus chaud");
+    assert.equal(chad!.fire!.daynight, "jour");
+  });
 });

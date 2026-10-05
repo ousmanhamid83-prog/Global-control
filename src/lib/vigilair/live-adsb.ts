@@ -83,6 +83,8 @@ export type LivePicture = {
   sources: SourceHealth[];
   errors: string[];
   phenomena: Phenomenon[];
+  /** Balayage continental complet activé par le chef (toutes les cellules à chaque relevé). */
+  continentSweep?: boolean;
 };
 
 export type MetarRow = {
