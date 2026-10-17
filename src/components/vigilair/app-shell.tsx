@@ -40,7 +40,8 @@ type NavTo =
   | "/catalogue"
   | "/journal"
   | "/sentinelle"
-  | "/division";
+  | "/division"
+  | "/abri";
 
 type NavItem = { to: NavTo; label: string };
 
@@ -62,6 +63,10 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
       { to: "/zones", label: "Bulles" },
       { to: "/trace", label: "Trace" },
     ],
+  },
+  {
+    label: "Sûreté",
+    items: [{ to: "/abri", label: "Abri" }],
   },
   {
     label: "Garde",

@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AbriRouteImport } from './routes/abri'
 import { Route as AudioRouteImport } from './routes/audio'
 import { Route as CapteursRouteImport } from './routes/capteurs'
 import { Route as CatalogueRouteImport } from './routes/catalogue'
@@ -32,6 +33,11 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AbriRoute = AbriRouteImport.update({
+  id: '/abri',
+  path: '/abri',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AudioRoute = AudioRouteImport.update({
@@ -127,6 +133,7 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/abri': typeof AbriRoute
   '/audio': typeof AudioRoute
   '/capteurs': typeof CapteursRoute
   '/catalogue': typeof CatalogueRoute
@@ -148,6 +155,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/abri': typeof AbriRoute
   '/audio': typeof AudioRoute
   '/capteurs': typeof CapteursRoute
   '/catalogue': typeof CatalogueRoute
@@ -170,6 +178,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/abri': typeof AbriRoute
   '/audio': typeof AudioRoute
   '/capteurs': typeof CapteursRoute
   '/catalogue': typeof CatalogueRoute
@@ -193,6 +202,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/abri'
     | '/audio'
     | '/capteurs'
     | '/catalogue'
@@ -214,6 +224,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/abri'
     | '/audio'
     | '/capteurs'
     | '/catalogue'
@@ -235,6 +246,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/abri'
     | '/audio'
     | '/capteurs'
     | '/catalogue'
@@ -257,6 +269,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AbriRoute: typeof AbriRoute
   AudioRoute: typeof AudioRoute
   CapteursRoute: typeof CapteursRoute
   CatalogueRoute: typeof CatalogueRoute
@@ -284,6 +297,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/abri': {
+      id: '/abri'
+      path: '/abri'
+      fullPath: '/abri'
+      preLoaderRoute: typeof AbriRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/audio': {
@@ -417,6 +437,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AbriRoute: AbriRoute,
   AudioRoute: AudioRoute,
   CapteursRoute: CapteursRoute,
   CatalogueRoute: CatalogueRoute,
