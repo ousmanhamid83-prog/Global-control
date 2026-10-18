@@ -170,7 +170,10 @@ export default defineConfig(({ command, isPreview }) => ({
     ...(command === "build" || isPreview
       ? [
           nitro({
-            preset: "vercel",
+            // Cible de build. Par défaut « vercel » (déploiement plateforme) ; pour un serveur
+            // autonome lançable avec node, builder avec NITRO_PRESET=node-server → produit
+            // .output/server/index.mjs (écoute sur PORT, défaut 3000). Lecture seule, rien de plus.
+            preset: process.env.NITRO_PRESET || "vercel",
             // Auto-registers server/middleware/* (the PWA install page +
             // manifest + head-tag middleware). Nitro v3 defaults serverDir to
             // false, so removing this silently unwires /?install=1 on deploys.

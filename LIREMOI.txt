@@ -23,6 +23,24 @@ Installation
 - Pour ACTIVER un login multi-agents : mettre VITE_AUTH_ENABLED=true ET fournir une base
   (DATABASE_URL) ; sinon l'auth n'a pas de serveur et le poste reste sur l'écran de chargement.
 
+Lancer comme un vrai serveur (sans mode dev)
+- npm run dev est pratique mais c'est le mode développement. Pour un serveur autonome lançable
+  avec node, builder avec le preset node-server :
+    NITRO_PRESET=node-server npm run build
+  → produit .output/server/index.mjs. Le lancer :
+    PORT=8080 node .output/server/index.mjs
+  Flux externes (1090ES, météo) derrière un proxy : ajouter NODE_USE_ENV_PROXY=1 et HTTPS_PROXY.
+- Par défaut le build vise Vercel ; NITRO_PRESET choisit la cible, rien d'autre à changer.
+- Persistance (journal, personnel, preuves) : fournir une base Postgres via DATABASE_URL. Sans
+  base, le cœur live (1090ES, carte, météo, phonie) fonctionne, mais rien n'est conservé au redémarrage.
+
+Intégrer ta propre API
+- Un point d'entrée HTTP interne : créer src/routes/api/<nom>.ts sur le modèle de src/routes/api/tile.ts
+  — createFileRoute("/api/<nom>") avec server.handlers.GET/POST. Accessible sur /api/<nom>.
+- Appeler TON API externe depuis le serveur (la clé reste côté serveur, jamais exposée au navigateur) :
+  créer un module <nom>.server.ts qui fait le fetch, et l'exposer via createServerFn (voir
+  src/lib/vigilair/live-feeds.ts). Le composant appelle la fonction, le navigateur ne voit que le résultat.
+
 Antenne 1090 du poste (clé SDR + dump1090)
 Lancer dump1090 avec le port brut AVR, et un port web qui ne prend pas 8080 (celui de AfriControl) :
   dump1090 --interactive --net --net-ro-port 30002 --net-http-port 8090 --aggressive
