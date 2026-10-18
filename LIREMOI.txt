@@ -14,6 +14,14 @@ Constat, pas un défaut du poste
 Installation
 - Node 22. Dans ce dossier : npm install, puis npm run dev.
 - Le poste écoute sur le port 8080.
+- Poste isolé / hors ligne : l'authentification est COUPÉE par défaut (fichier .grok/app-env.json,
+  VITE_AUTH_ENABLED=false) — le poste ouvre DIRECTEMENT la console, sans login ni base de données.
+  C'est le bon mode pour un site isolé où l'accès physique au poste est déjà contrôlé.
+  Si le poste reste bloqué sur « Chargement du poste… », c'est que l'auth s'est activée sans
+  serveur d'auth derrière : vérifier que .grok/app-env.json existe, ou lancer
+  VITE_AUTH_ENABLED=false npm run dev (Windows : $env:VITE_AUTH_ENABLED="false"; npm run dev).
+- Pour ACTIVER un login multi-agents : mettre VITE_AUTH_ENABLED=true ET fournir une base
+  (DATABASE_URL) ; sinon l'auth n'a pas de serveur et le poste reste sur l'écran de chargement.
 
 Antenne 1090 du poste (clé SDR + dump1090)
 Lancer dump1090 avec le port brut AVR, et un port web qui ne prend pas 8080 (celui de AfriControl) :
