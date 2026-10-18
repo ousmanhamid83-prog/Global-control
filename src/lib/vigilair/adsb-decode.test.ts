@@ -12,6 +12,7 @@ import {
   hexToBytes,
   parseAvrLine,
   RxTable,
+  splitAvr,
   type ModeSMsg,
 } from "./adsb-decode.ts";
 
@@ -162,6 +163,47 @@ describe("réponses DF4 / DF5 (adresse dans la parité)", () => {
   it("une adresse jamais entendue en clair est écartée", () => {
     const r = decodeFrame(frame("2A00516D492B80"), () => false);
     assert.deepEqual(r, { ok: false, reason: "adresse inconnue" });
+  });
+});
+
+describe("redécoupage du flux AVR (trames à cheval sur deux paquets)", () => {
+  it("plusieurs trames dans un même paquet", () => {
+    const { lines, rest } = splitAvr("*8D4840D6;*8D485020;");
+    assert.deepEqual(lines, ["*8D4840D6;", "*8D485020;"]);
+    assert.equal(rest, "");
+  });
+
+  it("une trame coupée reste dans le reste jusqu'au « ; » suivant", () => {
+    const a = splitAvr("*8D48");
+    assert.deepEqual(a.lines, []);
+    assert.equal(a.rest, "*8D48");
+    const b = splitAvr(a.rest + "40D6;");
+    assert.deepEqual(b.lines, ["*8D4840D6;"]);
+    assert.equal(b.rest, "");
+  });
+
+  it("les sauts de ligne (CRLF) entre trames sont nettoyés", () => {
+    const { lines } = splitAvr("*AAAA;\r\n*BBBB;\n");
+    assert.deepEqual(lines, ["*AAAA;", "*BBBB;"]);
+  });
+
+  it("le reste après la dernière trame est conservé pour le paquet suivant", () => {
+    const { lines, rest } = splitAvr("*AAAA;*BB");
+    assert.deepEqual(lines, ["*AAAA;"]);
+    assert.equal(rest, "*BB");
+  });
+
+  it("bout à bout : reconstitue une vraie trame DF17 scindée en deux paquets", () => {
+    const hex = "8D4840D6202CC371C32CE0576098";
+    const p1 = `*${hex.slice(0, 10)}`;
+    const p2 = `${hex.slice(10)};`;
+    const a = splitAvr(p1);
+    const b = splitAvr(a.rest + p2);
+    assert.equal(b.lines.length, 1);
+    const f = parseAvrLine(b.lines[0]!);
+    assert.ok(f);
+    assert.equal(f!.df, 17);
+    assert.equal(crcSyndrome(f!.bytes), 0);
   });
 });
 

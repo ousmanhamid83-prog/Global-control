@@ -8,7 +8,7 @@
 
 import net from "node:net";
 import { env } from "@/lib/env.server";
-import { RxTable, type RxAircraft, type RxFrameView, type RxStats } from "./adsb-decode";
+import { RxTable, splitAvr, type RxAircraft, type RxFrameView, type RxStats } from "./adsb-decode";
 import { emergencyLabel, type LiveAc } from "./live-adsb";
 
 const FRAME_RING = 200;
@@ -119,12 +119,10 @@ function countRate(st: RxState, now: number) {
 
 function onData(st: RxState, chunk: string) {
   const now = Date.now();
-  st.buf += chunk;
-  // Une trame AVR finit par « ; » (suivi ou non d'un saut de ligne selon la version de dump1090).
-  let cut = st.buf.indexOf(";");
-  while (cut >= 0) {
-    const line = `${st.buf.slice(0, cut).trim()};`;
-    st.buf = st.buf.slice(cut + 1);
+  // Une trame AVR finit par « ; » ; une trame à cheval sur deux paquets TCP attend dans `rest`.
+  const { lines, rest } = splitAvr(st.buf + chunk);
+  st.buf = rest;
+  for (const line of lines) {
     st.lastLineAt = now;
     const view = st.table.ingest(line, now);
     if (view) {
@@ -133,7 +131,6 @@ function onData(st: RxState, chunk: string) {
       if (st.frames.length > FRAME_RING) st.frames.splice(0, st.frames.length - FRAME_RING);
       countRate(st, now);
     }
-    cut = st.buf.indexOf(";");
   }
   // Flux qui n'est pas de l'AVR (mauvais port, Beast binaire…) : on ne laisse pas le tampon gonfler.
   if (st.buf.length > 4096) {

@@ -55,6 +55,23 @@ function expectedBytes(df: number): number {
   return df >= 16 ? 14 : 7;
 }
 
+/**
+ * Redécoupe un flux d'octets AVR en lignes (une trame finit par « ; »). Une trame à cheval sur deux
+ * paquets TCP reste dans `rest` jusqu'à l'arrivée du « ; ». Chaque ligne est rendue nettoyée et
+ * terminée par « ; », prête pour `parseAvrLine`.
+ */
+export function splitAvr(buffer: string): { lines: string[]; rest: string } {
+  const lines: string[] = [];
+  let buf = buffer;
+  let cut = buf.indexOf(";");
+  while (cut >= 0) {
+    lines.push(`${buf.slice(0, cut).trim()};`);
+    buf = buf.slice(cut + 1);
+    cut = buf.indexOf(";");
+  }
+  return { lines, rest: buf };
+}
+
 export type AvrFrame = { hex: string; bytes: Uint8Array; df: number };
 
 /**
