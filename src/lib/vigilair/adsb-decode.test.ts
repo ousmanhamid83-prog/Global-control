@@ -165,6 +165,100 @@ describe("réponses DF4 / DF5 (adresse dans la parité)", () => {
   });
 });
 
+describe("chemins moins fréquents (non-régression)", () => {
+  const ICAO = 0x3c4b26;
+
+  it("position sol (TC6) : vitesse 16 kt, cap 180°, NIC 10, drapeau sol", () => {
+    const me: number[] = [];
+    push(me, 6, 5); // TC 6 (surface)
+    push(me, 40, 7); // MOV 40 → 16 kt
+    push(me, 1, 1); // statut cap valide
+    push(me, 64, 7); // cap 64 → 180°
+    push(me, 0, 1); // T
+    push(me, 0, 1); // F (paire)
+    push(me, 12345, 17); // LAT CPR (non résolue ici)
+    push(me, 54321, 17); // LON CPR
+    const m = decode(df17(ICAO, me));
+    assert.equal(m.kind, "pos");
+    if (m.kind !== "pos") return;
+    assert.equal(m.surface, true);
+    assert.ok(Math.abs(m.gsKt! - 16) < 1e-9, `gsKt ${m.gsKt}`);
+    assert.ok(Math.abs(m.trackDeg! - 180) < 1e-9, `track ${m.trackDeg}`);
+    assert.equal(m.nic, 10);
+    assert.equal(m.altFt, 0);
+  });
+
+  it("altitude GNSS (TC20) : mètres → pieds, drapeau GNSS, NIC 11", () => {
+    const me: number[] = [];
+    push(me, 20, 5); // TC 20 (position GNSS)
+    push(me, 0, 2); // SS
+    push(me, 0, 1); // NICsb
+    push(me, 1000, 12); // ALT = 1000 m
+    push(me, 0, 1); // T
+    push(me, 1, 1); // F (impaire)
+    push(me, 100, 17); // LAT CPR
+    push(me, 200, 17); // LON CPR
+    const m = decode(df17(ICAO, me));
+    assert.equal(m.kind, "pos");
+    if (m.kind !== "pos") return;
+    assert.equal(m.gnssAlt, true);
+    assert.ok(Math.abs(m.altFt! - 1000 * 3.28084) < 0.01, `altFt ${m.altFt}`);
+    assert.equal(m.nic, 11);
+  });
+
+  it("état d'urgence (TC28) : intervention illicite + squawk 0356", () => {
+    const me: number[] = [];
+    push(me, 28, 5); // TC 28
+    push(me, 1, 3); // sous-type 1 (état d'urgence)
+    push(me, 5, 3); // code urgence 5 → unlawful
+    push(me, 4461, 13); // ID 13 bits → squawk 0356
+    push(me, 0, 32); // reste
+    const m = decode(df17(ICAO, me));
+    assert.equal(m.kind, "status");
+    if (m.kind !== "status") return;
+    assert.equal(m.emergency, "unlawful");
+    assert.equal(m.squawk, "0356");
+  });
+
+  it("all-call DF11 : adresse lue, parité II=0 acceptée", () => {
+    const data = hexToBytes("5D3C4B26000000");
+    const crc = crc24(data, 4);
+    const hex = "5D3C4B26" + crc.toString(16).padStart(6, "0").toUpperCase();
+    const r = decodeFrame(frame(hex), () => false);
+    assert.ok(r.ok);
+    if (!r.ok) return;
+    assert.equal(r.msg.kind, "allcall");
+    assert.equal(r.msg.icao, "3c4b26");
+  });
+
+  it("hémisphère sud : le repli CPR ramène bien une latitude négative", () => {
+    const lat = -33.8688;
+    const lon = 151.2093;
+    const e = decode(df17(ICAO, encodePosition(lat, lon, 35000, false)));
+    const o = decode(df17(ICAO, encodePosition(lat, lon, 35000, true)));
+    if (e.kind !== "pos" || o.kind !== "pos") return assert.fail();
+    const p = cprGlobal({ lat: e.latCpr, lon: e.lonCpr }, { lat: o.latCpr, lon: o.lonCpr }, true);
+    assert.ok(p, "paire/impaire dans la même bande");
+    assert.ok(Math.abs(p!.lat - lat) < 1e-3, `lat ${p!.lat}`);
+    assert.ok(Math.abs(p!.lon - lon) < 1e-3, `lon ${p!.lon}`);
+  });
+
+  it("cprNL : bornes publiées et décroissance vers les pôles", () => {
+    assert.equal(cprNL(0), 59);
+    assert.equal(cprNL(87), 2);
+    assert.equal(cprNL(87.5), 1);
+    assert.equal(cprNL(90), 1);
+    assert.equal(cprNL(-87), 2);
+    // NL ne remonte jamais quand on monte en latitude.
+    let prev = cprNL(0);
+    for (let a = 1; a <= 90; a++) {
+      const nl = cprNL(a);
+      assert.ok(nl <= prev, `NL remonte à ${a}° (${nl} > ${prev})`);
+      prev = nl;
+    }
+  });
+});
+
 describe("table de l'antenne, autour de N'Djamena", () => {
   const ICAO = 0x0a1b2c;
   const t0 = 1_800_000_000_000;
