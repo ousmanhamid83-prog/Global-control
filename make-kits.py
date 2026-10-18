@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Build AfriControl PC + mobile install kits (offline HTML + icons)."""
+"""Build AfriControl PC install kit (offline HTML + icons). PC only — AfriControl est un
+outil de sécurité, pas un produit grand public : aucun kit téléphone / Android / iOS."""
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -79,57 +80,6 @@ PC_HTML = f"""<!DOCTYPE html>
 </html>
 """
 
-MOB_HTML = f"""<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<meta name="apple-mobile-web-app-title" content="AfriControl"/>
-<meta name="apple-mobile-web-app-capable" content="yes"/>
-<title>AfriControl — installer Android / iOS</title>
-<style>{CSS}</style>
-</head>
-<body>
-<main>
-<p class="kicker">Kit mobile · Android · iPhone · iPad</p>
-<h1>Installer AfriControl sur le téléphone</h1>
-<p>Même COP que le poste PC. À installer sur l'écran d'accueil. Pas d'application Play Store / App Store : c'est le poste web scellé de la division.</p>
-<div class="card">
-<p class="ok">Android : Chrome. iPhone / iPad : Safari uniquement (les autres navigateurs iOS n'installent pas correctement). Pas d'APK ni d'IPA.</p>
-</div>
-<h2>Android</h2>
-<ol>
-<li>Ouvrez l'URL AfriControl dans <strong>Chrome</strong>.</li>
-<li>Menu · <em>Ajouter à l'écran d'accueil</em> / <em>Installer l'application</em>.</li>
-<li>Confirmez. L'icône AfriControl apparaît sur l'écran d'accueil.</li>
-<li>Connectez-vous : e-mail + clé VA- (agent) ou e-mail + mot de passe (chef).</li>
-</ol>
-<h2>iPhone / iPad</h2>
-<ol>
-<li>Ouvrez l'URL dans <strong>Safari</strong> (pas Chrome iOS).</li>
-<li>Bouton Partager (carré + flèche).</li>
-<li><em>Sur l'écran d'accueil</em> · Ajouter.</li>
-<li>Ouvrez l'icône. Connexion comme sur le poste PC.</li>
-</ol>
-<h2>Identité mobile</h2>
-<ul>
-<li>Même e-mail professionnel + même clé VA- que le poste attribué.</li>
-<li>Le téléphone devient LE poste si c'est la première machine : ne pas installer la même clé sur un PC ensuite.</li>
-</ul>
-<h2>Discipline mobile</h2>
-<ul>
-<li>Ne pas transférer la clé VA- sur un second appareil.</li>
-<li>Capture d'écran massive / AirDrop de dossiers = sentinelle, session coupée.</li>
-<li>Réseau : 4G/5G ou Wi-Fi division. Les capteurs (1090, METAR) restent des flux réels.</li>
-<li class="warn">Cinq refus = verrou. AfriControl coupe, consigne, alerte. Il n'attaque pas le réseau adverse.</li>
-</ul>
-<p>Icônes : dossier <code>icons/</code>. Fond noir, lisible de jour comme de nuit.</p>
-<hr/>
-<p>AfriControl · C-UAS N'Djamena · n'émet pas.</p>
-</main>
-</body>
-</html>
-"""
 
 README_PC = """AfriControl — kit poste PC
 ==========================
@@ -143,17 +93,6 @@ installée (PWA), c'est le mode supporté sur tous les ordinateurs de la divisio
 AfriControl n'émet pas. 1090ES / METAR / SIGMET / GNSS = capteurs réels.
 """
 
-README_MOB = """AfriControl — kit Android / iOS
-===============================
-1. Ouvrez INSTALLER.html sur le téléphone (ou lisez-le depuis un PC).
-2. Android : Chrome · Ajouter à l'écran d'accueil.
-3. iPhone : Safari · Partager · Sur l'écran d'accueil.
-
-Pas d'APK ni d'IPA. L'installation officielle est l'écran d'accueil (PWA),
-valable Android et iOS.
-
-AfriControl n'émet pas.
-"""
 
 IDENTITE = """AfriControl — identité
 ======================
@@ -220,4 +159,3 @@ def build(name: str, installer: str, readme: str) -> Path:
 
 if __name__ == "__main__":
     build("AfriControl-poste-PC.zip", PC_HTML, README_PC)
-    build("AfriControl-poste-mobile.zip", MOB_HTML, README_MOB)
