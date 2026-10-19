@@ -41,7 +41,7 @@ import { indexTape, rejeuClock, tapeAt, type RejeuTape, type TapeIndex } from ".
 import { treatContact } from "./treat";
 import { preloadAoTiles, preloadAt, SAT_CREDIT, tileRef } from "./tiles";
 import type { SatLayer, SatMeta } from "./sat";
-import { nightLayerSwitch } from "./sat";
+import { autoLayerSwitch } from "./sat";
 import { detectRaids } from "./raid";
 import { raiseSigintAlerts } from "./sigint";
 import { lockFire } from "./fire-clock";
@@ -146,7 +146,9 @@ type VigilairState = {
   satLayer: SatLayer;
   /** Bascule auto de l'imagerie en couche Nuit quand il fait nuit à FTTJ (Visible = noir la nuit). */
   autoNight: boolean;
-  /** Couche d'origine depuis laquelle la bascule nuit a eu lieu, pour revenir au jour. */
+  /** Bascule auto en IR sur les vues larges (couverture monde continue, jour et nuit). */
+  autoWideIr: boolean;
+  /** Couche d'origine depuis laquelle la bascule auto a eu lieu, pour revenir à Visible. */
   satAutoFrom: SatLayer | null;
   satMeta: SatMeta | null;
   copTool: CopTool;
@@ -205,7 +207,8 @@ type VigilairState = {
   setMapScale: (v: MapScale) => void;
   setSatLayer: (v: SatLayer) => void;
   setAutoNight: (v: boolean) => void;
-  applyAutoNight: () => void;
+  setAutoWideIr: (v: boolean) => void;
+  applyAutoLayer: () => void;
   setSatMeta: (v: SatMeta) => void;
   setCopTool: (v: CopTool) => void;
   setAxisId: (id: string | null) => void;
@@ -467,6 +470,7 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   mapScale: "ident",
   satLayer: "vis",
   autoNight: true,
+  autoWideIr: true,
   satAutoFrom: null,
   satMeta: null,
   copTool: "lock",
@@ -547,28 +551,37 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   setSearch: (search) => set({ search }),
   setRunning: (running) => set({ running }),
   setMapScale: (mapScale) => {
-    // Changer d'échelle réévalue la bascule nuit : en détail on rend « Visible » (archive nette),
-    // en vue large de nuit on repasse en « Nuit ».
+    // Changer d'échelle réévalue la bascule auto : en détail on rend « Visible » (archive nette),
+    // en vue large on passe sur IR (couverture monde) ou Nuit la nuit.
     set({ mapScale });
-    get().applyAutoNight();
+    get().applyAutoLayer();
   },
   setSatLayer: (satLayer) => {
-    // Choix opérateur : on efface le marqueur de bascule auto, puis on réapplique la règle nuit
-    // (s'il choisit Visible de nuit avec l'auto actif, on passe aussitôt en Nuit — jamais d'écran noir).
+    // Choix opérateur : on efface le marqueur de bascule auto, puis on réapplique la règle
+    // (s'il choisit Visible en vue large avec l'auto actif, on repasse aussitôt sur IR/Nuit).
     set({ satLayer, satAutoFrom: null });
-    get().applyAutoNight();
+    get().applyAutoLayer();
   },
   setAutoNight: (autoNight) => {
     set({ autoNight });
-    if (autoNight) get().applyAutoNight();
-    else if (get().satAutoFrom != null) set({ satAutoFrom: null });
+    if (autoNight || get().autoWideIr) get().applyAutoLayer();
+    else if (get().satAutoFrom != null) get().applyAutoLayer();
   },
-  applyAutoNight: () => {
+  setAutoWideIr: (autoWideIr) => {
+    set({ autoWideIr });
+    get().applyAutoLayer();
+  },
+  applyAutoLayer: () => {
     const s = get();
-    // « Visible » ne vient du géostationnaire (noir la nuit) que sur les vues larges (tileZ < 11).
-    // En détail (z ≥ 11), « Visible » est l'archive Esri nette : on ne bascule pas.
+    // « Visible » ne vient du géostationnaire (couverture Meteosat/jour) que sur les vues larges
+    // (tileZ < 11). En détail (z ≥ 11), « Visible » est l'archive Esri nette : on n'y touche pas.
     const visIsLive = SCALE[s.mapScale].tileZ < 11;
-    const next = nightLayerSwitch(s.satLayer, s.satAutoFrom, s.autoNight, s.livePicture?.solar?.nightOps ?? null, visIsLive);
+    const next = autoLayerSwitch(s.satLayer, s.satAutoFrom, {
+      autoWideIr: s.autoWideIr,
+      autoNight: s.autoNight,
+      night: s.livePicture?.solar?.nightOps ?? null,
+      visIsLive,
+    });
     if (next) set(next);
   },
   setSatMeta: (satMeta) => set({ satMeta }),
@@ -1669,8 +1682,8 @@ export function ingestLivePicture(pic: LivePicture) {
     liveError: usable ? null : (pic.errors[0] ?? null),
     phenomena: pic.phenomena ?? [],
   });
-  // Jour/nuit à FTTJ connu : bascule l'imagerie Visible→Nuit (ou retour) si l'auto est actif.
-  useVigilair.getState().applyAutoNight();
+  // Jour/nuit à FTTJ connu : réévalue la bascule auto d'imagerie (IR en vue large, Nuit la nuit).
+  useVigilair.getState().applyAutoLayer();
   for (const p of pic.phenomena ?? []) {
     if (p.kind === "feu") lockFire(p.id, Date.now());
   }

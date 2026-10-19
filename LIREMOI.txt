@@ -97,6 +97,20 @@ Couverture imagerie par continent — quelle couche pour voir le monde
 - Pour une vue qui couvre Afrique + Moyen-Orient + Europe + Russie + Asie en continu : utiliser la
   couche « IR 10.5 » (infrarouge). Mesuré : l'IR rend une imagerie riche partout, 24 h/24 (y compris
   Asie et Russie Est). La couche « Nuit » (VIIRS) couvre aussi le monde la nuit (lumières des villes).
+- AUTO : le bouton « Auto IR monde » (sous les couches, actif par défaut) bascule tout seul sur IR
+  dès qu'on passe aux vues larges (AES / Sahel / Monde) → couverture monde garantie, jour et nuit ;
+  retour « Visible » en détail (archive nette). Priorité : IR (vue large) > Visible (détail). Un choix
+  manuel de couche n'est jamais écrasé. « Auto IR coupé » laisse « Auto jour/nuit » gérer la nuit.
+
+Actualisation de l'imagerie — à quelle cadence (honnêtement)
+- Vue continent / monde (IR ou Visible géostationnaire, Meteosat/GOES/Himawari) : ~10 minutes (le
+  satellite rebalaie le disque toutes les ~10 min). C'est le quasi temps réel pour nuages / météo.
+- Couche « Nuit » (VIIRS DNB, satellite polaire) : ~1 à 2 passages par jour → quotidien, pas continu.
+- Détail « Visible » (Esri World Imagery 0,3 m) : c'est une ARCHIVE, pas du live — des mois à des
+  années selon la zone. Le crédit en bas de carte le dit (« archive, pas une prise du jour »).
+- Sentinel-2 (couche S2) : revisite ~5 jours, composite « moins nuageux » ≤ 20 jours.
+- Feux FIRMS (VIIRS thermique) : quelques heures à quotidien. METAR/SIGMET : à chaque relevé (~20 s
+  côté poste, sur des bulletins publiés toutes les ~30–60 min). 1090ES réseau : ~toutes les 20 s.
 - « Visible » est plus limité : c'est le disque géostationnaire METEOSAT (Afrique, Moyen-Orient,
   Europe, Russie Ouest) ET seulement de JOUR (lumière solaire réfléchie). L'Asie / l'Extrême-Orient
   ne sont pas sur Meteosat, et la moitié du globe en nuit est toujours noire sur Visible — c'est la

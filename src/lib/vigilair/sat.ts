@@ -31,32 +31,46 @@ export function parseSatLayer(v: string | null | undefined): SatLayer {
   return "vis";
 }
 
+export type AutoLayerOpts = {
+  /** Vue large (géostationnaire) → bascule sur IR pour une couverture monde continue (jour+nuit). */
+  autoWideIr: boolean;
+  /** Vue large de nuit sans auto-IR → bascule sur Nuit (VIIRS) pour ne pas rester noir. */
+  autoNight: boolean;
+  /** Fait-il nuit à FTTJ (null = inconnu). */
+  night: boolean | null;
+  /** « Visible » vient-il du géostationnaire (vue large) ? false = archive Esri nette (détail). */
+  visIsLive: boolean;
+};
+
 /**
- * Bascule auto jour/nuit de l'imagerie. « Visible » n'est noir la nuit QUE sur les vues larges, où
- * il vient du géostationnaire (lumière solaire réfléchie). Sur les vues de détail (≈ z ≥ 11), «
- * Visible » est l'ARCHIVE Esri World Imagery : une mosaïque nette, valable jour comme nuit — on n'y
- * touche donc jamais. On ne bascule en « Nuit » (VIIRS DNB) que quand la vue est large ET qu'il fait
- * nuit ; on rend « Visible » dès qu'on repasse en détail ou au lever du jour. Pure et testable.
+ * Bascule automatique de la couche imagerie, PURE et testable. Principe :
+ *  - En DÉTAIL (visIsLive = false, z ≥ 11) : « Visible » est l'archive Esri nette, valable jour comme
+ *    nuit — on garde Visible.
+ *  - En vue LARGE (géostationnaire) : « Visible » ne couvre que le disque Meteosat de jour. Pour une
+ *    couverture monde continue on préfère IR (auto-IR), ou à défaut Nuit la nuit (auto jour/nuit).
+ * On ne touche JAMAIS un choix opérateur non-Visible (il a posé IR/Nuit/… lui-même, satAutoFrom null).
+ * On ne bouge que « Visible » ou une couche qu'on a nous-mêmes posée (satAutoFrom = « vis »).
  *
- * @param cur       couche active
- * @param autoFrom  couche d'origine mémorisée lors d'une bascule auto (sinon null)
- * @param autoNight l'auto est-il activé
- * @param night     fait-il nuit à FTTJ (null = inconnu, on ne touche à rien)
- * @param visIsLive « Visible » vient-il du géostationnaire (vue large, noir la nuit) ? false = archive nette
- * @returns le nouvel état { satLayer, satAutoFrom }, ou null si rien ne change
+ * @returns le nouvel état { satLayer, satAutoFrom }, ou null si rien ne change.
  */
-export function nightLayerSwitch(
+export function autoLayerSwitch(
   cur: SatLayer,
   autoFrom: SatLayer | null,
-  autoNight: boolean,
-  night: boolean | null,
-  visIsLive: boolean,
+  opts: AutoLayerOpts,
 ): { satLayer: SatLayer; satAutoFrom: SatLayer | null } | null {
-  if (!autoNight || night == null) return null;
-  const wantNight = night && visIsLive;
-  if (wantNight && cur === "vis") return { satLayer: "nv", satAutoFrom: "vis" };
-  if (!wantNight && autoFrom === "vis" && cur === "nv") return { satLayer: "vis", satAutoFrom: null };
-  return null;
+  const { autoWideIr, autoNight, night, visIsLive } = opts;
+  // Couche voulue par l'auto quand la base de l'opérateur est « Visible ».
+  let want: SatLayer;
+  if (!visIsLive) want = "vis";
+  else if (autoWideIr) want = "ir";
+  else if (autoNight && night === true) want = "nv";
+  else want = "vis";
+
+  const autoSet = autoFrom === "vis"; // la couche actuelle a-t-elle été posée par l'auto ?
+  if (cur !== "vis" && !autoSet) return null; // choix opérateur non-Visible : intouchable
+  if (cur === want) return null;
+  if (want === "vis") return { satLayer: "vis", satAutoFrom: null };
+  return { satLayer: want, satAutoFrom: "vis" };
 }
 
 export function sceneAgeMin(iso: string | null): number | null {

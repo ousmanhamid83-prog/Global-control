@@ -1,6 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { nightLayerSwitch, parseSatLayer } from "./sat.ts";
+import { autoLayerSwitch, parseSatLayer } from "./sat.ts";
+
+const opts = (o: Partial<Parameters<typeof autoLayerSwitch>[2]> = {}) => ({
+  autoWideIr: false,
+  autoNight: false,
+  night: null as boolean | null,
+  visIsLive: true,
+  ...o,
+});
 
 describe("parseSatLayer", () => {
   it("accepte les couches connues, retombe sur vis sinon", () => {
@@ -11,46 +19,48 @@ describe("parseSatLayer", () => {
   });
 });
 
-describe("nightLayerSwitch — bascule auto jour/nuit", () => {
-  // visIsLive = true : vue large (géostationnaire, noir la nuit).
-  it("vue large + nuit + Visible → passe en Nuit, mémorise l'origine", () => {
-    assert.deepEqual(nightLayerSwitch("vis", null, true, true, true), { satLayer: "nv", satAutoFrom: "vis" });
+describe("autoLayerSwitch — bascule auto d'imagerie", () => {
+  it("vue large + auto-IR + Visible → passe en IR (couverture monde)", () => {
+    assert.deepEqual(autoLayerSwitch("vis", null, opts({ autoWideIr: true })), { satLayer: "ir", satAutoFrom: "vis" });
   });
 
-  it("retour du jour après une bascule auto → rend Visible", () => {
-    assert.deepEqual(nightLayerSwitch("nv", "vis", true, false, true), { satLayer: "vis", satAutoFrom: null });
+  it("vue large de nuit, auto-IR coupé + auto jour/nuit → passe en Nuit", () => {
+    assert.deepEqual(autoLayerSwitch("vis", null, opts({ autoNight: true, night: true })), { satLayer: "nv", satAutoFrom: "vis" });
   });
 
-  it("vue DÉTAIL (archive nette) la nuit → ne bascule PAS, garde Visible", () => {
-    assert.equal(nightLayerSwitch("vis", null, true, true, false), null);
+  it("auto-IR prime sur auto jour/nuit la nuit → IR, pas Nuit", () => {
+    assert.deepEqual(autoLayerSwitch("vis", null, opts({ autoWideIr: true, autoNight: true, night: true })), { satLayer: "ir", satAutoFrom: "vis" });
   });
 
-  it("on passe de la vue large (Nuit auto) au détail la nuit → rend Visible (archive nette)", () => {
-    assert.deepEqual(nightLayerSwitch("nv", "vis", true, true, false), { satLayer: "vis", satAutoFrom: null });
+  it("vue DÉTAIL (archive nette) → garde toujours Visible, quelle que soit l'heure", () => {
+    assert.equal(autoLayerSwitch("vis", null, opts({ autoWideIr: true, autoNight: true, night: true, visIsLive: false })), null);
   });
 
-  it("jour + Visible → ne touche à rien", () => {
-    assert.equal(nightLayerSwitch("vis", null, true, false, true), null);
+  it("passer de la vue large (IR auto) au détail → rend Visible (archive nette)", () => {
+    assert.deepEqual(autoLayerSwitch("ir", "vis", opts({ autoWideIr: true, visIsLive: false })), { satLayer: "vis", satAutoFrom: null });
   });
 
-  it("nuit mais déjà en Nuit → ne touche à rien", () => {
-    assert.equal(nightLayerSwitch("nv", "vis", true, true, true), null);
+  it("auto-IR coupé en vue large de jour → rend Visible", () => {
+    assert.deepEqual(autoLayerSwitch("ir", "vis", opts({ autoWideIr: false, night: false })), { satLayer: "vis", satAutoFrom: null });
   });
 
-  it("ne touche pas un choix opérateur non-Visible (IR la nuit reste IR)", () => {
-    assert.equal(nightLayerSwitch("ir", null, true, true, true), null);
+  it("IR auto, puis auto-IR coupé la nuit → bascule sur Nuit (pas de noir)", () => {
+    assert.deepEqual(autoLayerSwitch("ir", "vis", opts({ autoWideIr: false, autoNight: true, night: true })), { satLayer: "nv", satAutoFrom: "vis" });
   });
 
-  it("ne rend PAS Visible au jour si l'opérateur a choisi Nuit lui-même (pas d'origine auto)", () => {
-    assert.equal(nightLayerSwitch("nv", null, true, false, true), null);
+  it("déjà en IR (auto) et auto-IR actif → ne touche à rien", () => {
+    assert.equal(autoLayerSwitch("ir", "vis", opts({ autoWideIr: true })), null);
   });
 
-  it("auto coupé → aucune bascule, dans les deux sens", () => {
-    assert.equal(nightLayerSwitch("vis", null, false, true, true), null);
-    assert.equal(nightLayerSwitch("nv", "vis", false, false, true), null);
+  it("ne touche PAS un choix opérateur (IR posé à la main en détail)", () => {
+    assert.equal(autoLayerSwitch("ir", null, opts({ autoWideIr: true, visIsLive: false })), null);
   });
 
-  it("jour/nuit inconnu (null) → aucune bascule", () => {
-    assert.equal(nightLayerSwitch("vis", null, true, null, true), null);
+  it("tout auto coupé en vue large → garde Visible", () => {
+    assert.equal(autoLayerSwitch("vis", null, opts({ autoWideIr: false, autoNight: false })), null);
+  });
+
+  it("auto jour/nuit mais jour/nuit inconnu → pas de bascule Nuit", () => {
+    assert.equal(autoLayerSwitch("vis", null, opts({ autoNight: true, night: null })), null);
   });
 });

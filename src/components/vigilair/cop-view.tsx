@@ -200,7 +200,11 @@ export function CopView() {
   const setSatLayer = useVigilair((s) => s.setSatLayer);
   const autoNight = useVigilair((s) => s.autoNight);
   const setAutoNight = useVigilair((s) => s.setAutoNight);
-  const nightActive = useVigilair((s) => s.satAutoFrom === "vis"); // actuellement basculé en Nuit par l'auto
+  const autoWideIr = useVigilair((s) => s.autoWideIr);
+  const setAutoWideIr = useVigilair((s) => s.setAutoWideIr);
+  // Couche actuellement posée par l'auto (satAutoFrom = « vis » signifie : auto a remplacé Visible).
+  const irActive = useVigilair((s) => s.satAutoFrom === "vis" && s.satLayer === "ir");
+  const nightActive = useVigilair((s) => s.satAutoFrom === "vis" && s.satLayer === "nv");
   const satMeta = useVigilair((s) => s.satMeta);
   const copTool = useVigilair((s) => s.copTool);
   const setCopTool = useVigilair((s) => s.setCopTool);
@@ -481,9 +485,25 @@ export function CopView() {
             ))}
             <button
               type="button"
+              data-sat="auto-ir"
+              onClick={() => setAutoWideIr(!autoWideIr)}
+              title="Vue large : bascule auto sur IR pour la couverture monde (Afrique → Russie → Asie, jour et nuit)"
+              className={cn(
+                MAP_CHIP,
+                autoWideIr
+                  ? irActive
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-fg"
+                  : "bg-bg/85 text-muted-foreground hover:text-fg",
+              )}
+            >
+              {autoWideIr ? (irActive ? "Auto · IR monde" : "Auto IR monde") : "Auto IR coupé"}
+            </button>
+            <button
+              type="button"
               data-sat="auto-nuit"
               onClick={() => setAutoNight(!autoNight)}
-              title="Bascule auto en couche Nuit quand il fait nuit à FTTJ (Visible = noir la nuit)"
+              title="Vue large de nuit (si Auto IR coupé) : bascule en Nuit (VIIRS) au lieu de rester noir"
               className={cn(
                 MAP_CHIP,
                 autoNight
