@@ -103,6 +103,15 @@ Diagnostic du poste — Capteurs > Outils
 - Il n'interroge PAS les API (aucun martèlement) : il lit le dernier relevé en cache, l'état mémoire
   de l'antenne et de la phonie, et la présence des clés. « 0 contact » est un vrai constat là où le
   réseau public n'a pas de récepteur, jamais une panne déguisée. Bouton « Rafraîchir ».
+- Chaque ligne en défaut porte un bouton d'action direct : « Régler l'antenne » (onglet Antenne),
+  « Ouvrir Phonie ATC », « Configurer la clé » (DeepSeek / Sentinel). On va au bon réglage en un clic.
+
+Compte rendu de quart (DeepSeek) — Journal de preuve
+- En tête du Journal : bouton « Rédiger le compte rendu ». DeepSeek rédige un AAR structuré (période,
+  volume, faits marquants, points d'attention, recommandation pour la relève) à partir des SEULS
+  bulletins versés. Les injects sont marqués EXERCICE et ne sont jamais comptés comme trafic réel.
+- La clé reste au serveur (AFRICONTROL_DEEPSEEK). Le compte rendu est une aide à relire et valider,
+  pas une pièce scellée : les bulletins hashés restent la preuve.
 
 Enregistrements archivés — Capteurs > Outils
 - Copie de ce que le poste a réellement entendu (veille 30 min), écrite sur disque dans recordings/.

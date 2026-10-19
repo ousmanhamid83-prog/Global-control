@@ -170,7 +170,7 @@ export function LiveView() {
         {tab === "metar" ? <WxPanel /> : null}
         {tab === "rid" ? <RidPanel /> : null}
         {tab === "gnss" ? <GnssPanel /> : null}
-        {tab === "outils" ? <ToolsPanel /> : null}
+        {tab === "outils" ? <ToolsPanel onGoTab={setTab} /> : null}
       </div>
     </div>
   );
@@ -1009,7 +1009,7 @@ function SentinelSection() {
   const tone = !st ? "default" : !st.configured ? "warn" : st.ok ? "ok" : "crit";
   const label = !st ? "…" : !st.configured ? "clé requise" : st.ok ? "clé valide" : "clé en échec";
   return (
-    <section className="space-y-3 rounded-md border border-border bg-surface p-4 col-span-2 hud">
+    <section id="diag-sentinel" className="space-y-3 rounded-md border border-border bg-surface p-4 col-span-2 hud">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-medium">Imagerie Sentinel-2 fraîche · Copernicus (gratuit)</h2>
         <div className="flex items-center gap-2">
@@ -1046,7 +1046,7 @@ function SentinelSection() {
   );
 }
 
-function DiagnosticSection() {
+function DiagnosticSection({ onGoTab }: { onGoTab: (id: Tab) => void }) {
   const [rows, setRows] = useState<DiagRow[] | null>(null);
   const [at, setAt] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1066,6 +1066,24 @@ function DiagnosticSection() {
   useEffect(() => {
     run();
   }, []);
+
+  // Action corrective par source : aller à l'onglet de réglage, ou défiler vers la section clé.
+  const scrollTo = (id: string) =>
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  const actionFor = (id: string): { label: string; run: () => void } | null => {
+    switch (id) {
+      case "antenne":
+        return { label: "Régler l'antenne", run: () => onGoTab("antenne") };
+      case "atc":
+        return { label: "Ouvrir Phonie ATC", run: () => onGoTab("phonie") };
+      case "deepseek":
+        return { label: "Configurer la clé", run: () => scrollTo("diag-deepseek") };
+      case "sentinel":
+        return { label: "Configurer la clé", run: () => scrollTo("diag-sentinel") };
+      default:
+        return null;
+    }
+  };
 
   const toneOf = (s: DiagRow["state"]) => (s === "ok" ? "ok" : s === "crit" ? "crit" : s === "warn" ? "warn" : "default");
   const labelOf = (s: DiagRow["state"]) =>
@@ -1096,15 +1114,25 @@ function DiagnosticSection() {
       {err ? <p className="font-mono text-xs text-crit">{err}</p> : null}
       {rows ? (
         <ul className="divide-y divide-border rounded-sm border border-border">
-          {rows.map((r) => (
-            <li key={r.id} className="flex items-start justify-between gap-3 px-3 py-2">
-              <div className="min-w-0">
-                <p className="text-sm text-fg">{r.label}</p>
-                <p className="text-xs text-muted-foreground">{r.detail}</p>
-              </div>
-              <Badge tone={toneOf(r.state)}>{labelOf(r.state)}</Badge>
-            </li>
-          ))}
+          {rows.map((r) => {
+            const act = r.state === "ok" ? null : actionFor(r.id);
+            return (
+              <li key={r.id} className="flex items-start justify-between gap-3 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-sm text-fg">{r.label}</p>
+                  <p className="text-xs text-muted-foreground">{r.detail}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {act ? (
+                    <Button size="sm" variant="outline" onClick={act.run}>
+                      {act.label}
+                    </Button>
+                  ) : null}
+                  <Badge tone={toneOf(r.state)}>{labelOf(r.state)}</Badge>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
       {at ? (
@@ -1153,7 +1181,7 @@ function AssistantSection() {
   const label = !st ? "…" : !st.configured ? "clé requise" : st.ok ? "clé valide" : "clé en échec";
 
   return (
-    <section className="space-y-3 rounded-md border border-border bg-surface p-4 col-span-2 hud">
+    <section id="diag-deepseek" className="space-y-3 rounded-md border border-border bg-surface p-4 col-span-2 hud">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-medium">Assistant IA du poste · DeepSeek</h2>
         <div className="flex items-center gap-2">
@@ -1207,7 +1235,7 @@ function AssistantSection() {
   );
 }
 
-function ToolsPanel() {
+function ToolsPanel({ onGoTab }: { onGoTab: (id: Tab) => void }) {
   const [hex, setHex] = useState("");
   const [lookup, setLookup] = useState<AircraftLookup | null>(null);
   const [looking, setLooking] = useState(false);
@@ -1253,7 +1281,7 @@ function ToolsPanel() {
 
   return (
     <div className="grid gap-4 grid-cols-2">
-      <DiagnosticSection />
+      <DiagnosticSection onGoTab={onGoTab} />
       <section className="space-y-3 rounded-md border border-border bg-surface p-4 hud">
         <h2 className="text-sm font-medium">Registre ICAO24 · adsbdb</h2>
         <p className="text-sm text-muted-foreground">

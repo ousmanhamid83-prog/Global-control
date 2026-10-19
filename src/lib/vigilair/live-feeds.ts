@@ -1468,3 +1468,47 @@ export const posteDiagnostic = createServerFn({ method: "GET" })
 
     return { at: now, rows };
   });
+
+/**
+ * Compte rendu de quart (AAR) rédigé par DeepSeek à partir des VRAIS événements du journal de preuve.
+ * Le client fournit des lignes factuelles (champs typés des bulletins), le serveur les met en forme et
+ * demande une synthèse structurée. La clé reste au serveur. Les bulletins d'exercice (inject) sont
+ * fournis marqués « EXERCICE » et ne doivent jamais être présentés comme du trafic réel.
+ */
+export const shiftReport = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { events?: unknown; meta?: string }) => ({
+    events: Array.isArray(raw?.events)
+      ? raw.events.map((e) => String(e)).filter(Boolean).slice(0, 60)
+      : [],
+    meta: String(raw?.meta ?? "").trim().slice(0, 300),
+  }))
+  .handler(async ({ data }): Promise<{ ok: true; text: string } | { ok: false; error: string }> => {
+    const ds = await import("./deepseek.server");
+    if (!ds.deepseekConfigured()) {
+      return { ok: false, error: "Compte rendu indisponible : configurer AFRICONTROL_DEEPSEEK au lancement du serveur" };
+    }
+    if (data.events.length === 0) {
+      return { ok: false, error: "Aucun bulletin au journal — rien à résumer." };
+    }
+    const system =
+      "Tu es l'officier de quart du poste COP AfriControl (N'Djamena/FTTJ, Tchad), sûreté de sites. " +
+      "Rédige un COMPTE RENDU DE QUART en français, factuel, sans markdown, à partir des SEULS bulletins " +
+      "fournis — n'invente rien, ne complète pas. Structure : 1) Période et volume (nombre de bulletins). " +
+      "2) Faits marquants (pistes, origines, confiance). 3) Points d'attention. 4) Une recommandation pour " +
+      "la relève. Un bulletin marqué EXERCICE est un inject de formation : ne le compte jamais comme trafic " +
+      "réel, signale-le comme exercice. Si les données sont minces, dis-le au lieu de broder.";
+    const user = `${data.meta ? data.meta + "\n" : ""}Bulletins du journal (les plus récents en tête) :\n${data.events.join("\n")}`;
+    try {
+      const text = await ds.deepseekChat(
+        [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        { maxTokens: 700 },
+      );
+      return { ok: true, text };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "compte rendu échoué" };
+    }
+  });
