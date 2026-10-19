@@ -20,10 +20,12 @@ export function PaintFilters({
 }) {
   const threatFloor = useVigilair((s) => s.threatFloor);
   const iffFilter = useVigilair((s) => s.iffFilter);
+  const declutter = useVigilair((s) => s.declutter);
   const setThreatFloor = useVigilair((s) => s.setThreatFloor);
   const setIffFilter = useVigilair((s) => s.setIffFilter);
   const cycleThreatFloor = useVigilair((s) => s.cycleThreatFloor);
   const cycleIffFilter = useVigilair((s) => s.cycleIffFilter);
+  const toggleDeclutter = useVigilair((s) => s.toggleDeclutter);
 
   if (variant === "rail") {
     return (
@@ -71,6 +73,20 @@ export function PaintFilters({
               {iffFilterLabel(f)}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={toggleDeclutter}
+            className={cn(
+              "h-9 rounded-sm px-2.5 text-xs transition-colors duration-150",
+              declutter
+                ? "bg-primary text-primary-foreground"
+                : "bg-secondary text-muted-foreground hover:text-fg",
+            )}
+            aria-pressed={declutter}
+            title="Débruitage : ne garder que le trafic pertinent pour le site (D)"
+          >
+            Pertinent
+          </button>
         </div>
       </div>
     );
@@ -111,6 +127,19 @@ export function PaintFilters({
         title="Filtre IFF Mode 4 (I)"
       >
         {iffFilterLabel(iffFilter)}
+      </button>
+      <button
+        type="button"
+        onClick={toggleDeclutter}
+        className={cn(
+          CHIP,
+          "h-11 min-w-11 rounded-sm border border-border/80 font-mono text-[11px] uppercase tracking-wider",
+          declutter ? "bg-primary text-primary-foreground" : "bg-bg/85 text-muted-foreground hover:text-fg",
+        )}
+        aria-pressed={declutter}
+        title="Débruitage : trafic pertinent pour le site seulement (D)"
+      >
+        Pertinent
       </button>
     </>
   );

@@ -88,6 +88,14 @@ Symbologie APP-6 et radar
 - PPI : portées jusqu'à 20 000 km, vecteur vitesse, nord vrai/magnétique, bascule symboles APP-6 /
   formes plateforme. Fiche « interception » : toutes les données reçues. À 8000 km « couverture
   Afrique », à 12 000+ « couverture monde · tous continents ».
+- Débruitage (touche D, ou « Pertinent » dans Peinture) : à large portée le scope se remplit de
+  transit civil lointain. Le débruitage ne garde que ce qui compte pour la sûreté du site — urgence,
+  militaire, GNSS dégradé (NIC < 5), et tout contact à moins de 300 km de FTTJ — plus la piste
+  verrouillée. Exemple mesuré : 128 contacts à 20 000 km → 3 pertinents. La liste et le compteur
+  se rafraîchissent aussitôt. Le reste n'est pas supprimé, juste masqué tant que le débruitage est actif.
+- Le « clutter » cosmétique du scope (neige radar) est bas par défaut (6 %), réglable dans Peinture.
+- Fond de carte : là où l'imagerie géostationnaire n'existe pas (zoom monde/continent, pôles), le
+  poste sert une tuile vide propre au lieu d'erreurs 404 qui polluaient la console — rien à régler.
 
 Balayage continental (chef de division) — Capteurs > 1090ES
 - Par défaut le poste interroge 3 cellules du continent par relevé (courtoisie envers les API

@@ -165,6 +165,7 @@ type VigilairState = {
   zonePicture: ZoneStatus[];
   threatFloor: ThreatFloor;
   iffFilter: IffFilter;
+  declutter: boolean;
   watchMode: boolean;
   watchDimmed: boolean;
   watchAutoLayer: boolean;
@@ -242,6 +243,8 @@ type VigilairState = {
   cycleThreatFloor: () => void;
   setIffFilter: (v: IffFilter) => void;
   cycleIffFilter: () => void;
+  setDeclutter: (v: boolean) => void;
+  toggleDeclutter: () => void;
   setWatch: (w: WatchShiftRow | null) => void;
   setCopLock: (l: CopLockState | null) => void;
   setZones: (z: ZoneRow[]) => void;
@@ -478,6 +481,7 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   zonePicture: [],
   threatFloor: "ALL",
   iffFilter: "ALL",
+  declutter: false,
   watchMode: false,
   watchDimmed: false,
   watchAutoLayer: true,
@@ -887,6 +891,8 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   setInstruction: (instruction) => set({ instruction }),
   setShowFriends: (showFriends) => set({ showFriends }),
   setShowLive: (showLive) => set({ showLive }),
+  setDeclutter: (declutter) => set({ declutter }),
+  toggleDeclutter: () => set({ declutter: !get().declutter }),
   setThreatFloor: (threatFloor) => set({ threatFloor }),
   cycleThreatFloor: () =>
     set({ threatFloor: nextThreatFloor(get().threatFloor) }),
@@ -1562,6 +1568,7 @@ export function currentPaintFilter(): PaintFilter {
     showLive: s.showLive,
     threatFloor: s.threatFloor,
     iffFilter: s.iffFilter,
+    declutter: s.declutter,
     selectedId: s.selectedId,
   };
 }
@@ -1573,6 +1580,7 @@ export function trackVisible(t: Track, selectedId?: string | null): boolean {
     showLive: s.showLive,
     threatFloor: s.threatFloor,
     iffFilter: s.iffFilter,
+    declutter: s.declutter,
     selectedId: selectedId ?? s.selectedId,
   });
 }

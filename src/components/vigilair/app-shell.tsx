@@ -229,6 +229,10 @@ function ShellBody({ children }: { children: ReactNode }) {
         if (id) requestM4(id);
         return;
       }
+      if (e.key === "d" || e.key === "D") {
+        useVigilair.getState().toggleDeclutter();
+        return;
+      }
       const n = Number(e.key);
       if (n >= 1 && n <= PPI_RANGES.length) {
         setPpi({ rangeKm: PPI_RANGES[n - 1] as PpiRangeKm });

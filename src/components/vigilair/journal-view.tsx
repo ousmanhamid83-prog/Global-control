@@ -1,28 +1,16 @@
 import { useEffect, useState } from "react";
-import { FileText, LoaderCircle, ShieldCheck, Sparkles } from "lucide-react";
+import { FileText, LoaderCircle, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { originLabel, PLATFORM_BY_ID, sensorLabel } from "@/lib/vigilair/catalog";
 import { bulletinToJournal, getEvidencePdf, listBulletins } from "@/lib/vigilair/evidence-store";
 import { formatCoord } from "@/lib/vigilair/geo";
 import { formatDate, formatHash, originTone } from "@/lib/vigilair/format";
-import { shiftReport } from "@/lib/vigilair/live-feeds";
+import { ShiftReportCard } from "@/components/vigilair/shift-report-card";
 import { emitDuty } from "@/lib/vigilair/duty-bus";
 import { useStaff } from "@/lib/vigilair/staff-context";
 import { useVigilair } from "@/lib/vigilair/store";
 import type { JournalEntry } from "@/lib/vigilair/types";
-
-/** Une ligne factuelle par bulletin — uniquement des champs typés, exercice marqué. */
-function bulletinLine(e: JournalEntry): string {
-  const plat = PLATFORM_BY_ID[e.platformId];
-  return (
-    `${formatDate(e.at)} · ${e.callsign} · ${plat ? `${plat.manufacturer} ${plat.name}` : e.platformId}` +
-    ` · ${originLabel(e.origin)} · conf ${Math.round(e.confidence)}%` +
-    ` · ${formatCoord(e.lat, e.lon)} ${Math.round(e.altM)} m` +
-    ` · ${e.sensors.map(sensorLabel).join("/") || "capteurs ?"}` +
-    (e.injected ? " · EXERCICE (inject)" : "")
-  );
-}
 
 export function JournalView() {
   const journal = useVigilair((s) => s.journal);
@@ -30,25 +18,6 @@ export function JournalView() {
   const { isSuperadmin } = useStaff();
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [report, setReport] = useState<string | null>(null);
-  const [reportErr, setReportErr] = useState<string | null>(null);
-  const [reporting, setReporting] = useState(false);
-
-  const runReport = () => {
-    if (journal.length === 0) return;
-    setReporting(true);
-    setReportErr(null);
-    const events = journal.map(bulletinLine);
-    const real = journal.filter((e) => !e.injected).length;
-    const meta = `Poste FTTJ (N'Djamena). ${journal.length} bulletins (${real} réels, ${journal.length - real} exercices).`;
-    shiftReport({ data: { events, meta } })
-      .then((r) => {
-        if (r.ok) setReport(r.text);
-        else setReportErr(r.error);
-      })
-      .catch((e: unknown) => setReportErr(e instanceof Error ? e.message : "compte rendu échoué"))
-      .finally(() => setReporting(false));
-  };
 
   useEffect(() => {
     let live = true;
@@ -108,27 +77,7 @@ export function JournalView() {
               : " · GENESIS"}
           </p>
         ) : null}
-        {journal.length > 0 ? (
-          <div className="space-y-2 rounded-md border border-border bg-surface p-3 hud">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="flex items-center gap-1.5 text-sm font-medium">
-                <Sparkles className="size-4 text-muted-foreground" />
-                Compte rendu de quart · DeepSeek
-              </p>
-              <Button size="sm" variant="outline" disabled={reporting} onClick={runReport}>
-                {reporting ? "Rédaction…" : "Rédiger le compte rendu"}
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Synthèse rédigée à partir des SEULS bulletins ci-dessous (faits réels, exercices marqués).
-              La clé reste au serveur. À relire et valider avant la relève — ce n'est pas une pièce scellée.
-            </p>
-            {reportErr ? <p className="text-xs text-warn">{reportErr}</p> : null}
-            {report ? (
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-fg">{report}</p>
-            ) : null}
-          </div>
-        ) : null}
+        <ShiftReportCard />
       </header>
       {journal.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface px-5 py-16 text-center">

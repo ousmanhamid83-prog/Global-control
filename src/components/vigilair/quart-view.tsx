@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatClock, formatDate } from "@/lib/vigilair/format";
 import { ROLE_LABEL, TEAM_LABEL, type StaffRole, type StaffTeam } from "@/lib/vigilair/staff";
+import { ShiftReportCard } from "@/components/vigilair/shift-report-card";
 import { useStaff } from "@/lib/vigilair/staff-context";
 import { useVigilair } from "@/lib/vigilair/store";
 import {
@@ -120,6 +121,8 @@ export function QuartView() {
             piste inventée : un silence 1090 sur N'Djamena est le réel.
           </p>
         </header>
+
+        <ShiftReportCard />
 
         <div className="grid gap-2 grid-cols-4">
           <Stat

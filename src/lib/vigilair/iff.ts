@@ -1,6 +1,6 @@
 /** IFF Mode 4 — crypto FATL. AfriControl n'émet pas le challenge. */
 import { PLATFORM_BY_ID, threatRank } from "./catalog";
-import { destPoint, haversineKm } from "./geo";
+import { AO, destPoint, haversineKm } from "./geo";
 import { SENSOR_SITES } from "./sensors";
 import type {
   FriendKind,
@@ -432,7 +432,26 @@ export type PaintFilter = {
   threatFloor: ThreatFloor;
   iffFilter: IffFilter;
   selectedId: string | null;
+  /** Débruitage : ne garder que ce qui compte pour la sûreté du site (voir siteRelevant). */
+  declutter?: boolean;
 };
+
+/** Rayon de focalisation du débruitage : au-delà, le transit est du bruit pour la sûreté d'un site. */
+export const DECLUTTER_FOCUS_KM = 300;
+
+/**
+ * Pertinent pour la sûreté d'un site : tout ce qui est signalé — urgence, militaire, GNSS dégradé
+ * (NIC < 5, brouillage possible) — où qu'il soit, PLUS tout contact à moins de DECLUTTER_FOCUS_KM
+ * de FTTJ. Un vrai drone menace le site de près : il tombe dans le rayon. Le transit civil lointain
+ * est du bruit sur le scope quand le débruitage est actif (classGuess n'est pas retenu : le flux
+ * 1090ES l'affecte à presque toute piste). Une piste verrouillée/sélectionnée reste toujours
+ * affichée (vérifié en amont).
+ */
+export function siteRelevant(t: Track): boolean {
+  if (t.emergency != null || t.military === true) return true;
+  if (t.nic != null && t.nic < 5) return true;
+  return haversineKm(AO.airport.lat, AO.airport.lon, t.lat, t.lon) <= DECLUTTER_FOCUS_KM;
+}
 
 export function passesPaintFilter(t: Track, f: PaintFilter): boolean {
   if (t.idState === "perdu") return false;
@@ -440,6 +459,7 @@ export function passesPaintFilter(t: Track, f: PaintFilter): boolean {
   if (t.feed === "adsb") {
     if (f.showLive === false) return false;
   } else if (isAmi(t) && !f.showFriends) return false;
+  if (f.declutter && !siteRelevant(t)) return false;
   if (f.threatFloor !== "ALL") {
     if (threatRank(trackThreat(t)) < threatRank(f.threatFloor)) return false;
   }

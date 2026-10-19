@@ -29,7 +29,7 @@ export const DEFAULT_PPI: PpiParams = {
   rangeKm: 1200,
   rpm: 8,
   gain: 1,
-  clutter: 0.16,
+  clutter: 0.06,
   afterglow: true,
   labels: true,
   trails: true,

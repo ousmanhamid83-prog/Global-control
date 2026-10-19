@@ -14,6 +14,7 @@ import { trackVisible, threatOf, useVigilair } from "@/lib/vigilair/store";
 import type { Track } from "@/lib/vigilair/types";
 import { cn } from "@/lib/utils";
 import { Crosshair, EyeOff, Fingerprint } from "lucide-react";
+import { useMemo } from "react";
 
 export function RadarView() {
   const ppi = useVigilair((s) => s.ppi);
@@ -22,7 +23,20 @@ export function RadarView() {
   const selectedId = useVigilair((s) => s.selectedId);
   const lockTrack = useVigilair((s) => s.lockTrack);
   const selected = tracks.find((t) => t.id === selectedId);
-  const live = tracks.filter((t) => trackVisible(t, selectedId));
+  // S'abonner aux filtres de peinture pour que la liste et le compteur se rafraîchissent
+  // IMMÉDIATEMENT au basculement (débruitage, menace, IFF, amis, live), pas au relevé suivant.
+  const declutter = useVigilair((s) => s.declutter);
+  const threatFloor = useVigilair((s) => s.threatFloor);
+  const iffFilter = useVigilair((s) => s.iffFilter);
+  const showFriends = useVigilair((s) => s.showFriends);
+  const showLive = useVigilair((s) => s.showLive);
+  const live = useMemo(
+    () => tracks.filter((t) => trackVisible(t, selectedId)),
+    // trackVisible lit ces filtres via getState ; ESLint ne voit pas la dépendance, mais elle est
+    // nécessaire pour recalculer la liste au basculement d'un filtre.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tracks, selectedId, declutter, threatFloor, iffFilter, showFriends, showLive],
+  );
   const { isSuperadmin } = useStaff();
   const requestM4 = useVigilair((s) => s.requestM4);
 
@@ -45,8 +59,8 @@ export function RadarView() {
               PPI + coupe altitude RHI — pistes 1090ES / antenne live, pas un
               radar primaire FATL. Symboles APP-6 (le cadre = l'affiliation).
               Réception seule : AfriControl n'émet pas. Espace = pause · L =
-              verrouiller · F = amis · T = menace · I = IFF · M = Mode 4 · 1–9 =
-              portée · ← → AAR.
+              verrouiller · F = amis · T = menace · I = IFF · M = Mode 4 · D =
+              débruitage · 1–9 = portée · ← → AAR.
             </p>
           </div>
 

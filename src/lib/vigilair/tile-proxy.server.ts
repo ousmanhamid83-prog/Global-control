@@ -17,6 +17,29 @@ const CLARITY =
 const HILL =
   "https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile";
 
+/**
+ * Tuile transparente 1×1 : servie quand l'imagerie géostationnaire n'existe PAS à cette tuile
+ * (zoom monde/continent, latitudes polaires). Au lieu d'un 404 qui pollue la console du poste par
+ * dizaines à chaque rafraîchissement, le navigateur reçoit une tuile vide propre. Cache court pour
+ * qu'un trou passager se rétablisse au relevé suivant. C'est honnête : pas d'imagerie ici = vide.
+ */
+const EMPTY_TILE = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=",
+  "base64",
+);
+function emptyTile(): Response {
+  return new Response(EMPTY_TILE, {
+    status: 200,
+    headers: {
+      "Content-Type": "image/png",
+      "Cache-Control": "public, max-age=300",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer",
+      "X-AfriControl-Tile": "EMPTY",
+    },
+  });
+}
+
 const ORIGIN_3857 = 20037508.342789244;
 const MIN_BYTES = 1500;
 const GEO_TTL = 15 * 60 * 1000;
@@ -543,7 +566,8 @@ export async function serveTile(
         return img(geo.bytes, "GEO", stamp);
       }
     }
-    return new Response(null, { status: 404 });
+    // Pas d'imagerie géostationnaire ici (monde/continent, pôles) : tuile vide, pas un 404 bruyant.
+    return emptyTile();
   }
 
   if (layer === "s2") {
