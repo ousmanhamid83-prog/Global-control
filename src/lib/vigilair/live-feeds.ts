@@ -1114,6 +1114,21 @@ export const sentinelCheck = createServerFn({ method: "GET" })
     return sh.sentinelCheck();
   });
 
+/**
+ * Comparateur avant/après d'un site minier : deux composites Sentinel-2 datés du même périmètre.
+ * Réception seule. Renvoie la clé manquante honnêtement plutôt qu'une fausse image.
+ */
+export const fetchChangePair = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { mineId?: string }) => ({ mineId: String(raw?.mineId ?? "") }))
+  .handler(async ({ data }): Promise<import("./sentinelhub.server").ChangePair> => {
+    const sh = await import("./sentinelhub.server");
+    const { mineById } = await import("./mines");
+    const m = mineById(data.mineId);
+    if (!m) return { ok: false, configured: sh.sentinelConfigured(), reason: "site inconnu" };
+    return sh.sentinelChangePair(m.lat, m.lon, m.radiusKm);
+  });
+
 /** Phonie ATC — état de l'enregistrement du flux public (réception seule). */
 export const atcStatus = createServerFn({ method: "GET" })
   .middleware([authMiddleware])

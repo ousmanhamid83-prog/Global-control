@@ -81,6 +81,13 @@ function tileBbox3857(z: number, x: number, y: number): [number, number, number,
   return [minX, minY, maxX, maxY];
 }
 
+/** Lon/lat (WGS84) → mètres Web Mercator (EPSG:3857). */
+function lonLatTo3857(lon: number, lat: number): [number, number] {
+  const x = (lon / 180) * ORIGIN_3857;
+  const y = (Math.log(Math.tan(((90 + lat) * Math.PI) / 360)) / Math.PI) * ORIGIN_3857;
+  return [x, y];
+}
+
 // True color Sentinel-2 L2A, étirement doux. Rien n'est ajouté à l'image : trois bandes réelles.
 const EVALSCRIPT = `//VERSION=3
 function setup(){return {input:["B02","B03","B04"],output:{bands:3}};}
@@ -91,18 +98,24 @@ const WINDOW_DAYS = 20;
 export type S2Tile = { bytes: Uint8Array; src: string } | null;
 
 /**
- * Une tuile Sentinel-2 (256×256 PNG) pour z/x/y. Composite « moins nuageux » sur les 20 derniers
- * jours : honnête sur la fraîcheur (fenêtre, pas une date truquée). null si non configuré ou vide.
+ * Un appel Process API Copernicus : une image PNG réelle pour une emprise 3857, une taille et une
+ * fenêtre de dates. Composite « moins nuageux » sur la fenêtre — rien n'est ajouté, trois bandes
+ * réelles. null si non configuré ou réponse vide (pas de passage / trop de nuages).
  */
-export async function sentinelTile(z: number, x: number, y: number): Promise<S2Tile> {
+async function sentinelProcess(
+  bbox: [number, number, number, number],
+  width: number,
+  height: number,
+  from: Date,
+  to: Date,
+  maxCloud = 40,
+): Promise<Uint8Array | null> {
   const t = await token();
   if (!t) return null;
-  const to = new Date();
-  const from = new Date(to.getTime() - WINDOW_DAYS * 86_400_000);
   const payload = {
     input: {
       bounds: {
-        bbox: tileBbox3857(z, x, y),
+        bbox,
         properties: { crs: "http://www.opengis.net/def/crs/EPSG/0/3857" },
       },
       data: [
@@ -110,15 +123,15 @@ export async function sentinelTile(z: number, x: number, y: number): Promise<S2T
           type: "sentinel-2-l2a",
           dataFilter: {
             timeRange: { from: from.toISOString(), to: to.toISOString() },
-            maxCloudCoverage: 40,
+            maxCloudCoverage: maxCloud,
             mosaickingOrder: "leastCC",
           },
         },
       ],
     },
     output: {
-      width: 256,
-      height: 256,
+      width,
+      height,
       responses: [{ identifier: "default", format: { type: "image/png" } }],
     },
     evalscript: EVALSCRIPT,
@@ -131,7 +144,7 @@ export async function sentinelTile(z: number, x: number, y: number): Promise<S2T
       Accept: "image/png",
     },
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(25_000),
   });
   if (!res.ok) {
     if (res.status === 429) throw new Error("429");
@@ -139,8 +152,73 @@ export async function sentinelTile(z: number, x: number, y: number): Promise<S2T
   }
   const buf = new Uint8Array(await res.arrayBuffer());
   if (buf.byteLength < 400) return null;
+  return buf;
+}
+
+/**
+ * Une tuile Sentinel-2 (256×256 PNG) pour z/x/y. Composite « moins nuageux » sur les 20 derniers
+ * jours : honnête sur la fraîcheur (fenêtre, pas une date truquée). null si non configuré ou vide.
+ */
+export async function sentinelTile(z: number, x: number, y: number): Promise<S2Tile> {
+  const to = new Date();
+  const from = new Date(to.getTime() - WINDOW_DAYS * 86_400_000);
+  const buf = await sentinelProcess(tileBbox3857(z, x, y), 256, 256, from, to);
+  if (!buf) return null;
   return {
     bytes: buf,
     src: `Sentinel-2 L2A · Copernicus · 10 m · composite moins nuageux ≤ ${WINDOW_DAYS} j`,
+  };
+}
+
+/** Jours de décalage de la fenêtre « ancienne » pour la comparaison avant/après. */
+const CHANGE_GAP_DAYS = 45;
+
+export type ChangeScene = { dataUrl: string; from: string; to: string; label: string };
+export type ChangePair =
+  | { ok: true; site: string; mpp: number; px: number; before: ChangeScene; after: ChangeScene }
+  | { ok: false; configured: boolean; reason: string };
+
+function fmtDay(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Comparateur avant/après d'un périmètre (site minier). Deux composites Sentinel-2 datés du MÊME
+ * cadre : « récent » (20 derniers jours) et « ancien » (fenêtre de 20 j finissant il y a ~45 j).
+ * Réception / lecture seule : le poste lit des images publiques, il ne commande aucun satellite.
+ * 10 m : on lit une piste nouvelle, un bâtiment, un engin apparu — pas une voiture ni une identité.
+ */
+export async function sentinelChangePair(lat: number, lon: number, radiusKm: number): Promise<ChangePair> {
+  if (!sentinelConfigured()) return { ok: false, configured: false, reason: "clé requise" };
+  const PX = 640;
+  // Emprise carrée centrée sur le site, bornée à 2–8 km de rayon pour garder du 10–25 m/px lisible.
+  const rKm = Math.min(Math.max(radiusKm, 2), 8);
+  const [cx, cy] = lonLatTo3857(lon, lat);
+  const half = rKm * 1000; // mètres (Mercator ; distorsion faible aux latitudes basses d'Afrique)
+  const bbox: [number, number, number, number] = [cx - half, cy - half, cx + half, cy + half];
+  const mpp = Math.round((2 * half) / PX);
+  const now = new Date();
+  const aFrom = new Date(now.getTime() - WINDOW_DAYS * 86_400_000);
+  const bTo = new Date(now.getTime() - CHANGE_GAP_DAYS * 86_400_000);
+  const bFrom = new Date(bTo.getTime() - WINDOW_DAYS * 86_400_000);
+  let afterBuf: Uint8Array | null;
+  let beforeBuf: Uint8Array | null;
+  try {
+    afterBuf = await sentinelProcess(bbox, PX, PX, aFrom, now);
+    beforeBuf = await sentinelProcess(bbox, PX, PX, bFrom, bTo);
+  } catch (e) {
+    return { ok: false, configured: true, reason: e instanceof Error ? e.message : "échec" };
+  }
+  if (!afterBuf || !beforeBuf) {
+    return { ok: false, configured: true, reason: "scène vide (nuages ou pas de passage sur la fenêtre)" };
+  }
+  const toUrl = (b: Uint8Array) => `data:image/png;base64,${Buffer.from(b).toString("base64")}`;
+  return {
+    ok: true,
+    site: `${lat.toFixed(4)}, ${lon.toFixed(4)}`,
+    mpp,
+    px: PX,
+    before: { dataUrl: toUrl(beforeBuf), from: fmtDay(bFrom), to: fmtDay(bTo), label: "ancien" },
+    after: { dataUrl: toUrl(afterBuf), from: fmtDay(aFrom), to: fmtDay(now), label: "récent" },
   };
 }

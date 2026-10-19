@@ -230,6 +230,21 @@ Imagerie Sentinel-2 fraîche (Copernicus) — Capteurs > Outils, couche « Senti
   images publiques, il ne commande aucun satellite. Pour le sous-métrique (30 cm), il faut une clé
   commerciale (Planet/Maxar) — je ne simule pas ce que le compte gratuit ne donne pas.
 
+Comparateur avant/après — Capteurs > onglet « Changement »
+- Pas de direct : un satellite ne repasse que tous les quelques jours. On ne traque pas une voiture
+  qui roule ; on compare deux PASSAGES DATÉS du même périmètre. C'est pour ça qu'on lance des
+  satellites : chaque passage est une date, et le changement se lit ENTRE deux dates.
+- Choisir un site minier, « Analyser le périmètre » : le poste va chercher deux composites
+  Sentinel-2 10 m du même cadre — un récent (20 derniers jours) et un ancien (fenêtre finissant il y
+  a ~45 j). Un curseur (swipe) montre l'avant et l'après ; le bouton « Afficher le changement »
+  allume en orange ce qui a bougé (une piste neuve, un bâtiment, un engin apparu) et donne un % de
+  changement estimé.
+- Honnêteté : c'est une DIFFÉRENCE D'IMAGE, pas une détection d'objet ni une identification. À 10 m
+  on lit une piste ou un carreau, jamais une voiture isolée ni un visage (comme Google montre la
+  scène mais floute les plaques). Réception / lecture seule : le poste lit Copernicus, il ne commande
+  aucun satellite. Nécessite la clé Copernicus gratuite (même clé que la couche « Sentinel-2 ») ;
+  sans clé, l'onglet le dit au lieu d'inventer une image.
+
 Durcissement défensif
 - En-têtes de sécurité sur chaque réponse (nosniff, Referrer-Policy no-referrer, Permissions-Policy
   capteurs coupés). Aucune télémétrie tierce. Les sources externes (1090ES, météo…) sont

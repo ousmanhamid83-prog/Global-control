@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Antenna, BookOpen, Headphones, Radio, RadioTower, Satellite, Wind } from "lucide-react";
+import { Antenna, BookOpen, GitCompare, Headphones, Radio, RadioTower, Satellite, Wind } from "lucide-react";
 import { AntennaPanel } from "@/components/vigilair/antenna-panel";
+import { ChangeCompare } from "@/components/vigilair/change-compare";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,7 +54,7 @@ import { obsAge, tafValidity } from "@/lib/vigilair/taf";
 import { formatAge, useWallClock } from "@/lib/vigilair/telemetry";
 import { cn } from "@/lib/utils";
 
-type Tab = "1090" | "antenne" | "phonie" | "metar" | "rid" | "gnss" | "outils";
+type Tab = "1090" | "antenne" | "phonie" | "metar" | "rid" | "gnss" | "change" | "outils";
 
 const TABS: { id: Tab; label: string; icon: typeof Radio }[] = [
   { id: "1090", label: "1090ES", icon: Radio },
@@ -62,6 +63,7 @@ const TABS: { id: Tab; label: string; icon: typeof Radio }[] = [
   { id: "metar", label: "Météo", icon: Wind },
   { id: "rid", label: "Remote ID", icon: Antenna },
   { id: "gnss", label: "GNSS", icon: Satellite },
+  { id: "change", label: "Changement", icon: GitCompare },
   { id: "outils", label: "Outils", icon: BookOpen },
 ];
 
@@ -172,6 +174,7 @@ export function LiveView() {
         {tab === "metar" ? <WxPanel /> : null}
         {tab === "rid" ? <RidPanel /> : null}
         {tab === "gnss" ? <GnssPanel /> : null}
+        {tab === "change" ? <ChangeCompare /> : null}
         {tab === "outils" ? <ToolsPanel onGoTab={setTab} /> : null}
       </div>
     </div>
