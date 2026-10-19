@@ -1332,8 +1332,10 @@ export const deepseekStatus = createServerFn({ method: "GET" })
  */
 export const askAssistant = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((raw: { question?: string }) => ({
+  .validator((raw: { question?: string; track?: string }) => ({
     question: String(raw?.question ?? "").trim().slice(0, 1000),
+    // Résumé factuel d'une piste précise (construit par le client à partir de champs typés).
+    track: String(raw?.track ?? "").trim().slice(0, 2000),
   }))
   .handler(async ({ data }): Promise<{ ok: true; text: string } | { ok: false; error: string }> => {
     if (!data.question) return { ok: false, error: "Question vide" };
@@ -1356,12 +1358,18 @@ export const askAssistant = createServerFn({ method: "POST" })
       "Tu es l'assistant du poste COP AfriControl (N'Djamena/FTTJ, Tchad), sûreté de sites. " +
       "Réponds en français, bref et factuel, sans markdown. Tu raisonnes UNIQUEMENT sur les capteurs " +
       "réels fournis ; tu n'inventes jamais de pistes ni de données. Le poste est en réception seule : " +
-      "il n'émet rien et ne commande aucun capteur. Si l'info n'est pas dans les données, dis-le.";
+      "il n'émet rien et ne commande aucun capteur. Si l'info n'est pas dans les données, dis-le. " +
+      "Une piste marquée INJECT est un exercice de formation, une piste REJEU est une position enregistrée " +
+      "(pas un contact live) : ne les présente jamais comme du trafic réel en cours.";
+    const user =
+      ctx +
+      (data.track ? `\n\nPiste ciblée par l'opérateur :\n${data.track}` : "") +
+      `\n\nQuestion de l'opérateur : ${data.question}`;
     try {
       const text = await ds.deepseekChat(
         [
           { role: "system", content: system },
-          { role: "user", content: `${ctx}\n\nQuestion de l'opérateur : ${data.question}` },
+          { role: "user", content: user },
         ],
         { maxTokens: 600 },
       );

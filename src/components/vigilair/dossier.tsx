@@ -26,11 +26,14 @@ import { rejeuClock } from "@/lib/vigilair/rejeu";
 import { treatContact } from "@/lib/vigilair/treat";
 import { useStaff } from "@/lib/vigilair/staff-context";
 import { threatOf, useVigilair } from "@/lib/vigilair/store";
+import { askAssistant } from "@/lib/vigilair/live-feeds";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { Crosshair, EyeOff, FilePlus2, FileText, Fingerprint, Mic, RadioTower } from "lucide-react";
+import { Crosshair, EyeOff, FilePlus2, FileText, Fingerprint, Mic, RadioTower, Sparkles } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { useState } from "react";
 
 export function Dossier() {
   const selectedId = useVigilair((s) => s.selectedId);
@@ -419,6 +422,7 @@ export function Dossier() {
         </Button>
         {/* Le traitement croise la météo et le GNSS d'AUJOURD'HUI : il n'a pas de sens pour un rejeu. */}
         {(track.feed === "adsb" || track.locked) && !rej ? <TransponderBlock track={track} /> : null}
+        <AssistantAsk track={track} />
         <Button
           variant={track.locked ? "default" : "outline"}
           className="w-full"
@@ -531,6 +535,100 @@ function Item({
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd className={mono ? "font-mono text-xs tabular-nums" : "text-sm"}>{value}</dd>
     </div>
+  );
+}
+
+/** Résumé factuel d'une piste pour l'assistant — uniquement des champs typés, aucune fiction. */
+function trackBrief(track: Track): string {
+  const feed =
+    track.injected
+      ? "INJECT DE FORMATION (exercice, pas un contact réel)"
+      : track.feed === "rejeu"
+        ? "REJEU (position 1090ES enregistrée, pas live)"
+        : track.feed === "adsb"
+          ? "1090ES live (réseau passif)"
+          : track.feed === "rid"
+            ? "Remote ID (écoute passive)"
+            : "simulation COP";
+  const lines = [
+    `Indicatif: ${track.callsign}`,
+    `Source: ${feed}`,
+    `Position: ${track.lat.toFixed(4)}, ${track.lon.toFixed(4)} · alt ${Math.round(track.altM)} m`,
+    `Cinématique: cap ${Math.round(track.heading)}° · ${Math.round(track.speedKmh)} km/h · montée ${track.climbMs.toFixed(1)} m/s`,
+    `Identification: ${idStateLabel(track.idState)} · confiance ${Math.round(track.confidence)}%`,
+  ];
+  if (track.origin) lines.push(`Origine: ${originLabel(track.origin)}`);
+  if (track.classGuess) lines.push(`Classe estimée: ${classLabel(track.classGuess)}`);
+  if (track.icaoType) lines.push(`Type ICAO: ${track.icaoType}`);
+  if (track.reg) lines.push(`Immat.: ${track.reg}`);
+  if (track.nation) lines.push(`Nationalité (allocation OACI): ${track.nation}`);
+  if (track.military) lines.push("Marqué militaire par le réseau");
+  if (track.emergency) lines.push(`Urgence: ${track.emergency}`);
+  if (track.nic != null) lines.push(`NIC: ${track.nic}${track.nic < 5 ? " (GNSS dégradé / jamming possible)" : ""}`);
+  if (track.nacp != null) lines.push(`NACp: ${track.nacp}`);
+  if (track.corridor) lines.push(`Couloir: ${track.corridor}`);
+  if (track.cpa) {
+    lines.push(
+      `CPA site: ${track.cpa.name} · ${track.cpa.distKm.toFixed(1)} km` +
+        (track.cpa.etaS ? ` · ETA ${track.cpa.etaS} s` : "") +
+        (track.cpa.closing ? " · en rapprochement" : ""),
+    );
+  }
+  return lines.join("\n");
+}
+
+function AssistantAsk({ track }: { track: Track }) {
+  const [q, setQ] = useState("");
+  const [answer, setAnswer] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const ask = () => {
+    const question = q.trim();
+    if (!question) return;
+    setBusy(true);
+    setErr(null);
+    askAssistant({ data: { question, track: trackBrief(track) } })
+      .then((r) => {
+        if (r.ok) setAnswer(r.text);
+        else setErr(r.error);
+      })
+      .catch((e: unknown) => setErr(e instanceof Error ? e.message : "assistant échoué"))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <section className="space-y-2 rounded-md border border-border bg-surface p-3 hud">
+      <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        <Sparkles className="size-3.5" />
+        Assistant · cette piste
+      </p>
+      <div className="flex gap-2">
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              ask();
+            }
+          }}
+          placeholder="ex. Faut-il s'inquiéter de ce contact ?"
+          aria-label="Question à l'assistant sur cette piste"
+        />
+        <Button type="button" variant="outline" onClick={ask} disabled={busy || !q.trim()}>
+          {busy ? "…" : "Demander"}
+        </Button>
+      </div>
+      {err ? <p className="text-xs text-warn">{err}</p> : null}
+      {answer ? (
+        <p className="whitespace-pre-wrap text-xs leading-relaxed text-fg">{answer}</p>
+      ) : (
+        <p className="text-[11px] text-muted-foreground">
+          Raisonne sur les données réelles de la piste. La clé reste au serveur ; réception seule.
+        </p>
+      )}
+    </section>
   );
 }
 
