@@ -35,6 +35,7 @@ import {
   downloadArchive,
   downloadAtcSegment,
   fetchArchives,
+  linkStatus,
   lookupAircraft,
   posteDiagnostic,
   sentinelCheck,
@@ -1128,6 +1129,59 @@ function SentinelSection() {
   );
 }
 
+function LinkStatusCard() {
+  const [st, setSt] = useState<Awaited<ReturnType<typeof linkStatus>> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = () => {
+    setBusy(true);
+    linkStatus()
+      .then(setSt)
+      .catch(() => undefined)
+      .finally(() => setBusy(false));
+  };
+  useEffect(() => {
+    run();
+  }, []);
+  const tone = !st ? "default" : st.reachable === st.total ? "ok" : st.online ? "warn" : "crit";
+  const label = !st ? "…" : st.reachable === st.total ? "en ligne" : st.online ? "partiel" : "hors ligne";
+  return (
+    <section className="space-y-3 rounded-md border border-border bg-surface p-4 col-span-2 hud">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-medium">Liaison Internet · wifi / Starlink / Thuraya</h2>
+        <div className="flex items-center gap-2">
+          <Badge tone={tone}>{label}</Badge>
+          <Button size="sm" variant="outline" disabled={busy} onClick={run}>
+            {busy ? "Test…" : "Tester la liaison"}
+          </Button>
+        </div>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Le poste utilise le lien Internet actif de l'OS (wifi opérateur, Starlink ou Thuraya). Ce test
+        dit s'il atteint ses sources. <strong>Hors ligne</strong> : l'imagerie live ne charge pas — le
+        poste retombe sur la mosaïque locale (installer les packs de tuiles). <strong>Partiel</strong> :
+        un domaine est bloqué par un pare-feu (voir la liste des domaines dans LIREMOI).
+      </p>
+      {st ? (
+        <ul className="divide-y divide-border rounded-sm border border-border">
+          {st.probes.map((p) => (
+            <li key={p.id} className="flex items-center justify-between gap-3 px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-sm text-fg">{p.label}</p>
+                {p.ok ? (
+                  <p className="text-xs text-muted-foreground">joignable{p.ms != null ? ` · ${p.ms} ms` : ""}{p.status ? ` · HTTP ${p.status}` : ""}</p>
+                ) : (
+                  <p className="text-xs text-warn">injoignable{p.error ? ` · ${p.error}` : ""}</p>
+                )}
+              </div>
+              <Badge tone={p.ok ? "ok" : "crit"}>{p.ok ? "OK" : "KO"}</Badge>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
 function DiagnosticSection({ onGoTab }: { onGoTab: (id: Tab) => void }) {
   const [rows, setRows] = useState<DiagRow[] | null>(null);
   const [at, setAt] = useState<number | null>(null);
@@ -1363,6 +1417,7 @@ function ToolsPanel({ onGoTab }: { onGoTab: (id: Tab) => void }) {
 
   return (
     <div className="grid gap-4 grid-cols-2">
+      <LinkStatusCard />
       <DiagnosticSection onGoTab={onGoTab} />
       <section className="space-y-3 rounded-md border border-border bg-surface p-4 hud">
         <h2 className="text-sm font-medium">Registre ICAO24 · adsbdb</h2>

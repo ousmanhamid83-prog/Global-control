@@ -1532,3 +1532,11 @@ export const gpsStatus = createServerFn({ method: "GET" })
     const gps = await import("./gps.server");
     return gps.gpsStatus();
   });
+
+/** Liaison Internet en direct : le poste atteint-il ses sources (imagerie, 1090, météo) ? */
+export const linkStatus = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async () => {
+    const net = await import("./connectivity.server");
+    return net.linkStatus();
+  });

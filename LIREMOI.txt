@@ -201,6 +201,19 @@ Ils en ont au Maghreb, en Égypte, en Afrique de l'Est et australe : le poste le
 rotation (couverture continentale). Pour de vrais avions au-dessus de N'Djamena, il faut l'antenne
 du poste (dump1090, voir plus haut). Le trafic hors zone ASECNA est marqué « CIVIL » (neutre APP-6).
 
+Liaison Internet du site (wifi opérateur / Starlink / Thuraya) — Capteurs > Outils
+- Ces liens sont gérés par le SYSTÈME (Windows/Linux) : on connecte le PC au wifi, à Starlink ou au
+  terminal Thuraya comme d'habitude ; AfriControl utilise le lien Internet actif, il n'en pilote aucun.
+- « Liaison Internet » (en tête des Outils, bouton « Tester la liaison ») teste en direct si le poste
+  atteint ses sources (imagerie, réseau 1090ES, météo) et dit EN LIGNE / PARTIEL / HORS LIGNE.
+    EN LIGNE  : tout répond, l'imagerie live charge normalement.
+    PARTIEL   : un domaine est bloqué par un pare-feu → autoriser les domaines listés plus bas.
+    HORS LIGNE: pas d'Internet (lien coupé) → l'imagerie live ne charge pas ; le poste retombe sur la
+                mosaïque locale SI les packs de tuiles sont installés (sinon carte sombre).
+- Carte sombre ? 1) « Tester la liaison » : hors ligne → vérifier wifi/Starlink/Thuraya ; 2) en ligne
+  mais sombre → laisser 10–15 s à l'imagerie pour se charger (tuiles chargées progressivement) ;
+  3) hors ligne voulu → installer les packs de tuiles AfriControl-2-tuiles-z8 et -3-tuiles-z10-z12.
+
 Derrière un proxy d'entreprise
 Le serveur du poste (Node) n'utilise un proxy que si on le lui dit :
   NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://proxy:port npm run dev   (Node 22.21 ou plus récent)
