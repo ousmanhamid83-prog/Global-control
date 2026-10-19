@@ -2,6 +2,26 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { threatTone } from "@/lib/vigilair/format";
 import { useVigilair } from "@/lib/vigilair/store";
+import { Globe } from "lucide-react";
+
+/** Bouton compact : les phénomènes mondiaux (lointains) à un clic, sans noyer le bandeau. */
+function WorldPhenomChip() {
+  const n = useVigilair((s) => s.phenomena.length);
+  const setOpen = useVigilair((s) => s.setWorldPhenomOpen);
+  if (n === 0) return null;
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="shrink-0"
+      onClick={() => setOpen(true)}
+      title="Crues, cyclones, séismes, feux dans le monde — avec capture imagerie"
+    >
+      <Globe className="mr-1 size-3.5" />
+      {n} monde
+    </Button>
+  );
+}
 
 export function AlertStrip() {
   const alerts = useVigilair((s) => s.alerts);
@@ -14,6 +34,9 @@ export function AlertStrip() {
       <div className="flex h-9 items-center gap-2 border-b border-border bg-surface px-3">
         <Badge>Alertes</Badge>
         <p className="text-xs text-muted-foreground">Aucune alerte ouverte.</p>
+        <div className="ml-auto">
+          <WorldPhenomChip />
+        </div>
       </div>
     );
   }
@@ -50,6 +73,7 @@ export function AlertStrip() {
           </button>
         ))}
       </div>
+      <WorldPhenomChip />
       <Button variant="ghost" size="sm" onClick={ackAll} className="shrink-0">
         Acquitter
       </Button>

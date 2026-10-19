@@ -13,6 +13,7 @@ import { Dossier } from "@/components/vigilair/dossier";
 import { PaintFilters } from "@/components/vigilair/paint-filters";
 import { RadarMap, peekCopCursor, snapshotCop } from "@/components/vigilair/radar-map";
 import { TrackRail } from "@/components/vigilair/track-rail";
+import { WorldPhenomPanel } from "@/components/vigilair/world-phenom-panel";
 import { SCALE, type MapScale } from "@/lib/vigilair/geo";
 import { SAT_LAYERS, SAT_LAYER_LABEL, sceneAgeLabel } from "@/lib/vigilair/sat";
 import { coverBoard, formatGap, formatNeed, formatPx, lastPixelScan, liveGsd as readLiveGsd, localImageryDominant, pixelBudgetLine, pixelSpan, realDetectLine, realDetects, subscribeLocalImagery, subscribePixelScan, taskDeck } from "@/lib/vigilair/tiles";
@@ -262,7 +263,7 @@ export function CopView() {
   const dim = watchMode && watchDimmed;
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
       {/* Hauteur fixe : une alerte qui arrive ne déplace jamais la carte sous le curseur.
           Posture, raid et intrusions sont dans la barre de situation, au-dessus. */}
       <div className="h-[clamp(7rem,22dvh,10.5rem)] shrink-0 overflow-y-auto overscroll-contain">
@@ -597,6 +598,7 @@ export function CopView() {
           <Dossier />
         </aside>
       </div>
+      <WorldPhenomPanel />
     </div>
   );
 }

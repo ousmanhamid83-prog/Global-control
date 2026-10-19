@@ -206,6 +206,19 @@ Alertes feu (FIRMS) — ce que le capteur peut, honnêtement
   pas un flux public rafraîchi toutes les 30 min. Sans clé d'un fournisseur commercial, le poste
   n'affiche pas un faux « live » : le crédit en carte dit toujours la vraie source et le vrai âge.
 
+Phénomènes mondiaux — le lointain à un clic, sans noyer le poste
+- Les crues, cyclones, séismes, volcans et feux du MONDE ENTIER sont captés en temps réel (GDACS,
+  EONET, USGS, FIRMS) et restent sur la carte et dans les graphiques SANS sonner. Un phénomène
+  lointain (Indonésie, Népal…) ne doit pas noyer la veille de FTTJ : il n'arme pas d'alerte.
+- Pour les retrouver quand même, le bandeau d'alertes porte une pastille « N monde » (icône globe).
+  Un clic ouvre le volet « Phénomènes mondiaux » : TOUS les événements réels, triés par gravité puis
+  distance, chacun avec « Capture imagerie » (imagerie réelle de la zone — Sentinel-2 10 m si clé,
+  sinon IR/Esri). Réception seule : le poste regarde, il ne commande rien.
+- SITES MINIERS : une crue, un feu ou un séisme à ≤ 200 km d'un site minier (Komé, Essakane, Tasiast,
+  Geita, Kibali…) SONNE toujours en alerte, où qu'il soit sur le continent, même hors du théâtre de
+  FTTJ — l'alerte porte « près de <site> (<km>) ». La sûreté d'un site isolé prime ; seuls les feux
+  FIRMS lointains de masse restent filtrés pour ne pas saturer.
+
 Imagerie Sentinel-2 fraîche (Copernicus) — Capteurs > Outils, couche « Sentinel-2 »
 - Le poste ne possède pas de satellite. Il interroge l'API Copernicus avec le compte GRATUIT de
   l'opérateur (Copernicus Data Space Ecosystem) : images Sentinel-2 fraîches, 10 m natif. On lit une

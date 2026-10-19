@@ -1,4 +1,4 @@
-import type { MapScale } from "./geo";
+import { haversineKm, type MapScale } from "./geo";
 import type { ZoneRow } from "./zones";
 
 export type MineRegion = "tchad" | "sahel" | "maghreb" | "est";
@@ -246,6 +246,16 @@ export const MINE_WATCH =
 export function mineById(id: string | null): MineSite | null {
   if (!id) return null;
   return MINES.find((m) => m.id === id) ?? null;
+}
+
+/** Site minier le plus proche d'un point, avec la distance. null si la liste est vide. */
+export function nearestMine(lat: number, lon: number): { mine: MineSite; distKm: number } | null {
+  let best: { mine: MineSite; distKm: number } | null = null;
+  for (const m of MINES) {
+    const d = haversineKm(lat, lon, m.lat, m.lon);
+    if (!best || d < best.distKm) best = { mine: m, distKm: d };
+  }
+  return best;
 }
 
 export function mineZoneRows(): ZoneRow[] {

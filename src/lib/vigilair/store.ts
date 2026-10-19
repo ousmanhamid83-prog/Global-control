@@ -66,7 +66,7 @@ import {
   type ZoneRow,
   type ZoneStatus,
 } from "./zones";
-import { mineZoneRows } from "./mines";
+import { mineZoneRows, nearestMine } from "./mines";
 import { reportZoneBreach } from "./zones-ops";
 
 const JOURNAL_KEY = "vigilair-journal-v1";
@@ -152,6 +152,8 @@ type VigilairState = {
   satAutoFrom: SatLayer | null;
   satMeta: SatMeta | null;
   copTool: CopTool;
+  /** Panneau « Phénomènes mondiaux » ouvert (crues/catastrophes lointaines, accès en un clic). */
+  worldPhenomOpen: boolean;
   ewArmed: boolean;
   ppi: PpiParams;
   history: HistSample[];
@@ -211,6 +213,7 @@ type VigilairState = {
   applyAutoLayer: () => void;
   setSatMeta: (v: SatMeta) => void;
   setCopTool: (v: CopTool) => void;
+  setWorldPhenomOpen: (v: boolean) => void;
   setAxisId: (id: string | null) => void;
   setPeakId: (id: string | null) => void;
   setShowPeaks: (on: boolean) => void;
@@ -474,6 +477,7 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   satAutoFrom: null,
   satMeta: null,
   copTool: "lock",
+  worldPhenomOpen: false,
   ewArmed: false,
   ppi: DEFAULT_PPI,
   history: [],
@@ -586,6 +590,7 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   },
   setSatMeta: (satMeta) => set({ satMeta }),
   setCopTool: (copTool) => set({ copTool }),
+  setWorldPhenomOpen: (worldPhenomOpen) => set({ worldPhenomOpen }),
   setAxisId: (axisId) => set({ axisId }),
   setPeakId: (peakId) => set({ peakId }),
   setShowPeaks: (showPeaks) => set({ showPeaks }),
@@ -1783,17 +1788,22 @@ export function ingestLivePicture(pic: LivePicture) {
     // graphiques sans sonner. Les feux FIRMS sonnent sur le théâtre élargi (Tchad, Darfour, AES) ;
     // au-delà (Sahel large, monde) ils restent muets : en saison sèche il y en a des dizaines par
     // jour, ils noieraient les alertes drone et intrusion.
-    if (rank < 3) continue;
+    // EXCEPTION : un phénomène près d'un SITE MINIER sonne toujours (crue, feu, séisme sur un site
+    // isolé = sûreté directe), où qu'il soit sur le continent — sans feu FIRMS lointain de masse.
+    const nm = nearestMine(p.lat, p.lon);
+    const nearMine = nm != null && nm.distKm <= 200 && (p.kind !== "feu" || rank >= 3);
+    if (rank < 3 && !nearMine) continue;
     phenomWarned.add(p.id);
     // Feu : corps enrichi — foyers groupés, FRP, confiance, jour/nuit, ville la plus proche —
     // en gardant la vérité du capteur (pixel 375 m : un foyer, pas l'image d'une voiture).
-    let body = `${p.body} · ouvrir capture 10 m`;
+    const mineTag = nearMine && nm ? ` · près de ${nm.mine.short} (${Math.round(nm.distKm)} km)` : "";
+    let body = `${p.body}${mineTag} · ouvrir capture 10 m`;
     let title = p.title;
     if (p.kind === "feu" && p.fire) {
       const city = nearestCity(p.lat, p.lon);
       const foyers = p.fire.count > 1 ? `${p.fire.count} foyers groupés · ` : "";
       title = `Feu ${p.title.replace(/^Point chaud /, "")} · ${p.fire.frp.toFixed(0)} MW`;
-      body = `${foyers}${p.body} · ${city.name} à ${Math.round(city.distKm)} km · ouvrir capture 10 m`;
+      body = `${foyers}${p.body} · ${city.name} à ${Math.round(city.distKm)} km${mineTag} · ouvrir capture 10 m`;
     }
     alerts.push({
       id: `al-nat-${p.id}`,
