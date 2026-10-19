@@ -1378,3 +1378,93 @@ export const askAssistant = createServerFn({ method: "POST" })
       return { ok: false, error: e instanceof Error ? e.message : "assistant échoué" };
     }
   });
+
+/** Une ligne du diagnostic du poste. */
+export type DiagRow = {
+  id: string;
+  label: string;
+  /** ok = répond ; warn = réglé mais rien reçu / vieux ; crit = réglé mais en échec ; off = non réglé (optionnel). */
+  state: "ok" | "warn" | "crit" | "off";
+  detail: string;
+};
+
+/**
+ * Diagnostic du poste : état réel et honnête de chaque source. N'INTERROGE PAS les API publiques
+ * (pas de martèlement) — il lit le dernier relevé en cache, l'état mémoire de l'antenne / de la
+ * phonie, et la présence des clés (variables d'environnement). Instantané, gratuit, sans effet de bord.
+ */
+export const posteDiagnostic = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async (): Promise<{ at: number; rows: DiagRow[] }> => {
+    const now = Date.now();
+    const rows: DiagRow[] = [];
+    const pic = peekLiveCache();
+
+    if (!pic) {
+      rows.push({ id: "ingest", label: "Ingest capteurs", state: "warn", detail: "Pas encore de relevé — le premier cycle 1090 / météo arrive." });
+    } else {
+      const ageS = Math.round((now - pic.at) / 1000);
+      rows.push({ id: "ingest", label: "Ingest capteurs", state: ageS < 120 ? "ok" : "warn", detail: `Dernier relevé il y a ${ageS} s.` });
+
+      const n = pic.aircraft.length;
+      rows.push({
+        id: "adsb",
+        label: "1090ES réseau (passif)",
+        state: n > 0 ? "ok" : "warn",
+        detail: n > 0 ? `${n} contacts Afrique, ${pic.localN} dans 120 km FTTJ.` : "Aucun squitter au dernier relevé — réel là où le réseau public n'a pas de récepteur.",
+      });
+
+      const fttj = pic.metar.find((m) => m.icao === "FTTJ");
+      rows.push({
+        id: "metar",
+        label: "METAR / météo aéro",
+        state: fttj ? "ok" : "warn",
+        detail: fttj ? `FTTJ reçu · ${pic.metar.length} stations.` : `FTTJ muet (station parfois silencieuse) · ${pic.metar.length} stations au total.`,
+      });
+
+      const sig = pic.sigmets.filter((s) => s.inAo).length;
+      rows.push({ id: "sigmet", label: "SIGMET Afrique (OACI)", state: "ok", detail: sig > 0 ? `${sig} actifs dans la zone.` : "Source OK, aucun actif dans la zone." });
+
+      rows.push({ id: "swpc", label: "Météo spatiale (NOAA SWPC)", state: "ok", detail: `Kp ${pic.space.kp} ${pic.space.gScale} · GOES ${pic.space.xrayClass}.` });
+    }
+
+    const rx = await import("./rx1090.server");
+    const rs = rx.receiverStatus(now);
+    if (!rs.enabled) {
+      rows.push({ id: "antenne", label: "Antenne 1090 locale", state: "off", detail: "Désactivée (AFRICONTROL_1090 non réglée ou =off). Réseau passif seul." });
+    } else if (rs.connected) {
+      rows.push({ id: "antenne", label: "Antenne 1090 locale", state: "ok", detail: `${rs.endpoint} connectée · ${rs.msgPerS}/s · ${rs.positioned} positionnés.` });
+    } else {
+      rows.push({ id: "antenne", label: "Antenne 1090 locale", state: "crit", detail: `${rs.endpoint} injoignable${rs.lastError ? ` : ${rs.lastError}` : ""}. Vérifier dump1090 (port 30002).` });
+    }
+
+    const atc = await import("./atc.server");
+    const as = atc.atcStatus();
+    if (!as.configured) {
+      rows.push({ id: "atc", label: "Phonie ATC (réception)", state: "off", detail: "Flux non réglé (AFRICONTROL_ATC). Optionnel, réception seule." });
+    } else if (as.recording && as.connected) {
+      rows.push({ id: "atc", label: "Phonie ATC (réception)", state: "ok", detail: `Enregistre ${as.endpoint} · ${as.segments} segments.` });
+    } else if (as.recording && !as.connected) {
+      rows.push({ id: "atc", label: "Phonie ATC (réception)", state: "crit", detail: `${as.endpoint} injoignable${as.lastError ? ` : ${as.lastError}` : ""}.` });
+    } else {
+      rows.push({ id: "atc", label: "Phonie ATC (réception)", state: "warn", detail: "Réglée mais à l'arrêt (activer dans Phonie ATC)." });
+    }
+
+    const ds = await import("./deepseek.server");
+    rows.push({
+      id: "deepseek",
+      label: "Assistant IA (DeepSeek)",
+      state: ds.deepseekConfigured() ? "ok" : "off",
+      detail: ds.deepseekConfigured() ? "Clé posée. « Tester la clé » dans Outils pour un essai live." : "Clé non posée (AFRICONTROL_DEEPSEEK) — assistant indisponible.",
+    });
+
+    const sh = await import("./sentinelhub.server");
+    rows.push({
+      id: "sentinel",
+      label: "Imagerie Sentinel-2 (Copernicus)",
+      state: sh.sentinelConfigured() ? "ok" : "off",
+      detail: sh.sentinelConfigured() ? "Clé posée. « Tester la clé » dans Outils pour un essai live." : "Clé non posée (gratuite, optionnelle).",
+    });
+
+    return { at: now, rows };
+  });

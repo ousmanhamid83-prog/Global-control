@@ -96,6 +96,14 @@ Balayage continental (chef de division) — Capteurs > 1090ES
   de VRAIS contacts 1090ES, pas une carte vide. Les cellules partent en lots parallèles bornés.
 - Toute piste réelle est verrouillable : un clic sur l'indicatif dans la liste 1090ES l'ouvre.
 
+Diagnostic du poste — Capteurs > Outils
+- Une vue qui dit honnêtement l'état de CHAQUE source : 1090ES réseau, METAR, SIGMET, météo spatiale,
+  antenne 1090 locale, phonie ATC, clé assistant DeepSeek, clé imagerie Sentinel. Vert = répond,
+  jaune = réglé mais rien reçu / vieux, rouge = réglé mais en échec, gris = non réglé (optionnel).
+- Il n'interroge PAS les API (aucun martèlement) : il lit le dernier relevé en cache, l'état mémoire
+  de l'antenne et de la phonie, et la présence des clés. « 0 contact » est un vrai constat là où le
+  réseau public n'a pas de récepteur, jamais une panne déguisée. Bouton « Rafraîchir ».
+
 Enregistrements archivés — Capteurs > Outils
 - Copie de ce que le poste a réellement entendu (veille 30 min), écrite sur disque dans recordings/.
   Archivage auto toutes les 15 min dès 3 min de veille (activable/désactivable par le chef), plus

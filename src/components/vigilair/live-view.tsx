@@ -35,10 +35,12 @@ import {
   downloadAtcSegment,
   fetchArchives,
   lookupAircraft,
+  posteDiagnostic,
   sentinelCheck,
   setAutoArchive,
   setContinentSweep,
   type AircraftLookup,
+  type DiagRow,
 } from "@/lib/vigilair/live-feeds";
 import type { ArchiveMeta } from "@/lib/vigilair/archive.server";
 import type { AtcSegment, AtcStatus } from "@/lib/vigilair/atc.server";
@@ -1044,6 +1046,76 @@ function SentinelSection() {
   );
 }
 
+function DiagnosticSection() {
+  const [rows, setRows] = useState<DiagRow[] | null>(null);
+  const [at, setAt] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const run = () => {
+    setBusy(true);
+    setErr(null);
+    posteDiagnostic()
+      .then((r) => {
+        setRows(r.rows);
+        setAt(r.at);
+      })
+      .catch((e: unknown) => setErr(e instanceof Error ? e.message : "diagnostic échoué"))
+      .finally(() => setBusy(false));
+  };
+  useEffect(() => {
+    run();
+  }, []);
+
+  const toneOf = (s: DiagRow["state"]) => (s === "ok" ? "ok" : s === "crit" ? "crit" : s === "warn" ? "warn" : "default");
+  const labelOf = (s: DiagRow["state"]) =>
+    s === "ok" ? "répond" : s === "crit" ? "en échec" : s === "warn" ? "rien / vieux" : "non réglé";
+  const crit = rows?.filter((r) => r.state === "crit").length ?? 0;
+  const warn = rows?.filter((r) => r.state === "warn").length ?? 0;
+
+  return (
+    <section className="space-y-3 rounded-md border border-border bg-surface p-4 col-span-2 hud">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-medium">Diagnostic du poste · sources réelles</h2>
+        <div className="flex items-center gap-2">
+          {rows ? (
+            <Badge tone={crit > 0 ? "crit" : warn > 0 ? "warn" : "ok"}>
+              {crit > 0 ? `${crit} en échec` : warn > 0 ? `${warn} à surveiller` : "tout répond"}
+            </Badge>
+          ) : null}
+          <Button size="sm" variant="outline" disabled={busy} onClick={run}>
+            {busy ? "…" : "Rafraîchir"}
+          </Button>
+        </div>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        État honnête de chaque source : ce que le poste a réellement reçu au dernier relevé, l'état de
+        l'antenne et de la phonie, la présence des clés. N'interroge pas les API (aucun martèlement).
+        « 0 contact » est un vrai constat là où le réseau public n'a pas de récepteur, pas une panne.
+      </p>
+      {err ? <p className="font-mono text-xs text-crit">{err}</p> : null}
+      {rows ? (
+        <ul className="divide-y divide-border rounded-sm border border-border">
+          {rows.map((r) => (
+            <li key={r.id} className="flex items-start justify-between gap-3 px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-sm text-fg">{r.label}</p>
+                <p className="text-xs text-muted-foreground">{r.detail}</p>
+              </div>
+              <Badge tone={toneOf(r.state)}>{labelOf(r.state)}</Badge>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {at ? (
+        <p className="text-[11px] text-muted-foreground">
+          Relevé du diagnostic : {new Date(at).toLocaleTimeString("fr-FR")}.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 function AssistantSection() {
   const [st, setSt] = useState<{ configured: boolean; ok: boolean; error: string | null } | null>(null);
   const [testing, setTesting] = useState(false);
@@ -1181,6 +1253,7 @@ function ToolsPanel() {
 
   return (
     <div className="grid gap-4 grid-cols-2">
+      <DiagnosticSection />
       <section className="space-y-3 rounded-md border border-border bg-surface p-4 hud">
         <h2 className="text-sm font-medium">Registre ICAO24 · adsbdb</h2>
         <p className="text-sm text-muted-foreground">
