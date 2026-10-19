@@ -26,9 +26,11 @@ import {
 } from "@/lib/vigilair/remote-id";
 import {
   archiveNow,
+  askAssistant,
   atcStatus,
   atcToggle,
   briefLivePicture,
+  deepseekStatus,
   downloadArchive,
   downloadAtcSegment,
   fetchArchives,
@@ -1042,6 +1044,97 @@ function SentinelSection() {
   );
 }
 
+function AssistantSection() {
+  const [st, setSt] = useState<{ configured: boolean; ok: boolean; error: string | null } | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [q, setQ] = useState("");
+  const [answer, setAnswer] = useState<string | null>(null);
+  const [answerErr, setAnswerErr] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+
+  const test = () => {
+    setTesting(true);
+    deepseekStatus()
+      .then(setSt)
+      .catch((e: unknown) => setSt({ configured: true, ok: false, error: e instanceof Error ? e.message : "échec" }))
+      .finally(() => setTesting(false));
+  };
+  useEffect(() => {
+    test();
+  }, []);
+
+  const ask = () => {
+    const question = q.trim();
+    if (!question) return;
+    setAsking(true);
+    setAnswerErr(null);
+    askAssistant({ data: { question } })
+      .then((r) => {
+        if (r.ok) setAnswer(r.text);
+        else setAnswerErr(r.error);
+      })
+      .catch((e: unknown) => setAnswerErr(e instanceof Error ? e.message : "assistant échoué"))
+      .finally(() => setAsking(false));
+  };
+
+  const tone = !st ? "default" : !st.configured ? "warn" : st.ok ? "ok" : "crit";
+  const label = !st ? "…" : !st.configured ? "clé requise" : st.ok ? "clé valide" : "clé en échec";
+
+  return (
+    <section className="space-y-3 rounded-md border border-border bg-surface p-4 col-span-2 hud">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-medium">Assistant IA du poste · DeepSeek</h2>
+        <div className="flex items-center gap-2">
+          <Badge tone={tone}>{label}</Badge>
+          <Button size="sm" variant="outline" disabled={testing} onClick={test}>
+            {testing ? "…" : "Tester la clé"}
+          </Button>
+        </div>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Question libre sur l'image live. La question part <strong>du serveur</strong> : ta clé ne
+        quitte jamais le poste, le navigateur ne reçoit que la réponse. L'assistant raisonne sur les
+        capteurs réels du dernier ingest — il n'invente pas de pistes et ne commande rien.
+      </p>
+      {st?.error ? <p className="font-mono text-xs text-crit">{st.error}</p> : null}
+      {!st?.configured ? (
+        <div className="space-y-2 rounded-sm border border-border bg-bg/60 p-3 text-xs text-muted-foreground">
+          <p className="text-fg">Brancher la clé DeepSeek (secret du poste)</p>
+          <p>Poser la clé dans l'environnement du serveur AU LANCEMENT — jamais dans le code, le zip, ni Git :</p>
+          <pre className="overflow-x-auto rounded-xs bg-bg px-2 py-1.5 font-mono text-[11px] text-fg">
+            AFRICONTROL_DEEPSEEK=sk-... PORT=8080 node .output/server/index.mjs
+          </pre>
+          <p>En dev : AFRICONTROL_DEEPSEEK=sk-... npm run dev. Ce n'est PAS une variable VITE_ (celles-là partent dans le navigateur).</p>
+        </div>
+      ) : (
+        <>
+          <div className="flex gap-2">
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  ask();
+                }
+              }}
+              placeholder="ex. Résume la posture sur le Sahel"
+              aria-label="Question à l'assistant"
+            />
+            <Button type="button" onClick={ask} disabled={asking || !q.trim()}>
+              {asking ? "…" : "Demander"}
+            </Button>
+          </div>
+          {answerErr ? <p className="text-sm text-warn">{answerErr}</p> : null}
+          {answer ? (
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-fg">{answer}</p>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
 function ToolsPanel() {
   const [hex, setHex] = useState("");
   const [lookup, setLookup] = useState<AircraftLookup | null>(null);
@@ -1155,6 +1248,7 @@ function ToolsPanel() {
       </section>
       <ArchivesSection />
       <SentinelSection />
+      <AssistantSection />
       <section className="rounded-md border border-border bg-surface p-4 col-span-2 hud">
         <h2 className="text-sm font-medium">Ce qui est réel</h2>
         <ul className="mt-2 grid gap-2 text-sm text-muted-foreground grid-cols-2">

@@ -41,6 +41,21 @@ Intégrer ta propre API
   créer un module <nom>.server.ts qui fait le fetch, et l'exposer via createServerFn (voir
   src/lib/vigilair/live-feeds.ts). Le composant appelle la fonction, le navigateur ne voit que le résultat.
 
+Assistant IA DeepSeek (ta clé) — Capteurs > Outils
+- Le poste intègre un assistant qui raisonne sur l'image live réelle (1090ES, METAR, SIGMET, Kp).
+  Il répond en français, bref, sans inventer de pistes. Réception seule : il ne commande rien.
+- Ta clé DeepSeek est un SECRET : elle vit UNIQUEMENT dans la variable d'environnement du serveur
+  AFRICONTROL_DEEPSEEK, posée AU LANCEMENT. Jamais dans le code, le zip livré, Git, ni .grok/app-env.json
+  (ce n'est PAS une variable VITE_ : celles-là partent dans le navigateur). La clé ne quitte jamais le
+  serveur ; le navigateur ne reçoit que la réponse texte.
+    AFRICONTROL_DEEPSEEK=sk-xxxx PORT=8080 node .output/server/index.mjs     (serveur autonome)
+    AFRICONTROL_DEEPSEEK=sk-xxxx npm run dev                                 (dev)
+    Windows PowerShell :  $env:AFRICONTROL_DEEPSEEK="sk-xxxx"; npm run dev
+- Capteurs > Outils > « Assistant IA du poste » : bouton « Tester la clé » (vérifie que l'API répond)
+  et un champ question libre. Le même bouton sert au « Briefing situation » (DeepSeek si la clé est posée).
+- IMPORTANT : si une clé a été exposée (collée dans un message, un ticket, une capture), la RÉVOQUER et en
+  régénérer une sur platform.deepseek.com. Une clé ne se partage pas en clair ; seul le serveur la détient.
+
 Antenne 1090 du poste (clé SDR + dump1090)
 Lancer dump1090 avec le port brut AVR, et un port web qui ne prend pas 8080 (celui de AfriControl) :
   dump1090 --interactive --net --net-ro-port 30002 --net-http-port 8090 --aggressive
@@ -129,6 +144,7 @@ autoriser ces domaines (HTTPS, port 443) :
   Météo spatiale            : services.swpc.noaa.gov
   Phénomènes                : eonet.gsfc.nasa.gov  earthquake.usgs.gov  www.gdacs.org
                               firms.modaps.eosdis.nasa.gov  services9.arcgis.com
+  Assistant IA (ta clé)     : api.deepseek.com
 Imagerie nette = Esri Clarity / World Imagery jusqu'à 0,3 m (zoom 19) : une archive, pas une
 prise du jour. Le crédit en bas de carte dit toujours d'où vient l'image affichée.
 

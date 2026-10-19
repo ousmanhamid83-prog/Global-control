@@ -1243,7 +1243,11 @@ export const briefLivePicture = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async (): Promise<{ ok: true; text: string } | { ok: false; error: string }> => {
     const apiKey = process.env.XAI_API_KEY;
-    if (!apiKey) return { ok: false, error: "Outil briefing indisponible sur ce poste" };
+    const ds = await import("./deepseek.server");
+    const useDeepseek = ds.deepseekConfigured();
+    if (!useDeepseek && !apiKey) {
+      return { ok: false, error: "Briefing indisponible : configurer AFRICONTROL_DEEPSEEK (ou XAI_API_KEY)" };
+    }
     const pic = peekLiveCache();
     if (!pic) return { ok: false, error: "Pas encore d'ingest — attendre le 1090 / METAR" };
     const fttj = pic.metar.find((m) => m.icao === "FTTJ");
@@ -1278,6 +1282,11 @@ export const briefLivePicture = createServerFn({ method: "POST" })
       "Conclure: posture, ce qui est réel vs silence capteur, une action chef de division.",
     ].join("\n");
     try {
+      // DeepSeek (clé du poste) prioritaire ; repli xAI si seule XAI_API_KEY est posée.
+      if (useDeepseek) {
+        const text = await ds.deepseekChat([{ role: "user", content: prompt }], { maxTokens: 420 });
+        return { ok: true, text };
+      }
       const res = await fetch("https://api.x.ai/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -1300,5 +1309,64 @@ export const briefLivePicture = createServerFn({ method: "POST" })
       return { ok: true, text };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "briefing échoué" };
+    }
+  });
+
+/**
+ * État de la clé DeepSeek du poste (bouton « Tester la clé » dans Capteurs > Outils).
+ * La clé reste dans l'environnement du serveur (AFRICONTROL_DEEPSEEK) ; on ne renvoie jamais
+ * sa valeur, seulement si elle est posée et si l'API répond.
+ */
+export const deepseekStatus = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async (): Promise<{ configured: boolean; ok: boolean; error: string | null }> => {
+    const ds = await import("./deepseek.server");
+    return ds.deepseekCheck();
+  });
+
+/**
+ * Assistant IA du poste (DeepSeek) — question libre de l'opérateur. La question part côté SERVEUR,
+ * la clé ne quitte jamais le poste, le navigateur ne reçoit que la réponse texte. L'assistant est
+ * cadré : il raisonne sur l'image live réelle (capteurs), ne fabrique pas de pistes, répond en
+ * français et bref. Réception seule : il ne commande rien et n'émet pas.
+ */
+export const askAssistant = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { question?: string }) => ({
+    question: String(raw?.question ?? "").trim().slice(0, 1000),
+  }))
+  .handler(async ({ data }): Promise<{ ok: true; text: string } | { ok: false; error: string }> => {
+    if (!data.question) return { ok: false, error: "Question vide" };
+    const ds = await import("./deepseek.server");
+    if (!ds.deepseekConfigured()) {
+      return { ok: false, error: "Assistant indisponible : configurer AFRICONTROL_DEEPSEEK au lancement du serveur" };
+    }
+    // On donne à l'assistant un résumé factuel de l'image live réelle s'il y en a une.
+    const pic = peekLiveCache();
+    const fttj = pic?.metar.find((m) => m.icao === "FTTJ");
+    const ctx = pic
+      ? [
+          `Image live (capteurs réels, ingest ${new Date(pic.at).toISOString()}):`,
+          `1090ES ${pic.aircraft.length} contacts Afrique, ${pic.sahelN} Sahel, ${pic.localN} dans 120 km FTTJ, ${pic.emergencies.length} urgences.`,
+          `METAR FTTJ: ${fttj?.raw ?? "absent (station parfois muette)"}`,
+          `Kp ${pic.space.kp} ${pic.space.gScale}. SIGMET AO: ${pic.sigmets.filter((s) => s.inAo).length}.`,
+        ].join("\n")
+      : "Pas encore d'image live (1090/METAR en attente).";
+    const system =
+      "Tu es l'assistant du poste COP AfriControl (N'Djamena/FTTJ, Tchad), sûreté de sites. " +
+      "Réponds en français, bref et factuel, sans markdown. Tu raisonnes UNIQUEMENT sur les capteurs " +
+      "réels fournis ; tu n'inventes jamais de pistes ni de données. Le poste est en réception seule : " +
+      "il n'émet rien et ne commande aucun capteur. Si l'info n'est pas dans les données, dis-le.";
+    try {
+      const text = await ds.deepseekChat(
+        [
+          { role: "system", content: system },
+          { role: "user", content: `${ctx}\n\nQuestion de l'opérateur : ${data.question}` },
+        ],
+        { maxTokens: 600 },
+      );
+      return { ok: true, text };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "assistant échoué" };
     }
   });
