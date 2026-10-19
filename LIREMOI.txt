@@ -81,6 +81,10 @@ Imagerie satellite de nuit — honnêtement
 - « Visible » est de la lumière solaire réfléchie : de nuit, c'est NOIR (physique, pas un bug).
 - Pour les nuages la nuit : « IR 10.5 » (infrarouge, 24 h/24) ou « Nuit » (bande jour/nuit VIIRS :
   nuages au clair de lune + lumières des villes). La capture nocturne avec villes = cette couche-là.
+- Bascule AUTO jour/nuit (bouton « Auto jour/nuit » sous les couches, actif par défaut) : quand il
+  fait nuit à FTTJ et qu'on est sur « Visible », le poste passe tout seul en « Nuit » — jamais d'écran
+  noir — et rend « Visible » au lever du jour. Un choix manuel (IR, Nuit…) n'est jamais écrasé ;
+  « Auto nuit coupé » laisse la main à l'opérateur.
 - Chaque couche crédite sa vraie source et son vrai âge ; rien n'est simulé.
 
 Verrou auto sur piste réelle

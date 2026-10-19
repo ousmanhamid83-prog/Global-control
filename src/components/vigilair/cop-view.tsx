@@ -198,6 +198,9 @@ export function CopView() {
   const setShowLive = useVigilair((s) => s.setShowLive);
   const satLayer = useVigilair((s) => s.satLayer);
   const setSatLayer = useVigilair((s) => s.setSatLayer);
+  const autoNight = useVigilair((s) => s.autoNight);
+  const setAutoNight = useVigilair((s) => s.setAutoNight);
+  const nightOps = useVigilair((s) => s.livePicture?.solar?.nightOps ?? null);
   const satMeta = useVigilair((s) => s.satMeta);
   const copTool = useVigilair((s) => s.copTool);
   const setCopTool = useVigilair((s) => s.setCopTool);
@@ -476,6 +479,22 @@ export function CopView() {
                 {SAT_LAYER_LABEL[l]}
               </button>
             ))}
+            <button
+              type="button"
+              data-sat="auto-nuit"
+              onClick={() => setAutoNight(!autoNight)}
+              title="Bascule auto en couche Nuit quand il fait nuit à FTTJ (Visible = noir la nuit)"
+              className={cn(
+                MAP_CHIP,
+                autoNight
+                  ? nightOps
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-fg"
+                  : "bg-bg/85 text-muted-foreground hover:text-fg",
+              )}
+            >
+              {autoNight ? (nightOps ? "Auto · Nuit" : "Auto jour/nuit") : "Auto nuit coupé"}
+            </button>
           </div>
           {/* Bas de carte, au-dessus de l'échelle du canvas. Fermé : sous les barres d'outils. Ouvert : le poste de tâche prend la hauteur de la carte, devant les outils. */}
           <div

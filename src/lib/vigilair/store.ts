@@ -41,6 +41,7 @@ import { indexTape, rejeuClock, tapeAt, type RejeuTape, type TapeIndex } from ".
 import { treatContact } from "./treat";
 import { preloadAoTiles, preloadAt, SAT_CREDIT, tileRef } from "./tiles";
 import type { SatLayer, SatMeta } from "./sat";
+import { nightLayerSwitch } from "./sat";
 import { detectRaids } from "./raid";
 import { raiseSigintAlerts } from "./sigint";
 import { lockFire } from "./fire-clock";
@@ -143,6 +144,10 @@ type VigilairState = {
   spawned: number;
   mapScale: MapScale;
   satLayer: SatLayer;
+  /** Bascule auto de l'imagerie en couche Nuit quand il fait nuit à FTTJ (Visible = noir la nuit). */
+  autoNight: boolean;
+  /** Couche d'origine depuis laquelle la bascule nuit a eu lieu, pour revenir au jour. */
+  satAutoFrom: SatLayer | null;
   satMeta: SatMeta | null;
   copTool: CopTool;
   ewArmed: boolean;
@@ -199,6 +204,8 @@ type VigilairState = {
   setRunning: (v: boolean) => void;
   setMapScale: (v: MapScale) => void;
   setSatLayer: (v: SatLayer) => void;
+  setAutoNight: (v: boolean) => void;
+  applyAutoNight: () => void;
   setSatMeta: (v: SatMeta) => void;
   setCopTool: (v: CopTool) => void;
   setAxisId: (id: string | null) => void;
@@ -459,6 +466,8 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   spawned: 0,
   mapScale: "ident",
   satLayer: "vis",
+  autoNight: true,
+  satAutoFrom: null,
   satMeta: null,
   copTool: "lock",
   ewArmed: false,
@@ -538,7 +547,22 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   setSearch: (search) => set({ search }),
   setRunning: (running) => set({ running }),
   setMapScale: (mapScale) => set({ mapScale }),
-  setSatLayer: (satLayer) => set({ satLayer }),
+  setSatLayer: (satLayer) => {
+    // Choix opérateur : on efface le marqueur de bascule auto, puis on réapplique la règle nuit
+    // (s'il choisit Visible de nuit avec l'auto actif, on passe aussitôt en Nuit — jamais d'écran noir).
+    set({ satLayer, satAutoFrom: null });
+    get().applyAutoNight();
+  },
+  setAutoNight: (autoNight) => {
+    set({ autoNight });
+    if (autoNight) get().applyAutoNight();
+    else if (get().satAutoFrom != null) set({ satAutoFrom: null });
+  },
+  applyAutoNight: () => {
+    const s = get();
+    const next = nightLayerSwitch(s.satLayer, s.satAutoFrom, s.autoNight, s.livePicture?.solar?.nightOps ?? null);
+    if (next) set(next);
+  },
   setSatMeta: (satMeta) => set({ satMeta }),
   setCopTool: (copTool) => set({ copTool }),
   setAxisId: (axisId) => set({ axisId }),
@@ -1637,6 +1661,8 @@ export function ingestLivePicture(pic: LivePicture) {
     liveError: usable ? null : (pic.errors[0] ?? null),
     phenomena: pic.phenomena ?? [],
   });
+  // Jour/nuit à FTTJ connu : bascule l'imagerie Visible→Nuit (ou retour) si l'auto est actif.
+  useVigilair.getState().applyAutoNight();
   for (const p of pic.phenomena ?? []) {
     if (p.kind === "feu") lockFire(p.id, Date.now());
   }

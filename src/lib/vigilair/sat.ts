@@ -31,6 +31,29 @@ export function parseSatLayer(v: string | null | undefined): SatLayer {
   return "vis";
 }
 
+/**
+ * Bascule auto jour/nuit de l'imagerie. « Visible » est noir la nuit (lumière solaire réfléchie) ;
+ * quand il fait nuit à FTTJ, on passe sur « Nuit » (VIIRS DNB : nuages + lumières des villes), et on
+ * rend « Visible » au lever du jour. Pure et sans effet de bord pour être testable.
+ *
+ * @param cur       couche active
+ * @param autoFrom  couche d'origine mémorisée lors d'une bascule auto (sinon null)
+ * @param autoNight l'auto est-il activé
+ * @param night     fait-il nuit à FTTJ (null = inconnu, on ne touche à rien)
+ * @returns le nouvel état { satLayer, satAutoFrom }, ou null si rien ne change
+ */
+export function nightLayerSwitch(
+  cur: SatLayer,
+  autoFrom: SatLayer | null,
+  autoNight: boolean,
+  night: boolean | null,
+): { satLayer: SatLayer; satAutoFrom: SatLayer | null } | null {
+  if (!autoNight || night == null) return null;
+  if (night && cur === "vis") return { satLayer: "nv", satAutoFrom: "vis" };
+  if (!night && autoFrom === "vis" && cur === "nv") return { satLayer: "vis", satAutoFrom: null };
+  return null;
+}
+
 export function sceneAgeMin(iso: string | null): number | null {
   if (!iso) return null;
   const t = Date.parse(iso);
