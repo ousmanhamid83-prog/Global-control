@@ -31,6 +31,7 @@ import {
   atcToggle,
   briefLivePicture,
   deepseekStatus,
+  gpsStatus,
   downloadArchive,
   downloadAtcSegment,
   fetchArchives,
@@ -756,6 +757,86 @@ function RidPanel() {
   );
 }
 
+function GpsCard() {
+  const [st, setSt] = useState<Awaited<ReturnType<typeof gpsStatus>> | null>(null);
+  useEffect(() => {
+    let live = true;
+    const poll = () => {
+      gpsStatus()
+        .then((s) => live && setSt(s))
+        .catch(() => undefined);
+    };
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => {
+      live = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  const tone = !st ? "default" : !st.configured ? "default" : st.hasFix ? "ok" : st.connected ? "warn" : "crit";
+  const label = !st
+    ? "…"
+    : !st.configured
+      ? "non réglé"
+      : st.hasFix
+        ? "fix"
+        : st.connected
+          ? "sans fix"
+          : "injoignable";
+
+  return (
+    <div className="rounded-md border border-border bg-surface p-4 col-span-2 hud">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-medium">GPS du poste · position &amp; heure réelles</h2>
+        <Badge tone={tone}>{label}</Badge>
+      </div>
+      {st?.configured ? (
+        <>
+          <div className="mt-3 grid gap-x-6 gap-y-2 text-sm grid-cols-2 sm:grid-cols-4">
+            <div>
+              <p className="text-xs text-muted-foreground">Position</p>
+              <p className="font-mono tabular-nums">
+                {st.hasFix ? `${st.lat!.toFixed(5)}, ${st.lon!.toFixed(5)}` : "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Heure UTC</p>
+              <p className="font-mono tabular-nums">{st.utc ?? "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Satellites / HDOP</p>
+              <p className="font-mono tabular-nums">
+                {st.sats ?? "—"} / {st.hdop ?? "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Altitude</p>
+              <p className="font-mono tabular-nums">{st.altM != null ? `${Math.round(st.altM)} m` : "—"}</p>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Récepteur {st.source} ({st.kind === "serial" ? "USB/série" : "TCP"})
+            {st.ageS != null ? ` · fix il y a ${st.ageS} s` : ""}. Un fix sert aussi de position
+            d'antenne au décodage 1090 (prioritaire sur la valeur fixée en dur). Lecture seule.
+          </p>
+          {st.error && !st.connected ? <p className="mt-1 font-mono text-xs text-crit">{st.error}</p> : null}
+        </>
+      ) : (
+        <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+          <p className="text-fg">Brancher un récepteur GPS (clé USB, module, ou terminal qui sort du NMEA)</p>
+          <p>L'antenne GPS seule ne suffit pas : il faut un récepteur. Puis au lancement du serveur :</p>
+          <pre className="overflow-x-auto rounded-xs bg-bg px-2 py-1.5 font-mono text-[11px] text-fg">
+            AFRICONTROL_GPS=/dev/ttyUSB0 npm run dev        # clé USB (Linux/macOS)
+            AFRICONTROL_GPS=127.0.0.1:2947 npm run dev      # flux NMEA en TCP (gpsd / ser2net)
+          </pre>
+          <p>Donne la position et l'heure UTC réelles du poste. Lecture seule : rien n'est émis.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GnssPanel() {
   const pic = useVigilair((s) => s.livePicture);
   const space = pic?.space;
@@ -767,6 +848,7 @@ function GnssPanel() {
   const hot = jam.filter((j) => j.level !== "low");
   return (
     <div className="grid gap-4 grid-cols-2">
+      <GpsCard />
       <div className="rounded-md border border-border bg-surface p-4 hud">
         <h2 className="text-sm font-medium">Temps GPS</h2>
         <p className="mt-3 font-mono text-2xl tabular-nums">

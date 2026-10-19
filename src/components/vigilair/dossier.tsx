@@ -59,7 +59,7 @@ export function Dossier() {
         <p className="text-sm font-medium">Veille réelle</p>
         <p className="text-xs text-muted-foreground">
           {autoLockOn
-            ? "Aucun transpondeur entendu pour l'instant. Le verrou auto prendra la première piste réelle : contacts 1090ES live, METAR, SIGMET et GNSS s'afficheront ici. Un inject n'est qu'un exercice."
+            ? "Aucun transpondeur entendu pour l'instant. Seules les pistes 1090ES ont besoin d'un transpondeur ; le METAR, le SIGMET et le GNSS tournent en continu (Capteurs > Météo / GNSS), même sans piste. Dès qu'une piste réelle est reçue, le verrou auto l'ouvre ici et la croise avec ces trois sources. Un inject n'est qu'un exercice."
             : "Verrou auto coupé, aucune piste choisie. Cliquer une piste sur la carte ou le radar pour l'ouvrir ici. Un inject n'est qu'un exercice."}
         </p>
         {!autoLockOn ? (

@@ -1450,6 +1450,18 @@ export const posteDiagnostic = createServerFn({ method: "GET" })
       rows.push({ id: "atc", label: "Phonie ATC (réception)", state: "warn", detail: "Réglée mais à l'arrêt (activer dans Phonie ATC)." });
     }
 
+    const gps = await import("./gps.server");
+    const gs = gps.gpsStatus();
+    if (!gs.configured) {
+      rows.push({ id: "gps", label: "GPS du poste (position/heure)", state: "off", detail: "Non réglé (AFRICONTROL_GPS). Optionnel : récepteur GPS → position + UTC auto." });
+    } else if (gs.hasFix) {
+      rows.push({ id: "gps", label: "GPS du poste (position/heure)", state: "ok", detail: `${gs.lat!.toFixed(4)}, ${gs.lon!.toFixed(4)} · ${gs.sats ?? "?"} sats · HDOP ${gs.hdop ?? "?"} · ${gs.source}` });
+    } else if (gs.connected) {
+      rows.push({ id: "gps", label: "GPS du poste (position/heure)", state: "warn", detail: `${gs.source} connecté, pas encore de fix (ciel dégagé ?).` });
+    } else {
+      rows.push({ id: "gps", label: "GPS du poste (position/heure)", state: "crit", detail: `${gs.source} injoignable${gs.error ? ` : ${gs.error}` : ""}.` });
+    }
+
     const ds = await import("./deepseek.server");
     rows.push({
       id: "deepseek",
@@ -1511,4 +1523,12 @@ export const shiftReport = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "compte rendu échoué" };
     }
+  });
+
+/** État du GPS du poste (position + heure réelles d'un récepteur branché). Lecture seule. */
+export const gpsStatus = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async () => {
+    const gps = await import("./gps.server");
+    return gps.gpsStatus();
   });

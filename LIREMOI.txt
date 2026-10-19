@@ -66,6 +66,23 @@ Position de l'antenne :  AFRICONTROL_ANTENNE=12.1331,15.0339   Couper la liaison
 Réception seule : AfriControl décode l'ADS-B / Mode S entendu en clair, il n'interroge ni n'émet.
 Les anciens noms VIGILAIR_1090 / VIGILAIR_ANTENNE sont encore lus : un poste déjà réglé n'a rien à changer.
 
+GPS du poste (position + heure réelles) — Capteurs > GNSS
+- Branche un RÉCEPTEUR GPS (clé USB GPS, module u-blox, ou un terminal qui sort du NMEA). L'antenne
+  GPS seule ne suffit pas : une antenne sort du signal RF, pas des données — il faut le récepteur.
+- Le poste lit le NMEA et en tire la position et l'heure UTC réelles ; un fix sert aussi de position
+  d'antenne au décodage 1090 (prioritaire sur AFRICONTROL_ANTENNE). Lecture seule, rien n'est émis.
+    AFRICONTROL_GPS=/dev/ttyUSB0 npm run dev        clé USB / série (Linux/macOS ; baud AFRICONTROL_GPS_BAUD, défaut 9600)
+    AFRICONTROL_GPS=127.0.0.1:2947 npm run dev      flux NMEA en TCP (gpsd « gpspipe -r », ser2net, device réseau)
+    AFRICONTROL_GPS=off                             coupe la liaison (défaut : non réglée)
+- Windows : expose la clé USB GPS en TCP (gpsd, ser2net, com2tcp) puis AFRICONTROL_GPS=hote:port.
+- Capteurs > GNSS montre le fix (position, UTC, satellites, HDOP) ; le diagnostic (Outils) l'affiche aussi.
+
+Imagerie satellite de nuit — honnêtement
+- « Visible » est de la lumière solaire réfléchie : de nuit, c'est NOIR (physique, pas un bug).
+- Pour les nuages la nuit : « IR 10.5 » (infrarouge, 24 h/24) ou « Nuit » (bande jour/nuit VIIRS :
+  nuages au clair de lune + lumières des villes). La capture nocturne avec villes = cette couche-là.
+- Chaque couche crédite sa vraie source et son vrai âge ; rien n'est simulé.
+
 Verrou auto sur piste réelle
 - Sans choix de l'opérateur, le panneau de droite suit la piste 1090ES réelle prioritaire :
   urgence (7500/7600/7700) > drone B6 > militaire > GNSS douteux (NIC < 5) > plus proche de FTTJ.

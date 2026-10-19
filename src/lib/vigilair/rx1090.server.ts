@@ -10,6 +10,7 @@ import net from "node:net";
 import { env } from "@/lib/env.server";
 import { RxTable, splitAvr, type RxAircraft, type RxFrameView, type RxStats } from "./adsb-decode";
 import { emergencyLabel, type LiveAc } from "./live-adsb";
+import { gpsFix } from "./gps.server";
 
 const FRAME_RING = 200;
 const RATE_WINDOW_S = 10;
@@ -87,7 +88,8 @@ function state(): RxState {
   if (g.__vigilairRx1090) return g.__vigilairRx1090;
   // Les anciens noms VIGILAIR_* restent lus : un poste déjà déployé ne perd pas son antenne.
   const ep = parseEndpoint(env("AFRICONTROL_1090") ?? env("VIGILAIR_1090"));
-  const antenna = parseAntenna(env("AFRICONTROL_ANTENNE") ?? env("VIGILAIR_ANTENNE"));
+  // Position de l'antenne : un fix GPS réel prime sur la valeur fixée en dur (décodage sol, portée).
+  const antenna = gpsFix() ?? parseAntenna(env("AFRICONTROL_ANTENNE") ?? env("VIGILAIR_ANTENNE"));
   const st: RxState = {
     ...ep,
     antenna,
