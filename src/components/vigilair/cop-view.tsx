@@ -200,7 +200,7 @@ export function CopView() {
   const setSatLayer = useVigilair((s) => s.setSatLayer);
   const autoNight = useVigilair((s) => s.autoNight);
   const setAutoNight = useVigilair((s) => s.setAutoNight);
-  const nightOps = useVigilair((s) => s.livePicture?.solar?.nightOps ?? null);
+  const nightActive = useVigilair((s) => s.satAutoFrom === "vis"); // actuellement basculé en Nuit par l'auto
   const satMeta = useVigilair((s) => s.satMeta);
   const copTool = useVigilair((s) => s.copTool);
   const setCopTool = useVigilair((s) => s.setCopTool);
@@ -487,13 +487,13 @@ export function CopView() {
               className={cn(
                 MAP_CHIP,
                 autoNight
-                  ? nightOps
+                  ? nightActive
                     ? "bg-primary text-primary-foreground"
                     : "bg-secondary text-fg"
                   : "bg-bg/85 text-muted-foreground hover:text-fg",
               )}
             >
-              {autoNight ? (nightOps ? "Auto · Nuit" : "Auto jour/nuit") : "Auto nuit coupé"}
+              {autoNight ? (nightActive ? "Auto · Nuit" : "Auto jour/nuit") : "Auto nuit coupé"}
             </button>
           </div>
           {/* Bas de carte, au-dessus de l'échelle du canvas. Fermé : sous les barres d'outils. Ouvert : le poste de tâche prend la hauteur de la carte, devant les outils. */}

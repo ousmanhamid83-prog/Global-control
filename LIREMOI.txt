@@ -81,10 +81,17 @@ Imagerie satellite de nuit — honnêtement
 - « Visible » est de la lumière solaire réfléchie : de nuit, c'est NOIR (physique, pas un bug).
 - Pour les nuages la nuit : « IR 10.5 » (infrarouge, 24 h/24) ou « Nuit » (bande jour/nuit VIIRS :
   nuages au clair de lune + lumières des villes). La capture nocturne avec villes = cette couche-là.
-- Bascule AUTO jour/nuit (bouton « Auto jour/nuit » sous les couches, actif par défaut) : quand il
-  fait nuit à FTTJ et qu'on est sur « Visible », le poste passe tout seul en « Nuit » — jamais d'écran
-  noir — et rend « Visible » au lever du jour. Un choix manuel (IR, Nuit…) n'est jamais écrasé ;
-  « Auto nuit coupé » laisse la main à l'opérateur.
+- « Visible » n'est noir la nuit QUE sur les vues LARGES (AES/Sahel/Monde), où il vient du
+  géostationnaire. En DÉTAIL (1,2 m / 0,3 m / Veille / Approche), « Visible » est l'ARCHIVE Esri
+  World Imagery : une mosaïque NETTE, valable jour comme nuit. On lit les rues la nuit aussi.
+- Bascule AUTO jour/nuit (bouton sous les couches, actif par défaut) : la nuit, SEULES les vues
+  larges passent en « Nuit » (le détail garde l'archive nette) ; retour « Visible » au jour ou dès
+  qu'on repasse en détail. Un choix manuel (IR, Nuit…) n'est jamais écrasé ; « Auto nuit coupé »
+  laisse la main. Le bouton affiche « Auto · Nuit » seulement quand il a réellement basculé.
+- Imagerie qui semble floue/sombre alors qu'on est EN LIGNE : laisser 10–20 s au premier affichage
+  d'une zone (l'imagerie fine Esri 0,3 m charge progressivement, tuile par tuile). Tant qu'elle
+  n'est pas arrivée, le poste montre la mosaïque locale plus grossière (37 m) si elle est installée,
+  sinon du sombre. En ligne, l'imagerie fine finit toujours par remplacer la locale.
 - Chaque couche crédite sa vraie source et son vrai âge ; rien n'est simulé.
 
 Verrou auto sur piste réelle
@@ -211,8 +218,13 @@ Liaison Internet du site (wifi opérateur / Starlink / Thuraya) — Capteurs > O
     HORS LIGNE: pas d'Internet (lien coupé) → l'imagerie live ne charge pas ; le poste retombe sur la
                 mosaïque locale SI les packs de tuiles sont installés (sinon carte sombre).
 - Carte sombre ? 1) « Tester la liaison » : hors ligne → vérifier wifi/Starlink/Thuraya ; 2) en ligne
-  mais sombre → laisser 10–15 s à l'imagerie pour se charger (tuiles chargées progressivement) ;
-  3) hors ligne voulu → installer les packs de tuiles AfriControl-2-tuiles-z8 et -3-tuiles-z10-z12.
+  mais sombre → laisser 10–20 s à l'imagerie fine pour charger (tuile par tuile) ; 3) pour l'offline,
+  installer les packs de tuiles.
+- Packs de tuiles hors-ligne (mosaïque locale quand il n'y a pas de ligne) : EXTRAIRE les archives
+  AfriControl-2-tuiles-z8.zip et AfriControl-3-tuiles-z10-z12.zip À LA RACINE du dossier — elles
+  créent public/sentinel/<z>/<x>/<y>.jpg (c'est là que le poste les lit). Fournies à part du zip de
+  code pour ne pas l'alourdir. En ligne (wifi/Starlink/Thuraya), elles ne sont PAS nécessaires :
+  l'imagerie fine vient du réseau ; elles ne servent que si le lien tombe.
 
 Derrière un proxy d'entreprise
 Le serveur du poste (Node) n'utilise un proxy que si on le lui dit :

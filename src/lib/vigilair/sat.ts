@@ -32,14 +32,17 @@ export function parseSatLayer(v: string | null | undefined): SatLayer {
 }
 
 /**
- * Bascule auto jour/nuit de l'imagerie. « Visible » est noir la nuit (lumière solaire réfléchie) ;
- * quand il fait nuit à FTTJ, on passe sur « Nuit » (VIIRS DNB : nuages + lumières des villes), et on
- * rend « Visible » au lever du jour. Pure et sans effet de bord pour être testable.
+ * Bascule auto jour/nuit de l'imagerie. « Visible » n'est noir la nuit QUE sur les vues larges, où
+ * il vient du géostationnaire (lumière solaire réfléchie). Sur les vues de détail (≈ z ≥ 11), «
+ * Visible » est l'ARCHIVE Esri World Imagery : une mosaïque nette, valable jour comme nuit — on n'y
+ * touche donc jamais. On ne bascule en « Nuit » (VIIRS DNB) que quand la vue est large ET qu'il fait
+ * nuit ; on rend « Visible » dès qu'on repasse en détail ou au lever du jour. Pure et testable.
  *
  * @param cur       couche active
  * @param autoFrom  couche d'origine mémorisée lors d'une bascule auto (sinon null)
  * @param autoNight l'auto est-il activé
  * @param night     fait-il nuit à FTTJ (null = inconnu, on ne touche à rien)
+ * @param visIsLive « Visible » vient-il du géostationnaire (vue large, noir la nuit) ? false = archive nette
  * @returns le nouvel état { satLayer, satAutoFrom }, ou null si rien ne change
  */
 export function nightLayerSwitch(
@@ -47,10 +50,12 @@ export function nightLayerSwitch(
   autoFrom: SatLayer | null,
   autoNight: boolean,
   night: boolean | null,
+  visIsLive: boolean,
 ): { satLayer: SatLayer; satAutoFrom: SatLayer | null } | null {
   if (!autoNight || night == null) return null;
-  if (night && cur === "vis") return { satLayer: "nv", satAutoFrom: "vis" };
-  if (!night && autoFrom === "vis" && cur === "nv") return { satLayer: "vis", satAutoFrom: null };
+  const wantNight = night && visIsLive;
+  if (wantNight && cur === "vis") return { satLayer: "nv", satAutoFrom: "vis" };
+  if (!wantNight && autoFrom === "vis" && cur === "nv") return { satLayer: "vis", satAutoFrom: null };
   return null;
 }
 

@@ -546,7 +546,12 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   setOriginFilter: (originFilter) => set({ originFilter }),
   setSearch: (search) => set({ search }),
   setRunning: (running) => set({ running }),
-  setMapScale: (mapScale) => set({ mapScale }),
+  setMapScale: (mapScale) => {
+    // Changer d'échelle réévalue la bascule nuit : en détail on rend « Visible » (archive nette),
+    // en vue large de nuit on repasse en « Nuit ».
+    set({ mapScale });
+    get().applyAutoNight();
+  },
   setSatLayer: (satLayer) => {
     // Choix opérateur : on efface le marqueur de bascule auto, puis on réapplique la règle nuit
     // (s'il choisit Visible de nuit avec l'auto actif, on passe aussitôt en Nuit — jamais d'écran noir).
@@ -560,7 +565,10 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   },
   applyAutoNight: () => {
     const s = get();
-    const next = nightLayerSwitch(s.satLayer, s.satAutoFrom, s.autoNight, s.livePicture?.solar?.nightOps ?? null);
+    // « Visible » ne vient du géostationnaire (noir la nuit) que sur les vues larges (tileZ < 11).
+    // En détail (z ≥ 11), « Visible » est l'archive Esri nette : on ne bascule pas.
+    const visIsLive = SCALE[s.mapScale].tileZ < 11;
+    const next = nightLayerSwitch(s.satLayer, s.satAutoFrom, s.autoNight, s.livePicture?.solar?.nightOps ?? null, visIsLive);
     if (next) set(next);
   },
   setSatMeta: (satMeta) => set({ satMeta }),
