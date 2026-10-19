@@ -93,6 +93,16 @@ Imagerie satellite de nuit — honnêtement
   n'est pas arrivée, le poste montre la mosaïque locale plus grossière (37 m) si elle est installée,
   sinon du sombre. En ligne, l'imagerie fine finit toujours par remplacer la locale.
 
+Couverture imagerie par continent — quelle couche pour voir le monde
+- Pour une vue qui couvre Afrique + Moyen-Orient + Europe + Russie + Asie en continu : utiliser la
+  couche « IR 10.5 » (infrarouge). Mesuré : l'IR rend une imagerie riche partout, 24 h/24 (y compris
+  Asie et Russie Est). La couche « Nuit » (VIIRS) couvre aussi le monde la nuit (lumières des villes).
+- « Visible » est plus limité : c'est le disque géostationnaire METEOSAT (Afrique, Moyen-Orient,
+  Europe, Russie Ouest) ET seulement de JOUR (lumière solaire réfléchie). L'Asie / l'Extrême-Orient
+  ne sont pas sur Meteosat, et la moitié du globe en nuit est toujours noire sur Visible — c'est la
+  physique du géostationnaire, pas un bug. « Rien de vue » en vue large = on est sur Visible, de nuit
+  ou sur l'Asie. Passer sur « IR 10.5 » pour la couverture monde continue.
+
 Imagerie en haut zoom sur un SITE ISOLÉ — la vérité
 - L'imagerie gratuite (Esri World Imagery) n'a PAS le 0,3 m partout. Sur une grande ville (ex. FTTJ)
   elle va jusqu'au 0,3 m ; sur un site isolé du Sahel, le plus fin existant est souvent ~2–5 m (zoom
