@@ -89,11 +89,16 @@ export function liveGsd(
   layer: SatLayer,
   z: number,
   lat: number,
-  src?: string | null,
+  _src?: string | null,
 ): GsdRead {
   // Hors ligne, l'image affichée est la mosaïque locale : on lit son pas réel, pas celui du zoom.
   if (layer === "vis" && localDominant) return layerGsd(layer, Math.min(z, LOCAL_MAX_Z), lat);
-  if (layer === "vis" && z >= 11) return layerGsd(layer, z, lat);
+  if (layer === "vis" && z >= 11) {
+    // Site isolé : l'imagerie gratuite n'a pas le 0,3 m partout. Si le zoom demandé n'existe pas,
+    // on affiche le plus fin réellement obtenu et le GSD dit la VRAIE résolution, pas un faux 0,3 m.
+    const effZ = lastVisZ > 0 && lastVisZ < z ? lastVisZ : z;
+    return layerGsd(layer, effZ, lat);
+  }
   if (layer === "vis") return { m: 1000, label: "GSD 1.0 km", vis: true };
   if (layer === "rel") return { m: 24, label: "GSD 24 m", vis: false };
   return layerGsd(layer, z, lat);
@@ -633,6 +638,10 @@ function load(layer: SatLayer, z: number, x: number, y: number) {
     attempts.set(k, n);
     if (n >= 3) {
       cache.set(k, "fail");
+      // Pas de couverture à ce zoom (site isolé : l'imagerie gratuite n'a pas le 0,3 m partout) :
+      // on demande le parent, plus grossier mais existant, pour montrer la meilleure imagerie
+      // disponible au lieu du vide. Le GSD affiché suivra le zoom réellement obtenu (honnête).
+      if (layer === "vis" && z > 12) load(layer, z - 1, Math.floor(x / 2), Math.floor(y / 2));
       return;
     }
     window.setTimeout(() => load(layer, z, x, y), 500 * n);
@@ -1041,6 +1050,7 @@ function drawOne(
 ): boolean {
   const img = cache.get(key(layer, z, x, y));
   if (img && img !== "fail") {
+    if (layer === "vis") lastVisZ = Math.max(lastVisZ, z);
     return paintTile(ctx, img, x, y, z, w, h, sizeKm, 0, 0, img.width, img.height, origin);
   }
   const vis = layer === "vis";
@@ -1063,6 +1073,7 @@ function drawOne(
       remote && remote !== "fail" ? remote : vis && z - pz <= 5 ? localImg(pz, px, py) : null;
     if (!parent) continue;
     if (parent !== remote) drawnLocal += 1;
+    else if (vis) lastVisZ = Math.max(lastVisZ, pz);
     const factor = 2 ** (z - pz);
     const srcW = parent.width / factor;
     const srcH = parent.height / factor;
@@ -1107,6 +1118,7 @@ export function drawTiles(
 ) {
   paintLayer = layer;
   drawnLocal = 0;
+  lastVisZ = 0;
   requestTiles(w, h, z, sizeKm, layer, origin);
   if (layer === "vis") requestLocal(w, h, z, sizeKm, origin);
   let drawZ = z;
@@ -1142,6 +1154,8 @@ export function drawTiles(
 let drawnLocal = 0;
 let lastLocalShare = 0;
 let localDominant = false;
+/** Zoom le plus fin réellement peint depuis l'imagerie distante (vis). 0 = rien de distant ce cycle. */
+let lastVisZ = 0;
 const localListeners = new Set<() => void>();
 const LOCAL_MAX_Z = 12;
 

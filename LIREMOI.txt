@@ -92,6 +92,19 @@ Imagerie satellite de nuit — honnêtement
   d'une zone (l'imagerie fine Esri 0,3 m charge progressivement, tuile par tuile). Tant qu'elle
   n'est pas arrivée, le poste montre la mosaïque locale plus grossière (37 m) si elle est installée,
   sinon du sombre. En ligne, l'imagerie fine finit toujours par remplacer la locale.
+
+Imagerie en haut zoom sur un SITE ISOLÉ — la vérité
+- L'imagerie gratuite (Esri World Imagery) n'a PAS le 0,3 m partout. Sur une grande ville (ex. FTTJ)
+  elle va jusqu'au 0,3 m ; sur un site isolé du Sahel, le plus fin existant est souvent ~2–5 m (zoom
+  16–17). Au-delà, la tuile n'existe pas (404). Ce n'est pas un bug du poste, c'est la couverture.
+- Le poste affiche désormais la MEILLEURE imagerie réellement disponible (le zoom le plus fin qui
+  existe, agrandi) au lieu d'un carré vide, et le GSD affiché dit la VRAIE résolution (ex. « GSD 2.4 m »
+  à la place d'un faux « 0,3 m »). Honnête : on ne maquille pas du 2 m en 0,3 m.
+- « Détection » (bandeau voiture/pirogue/homme) N'EST PAS une détection d'objets : c'est un indicateur
+  de RÉSOLUTION. À partir du GSD réel, il dit ce que l'image PEUT séparer (voiture, pirogue…) et ce
+  qu'elle ne peut pas (« pas une plaque, pas un nom »). Sur un site à 2–5 m, il dira honnêtement qu'on
+  ne distingue ni un homme ni un véhicule fin. Pour du vrai sous-métrique sur ton site, il faut une clé
+  commerciale taskée (Maxar/Planet) — le poste ne fabrique jamais un faux « live » ni une fausse détection.
 - Chaque couche crédite sa vraie source et son vrai âge ; rien n'est simulé.
 
 Verrou auto sur piste réelle
