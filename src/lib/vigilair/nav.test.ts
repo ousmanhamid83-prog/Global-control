@@ -6,10 +6,13 @@ import {
   cardinal,
   destinationPoint,
   distanceKm,
+  profileCrossings,
   relativeTurn,
   routeTotals,
   safeDetour,
   solve,
+  toGpx,
+  toWaypointText,
 } from "./nav.ts";
 
 test("cap : plein est ≈ 90°, plein nord ≈ 0°", () => {
@@ -81,4 +84,33 @@ test("safeDetour : axe dégagé → clear ; obstacle sur l'axe → point de cont
   } else {
     assert.fail("un contournement aurait dû être trouvé");
   }
+});
+
+test("toGpx : XML valide avec rte/rtept et wpt obstacle", () => {
+  const g = toGpx("Test", [{ lat: 12.1, lon: 15.0, name: "A" }, { lat: 16.0, lon: 22.6, name: "B" }], [{ lat: 14, lon: 18, name: "crue" }]);
+  assert.match(g, /<gpx /);
+  assert.match(g, /<rte><name>Test<\/name>/);
+  assert.match(g, /<rtept lat="12\.100000" lon="15\.000000">/);
+  assert.match(g, /<wpt[^>]*><name>crue<\/name>/);
+  assert.match(g, /<\/gpx>/);
+});
+
+test("toWaypointText : lignes lat, lon", () => {
+  const t = toWaypointText([{ lat: 12.12345, lon: 15.05 }, { lat: 16, lon: 22, name: "Cible" }]);
+  assert.equal(t.split("\n").length, 2);
+  assert.match(t, /P1: 12\.12345, 15\.05000/);
+  assert.match(t, /Cible: 16\.00000, 22\.00000/);
+});
+
+test("profileCrossings : pente et altitude au-delà du seuil", () => {
+  // deux points espacés de 1 km avec +300 m => pente 30 %
+  const c = profileCrossings([{ alongKm: 0, elevM: 400 }, { alongKm: 1, elevM: 700 }], 15, 600);
+  assert.ok(c.maxSlopePct > 29 && c.maxSlopePct < 31);
+  assert.equal(c.slopeExceeded, true);
+  assert.equal(c.maxElevM, 700);
+  assert.equal(c.altExceeded, true);
+  // plat et bas => rien
+  const flat = profileCrossings([{ alongKm: 0, elevM: 300 }, { alongKm: 10, elevM: 305 }], 15, 1000);
+  assert.equal(flat.slopeExceeded, false);
+  assert.equal(flat.altExceeded, false);
 });

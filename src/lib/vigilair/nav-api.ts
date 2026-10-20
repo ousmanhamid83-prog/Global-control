@@ -10,6 +10,47 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { distanceKm, routePath, type LatLon } from "./nav";
 
+export type RoadRoute =
+  | { ok: true; distanceKm: number; durationMin: number; geometry: { lat: number; lon: number }[] }
+  | { ok: false; reason: string };
+
+/**
+ * Itinéraire ROUTIER (OSRM / OpenStreetMap) là où des routes existent (axes principaux). En zone
+ * sans route (BET, Ennedi) OSM accroche une route lointaine et le trajet devient absurde : on le
+ * détecte (bien plus long que le direct) et on renvoie « pas de route OSM » → l'opérateur garde le
+ * cap direct. Lecture seule : interrogé côté serveur, l'IP de l'opérateur n'est pas exposée.
+ */
+export const fetchRoadRoute = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { points?: LatLon[] }) => ({ points: Array.isArray(raw?.points) ? raw.points.slice(0, 25) : [] }))
+  .handler(async ({ data }): Promise<RoadRoute> => {
+    const pts = data.points.filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lon));
+    if (pts.length < 2) return { ok: false, reason: "route incomplète" };
+    let direct = 0;
+    for (let i = 1; i < pts.length; i++) direct += distanceKm(pts[i - 1]!.lat, pts[i - 1]!.lon, pts[i]!.lat, pts[i]!.lon);
+    const coords = pts.map((p) => `${p.lon.toFixed(5)},${p.lat.toFixed(5)}`).join(";");
+    let res: Response;
+    try {
+      res = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=simplified&geometries=geojson`, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(20_000),
+      });
+    } catch (e) {
+      return { ok: false, reason: e instanceof Error ? `réseau : ${e.message}` : "réseau indisponible" };
+    }
+    if (!res.ok) return { ok: false, reason: `routeur ${res.status}` };
+    const j = (await res.json()) as { code?: string; routes?: { distance: number; duration: number; geometry?: { coordinates?: number[][] } }[] };
+    const r = j.routes?.[0];
+    if (!r || j.code !== "Ok") return { ok: false, reason: "aucune route routière" };
+    const roadKm = r.distance / 1000;
+    if (roadKm > Math.max(30, direct * 1.6)) {
+      return { ok: false, reason: `pas de route OSM fiable (${Math.round(roadKm)} km vs ${Math.round(direct)} km direct) — cap direct` };
+    }
+    const geometry = (r.geometry?.coordinates ?? []).map((c) => ({ lat: c[1]!, lon: c[0]! }));
+    if (geometry.length < 2) return { ok: false, reason: "géométrie vide" };
+    return { ok: true, distanceKm: Math.round(roadKm * 10) / 10, durationMin: Math.round(r.duration / 60), geometry };
+  });
+
 export type ElevationProfile =
   | {
       ok: true;

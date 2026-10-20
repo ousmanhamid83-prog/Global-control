@@ -1,24 +1,29 @@
 import { type ReactNode, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Compass, Crosshair, Eraser, Mountain, Navigation, Plus, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
+import { Compass, Crosshair, Download, Eraser, FolderOpen, Mountain, Navigation, Plus, RotateCcw, Route, Save, Trash2, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { KIND_LABEL } from "@/lib/vigilair/capture";
 import { threatTone } from "@/lib/vigilair/format";
 import { gpsStatus } from "@/lib/vigilair/live-feeds";
-import { fetchElevationProfile, type ElevationProfile } from "@/lib/vigilair/nav-api";
+import { fetchElevationProfile, fetchRoadRoute, type ElevationProfile, type RoadRoute } from "@/lib/vigilair/nav-api";
 import { MINE_REGION_LABEL, MINES } from "@/lib/vigilair/mines";
 import {
   axisHazards,
   cardinal,
   declinationEstimate,
+  profileCrossings,
   routeHazards,
   routeTotals,
   safeDetour,
+  toGpx,
+  toWaypointText,
   type Hazard,
   type LatLon,
+  type NamedPoint,
 } from "@/lib/vigilair/nav";
 import { searchPlaces, type Place } from "@/lib/vigilair/places";
+import { deleteRoute, routesSnapshot, saveRoute, subscribeRoutes } from "@/lib/vigilair/routes";
 import { useVigilair } from "@/lib/vigilair/store";
 import type { Threat } from "@/lib/vigilair/types";
 import { subscribeWatchSites, watchSitesSnapshot } from "@/lib/vigilair/watch-sites";
@@ -42,6 +47,18 @@ function etaText(min: number | null): string {
 }
 function mag(trueDeg: number, decl: number): number {
   return ((trueDeg - decl) % 360 + 360) % 360;
+}
+function download(filename: string, text: string, mime: string): void {
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type: mime }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch {
+    /* téléchargement bloqué */
+  }
 }
 
 type SiteOpt = { name: string; lat: number; lon: number };
@@ -235,6 +252,12 @@ export function NavPanel() {
   const setNavAlarm = useVigilair((s) => s.setNavAlarm);
   const [elev, setElev] = useState<ElevationProfile | null>(null);
   const [elevBusy, setElevBusy] = useState(false);
+  const savedRoutes = useSyncExternalStore(subscribeRoutes, routesSnapshot, routesSnapshot);
+  const [road, setRoad] = useState<RoadRoute | null>(null);
+  const [roadBusy, setRoadBusy] = useState(false);
+  const [maxSlope, setMaxSlope] = useState("15");
+  const [maxAlt, setMaxAlt] = useState("");
+  const [saveName, setSaveName] = useState("");
 
   useEffect(() => {
     let dead = false;
@@ -301,28 +324,82 @@ export function NavPanel() {
   const declNum = num(decl) ?? 0;
   const firstLeg = totals?.legs[0] ?? null;
 
+  // Points nommés (pour export / enregistrement) et route EFFECTIVE (routière si trouvée, sinon cap).
+  const namedPts: NamedPoint[] = useMemo(() => {
+    const a = toLL(start);
+    const b = toLL(dest);
+    if (!a || !b) return [];
+    const mid: NamedPoint[] = [];
+    waypoints.forEach((w) => {
+      const ll = toLL(w);
+      if (ll) mid.push({ lat: ll.lat, lon: ll.lon, name: w.name || "étape" });
+    });
+    return [{ lat: a.lat, lon: a.lon, name: start.name || "départ" }, ...mid, { lat: b.lat, lon: b.lon, name: dest.name || "arrivée" }];
+  }, [start, dest, waypoints]);
+  const effPts: NamedPoint[] = useMemo(
+    () => (road?.ok ? road.geometry.map((g) => ({ lat: g.lat, lon: g.lon })) : namedPts),
+    [road, namedPts],
+  );
+  const crossing = elev?.ok ? profileCrossings(elev.points, num(maxSlope) ?? 999, num(maxAlt)) : null;
+
+  // Une route routière devient caduque dès que les points changent.
+  useEffect(() => {
+    setRoad(null);
+  }, [namedPts]);
+
   // Publie la route active dans le store : tracée sur le COP, surveillée par l'alarme.
   useEffect(() => {
-    if (pts.length >= 2) {
-      setNavRoute({ points: pts, hazards: hazards.map((h) => ({ id: h.id, lat: h.lat, lon: h.lon, level: h.level })) });
+    if (effPts.length >= 2) {
+      setNavRoute({ points: effPts, hazards: hazards.map((h) => ({ id: h.id, lat: h.lat, lon: h.lon, level: h.level })) });
     } else {
       setNavRoute(null);
     }
-  }, [pts, hazards, setNavRoute]);
+  }, [effPts, hazards, setNavRoute]);
 
   const runProfile = () => {
     if (pts.length < 2) return;
     setElevBusy(true);
-    fetchElevationProfile({ data: { points: pts } })
+    fetchElevationProfile({ data: { points: effPts.length >= 2 ? effPts : pts } })
       .then(setElev)
       .catch(() => setElev({ ok: false, reason: "échec" }))
       .finally(() => setElevBusy(false));
+  };
+  const runRoad = () => {
+    if (!ready) return;
+    setRoadBusy(true);
+    fetchRoadRoute({ data: { points: pts } })
+      .then(setRoad)
+      .catch(() => setRoad({ ok: false, reason: "échec" }))
+      .finally(() => setRoadBusy(false));
+  };
+  const exportGpx = () => {
+    if (effPts.length < 2) return;
+    const name = `${start.name || "départ"} → ${dest.name || "arrivée"}`;
+    const gpx = toGpx(name, effPts, hazards.map((h) => ({ lat: h.lat, lon: h.lon, name: h.title })));
+    download(`${name.replace(/[^\w]+/g, "_")}.gpx`, gpx, "application/gpx+xml");
+  };
+  const copyPoints = () => void navigator.clipboard?.writeText(toWaypointText(namedPts)).catch(() => undefined);
+  const doSave = async () => {
+    if (namedPts.length < 2) return;
+    const nm = saveName.trim() || `${start.name || "départ"} → ${dest.name || "arrivée"}`;
+    const res = await saveRoute(nm, namedPts);
+    if (res.ok) setSaveName("");
+  };
+  const loadSaved = (pointsIn: NamedPoint[]) => {
+    if (pointsIn.length < 2) return;
+    const first = pointsIn[0]!;
+    const last = pointsIn[pointsIn.length - 1]!;
+    setStart({ name: first.name || "départ", lat: String(first.lat), lon: String(first.lon) });
+    setDest({ name: last.name || "arrivée", lat: String(last.lat), lon: String(last.lon) });
+    setWaypoints(pointsIn.slice(1, -1).map((p) => ({ name: p.name || "étape", lat: String(p.lat), lon: String(p.lon) })));
+    setRoad(null);
   };
   const clearRoute = () => {
     setStart(EMPTY);
     setDest(EMPTY);
     setWaypoints([]);
     setElev(null);
+    setRoad(null);
   };
 
   const insertDetour = () => {
@@ -413,10 +490,82 @@ export function NavPanel() {
             Effacer
           </Button>
         </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button data-nav="road" size="sm" variant={road?.ok ? "default" : "outline"} disabled={!ready || roadBusy} onClick={runRoad}>
+            <Route className="mr-1 size-3.5" />
+            {roadBusy ? "Route…" : "Itinéraire routier (OSM)"}
+          </Button>
+          {road ? (
+            road.ok ? (
+              <Badge tone="ok">
+                route {road.distanceKm} km · {Math.floor(road.durationMin / 60)} h {String(road.durationMin % 60).padStart(2, "0")}
+              </Badge>
+            ) : (
+              <span className="text-xs text-muted-foreground">{road.reason}</span>
+            )
+          ) : null}
+          <Button data-nav="gpx" size="sm" variant="outline" disabled={!ready} onClick={exportGpx}>
+            <Download className="mr-1 size-3.5" />
+            Export GPX
+          </Button>
+          <Button size="sm" variant="ghost" disabled={!ready} onClick={copyPoints}>
+            Copier les points
+          </Button>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            Pente max %
+            <Input className="w-16" inputMode="decimal" value={maxSlope} onChange={(e) => setMaxSlope(e.target.value)} />
+          </label>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            Alt. max m
+            <Input className="w-20" inputMode="decimal" placeholder="—" value={maxAlt} onChange={(e) => setMaxAlt(e.target.value)} />
+          </label>
+        </div>
         <p className="text-[11px] text-muted-foreground">
           La route et les obstacles s'affichent aussi sur la carte du COP (onglet Situation). L'alarme
           sonne, même hors de cet onglet, dès qu'un nouvel obstacle réel borde la route active.
         </p>
+      </div>
+
+      {/* Routes mémorisées — partagées entre postes, comme les sites. */}
+      <div className="space-y-2 rounded-md border border-border bg-surface p-4 hud">
+        <div className="flex flex-wrap items-center gap-2">
+          <FolderOpen className="size-4 text-muted-foreground" aria-hidden />
+          <h3 className="text-sm font-medium">Routes mémorisées (partagées)</h3>
+          <Badge tone="default">{savedRoutes.length}</Badge>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            data-nav="save-name"
+            className="max-w-xs"
+            placeholder={ready ? `${start.name || "départ"} → ${dest.name || "arrivée"}` : "Nom de la route"}
+            value={saveName}
+            onChange={(e) => setSaveName(e.target.value)}
+          />
+          <Button data-nav="save" size="sm" variant="outline" disabled={!ready} onClick={() => void doSave()}>
+            <Save className="mr-1 size-3.5" />
+            Enregistrer cette route
+          </Button>
+        </div>
+        {savedRoutes.length > 0 ? (
+          <ul className="divide-y divide-border rounded-sm border border-border">
+            {savedRoutes.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center gap-2 px-3 py-1.5 text-xs">
+                <span className="truncate text-fg">{r.name}</span>
+                <span className="font-mono text-muted-foreground">{r.points.length} pts</span>
+                <div className="ml-auto flex items-center gap-1">
+                  <Button size="sm" variant="ghost" onClick={() => loadSaved(r.points)}>
+                    Charger
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => void deleteRoute(r.id)} aria-label={`supprimer ${r.name}`}>
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted-foreground">Aucune route enregistrée. Trace une route, puis « Enregistrer ».</p>
+        )}
       </div>
 
       {/* Bandeau de sûreté dynamique */}
@@ -461,9 +610,10 @@ export function NavPanel() {
               </span>
             </div>
             <p className="text-sm text-fg">
-              Route <strong className="font-mono">{totals.distanceKm.toFixed(1)} km</strong>
-              {waypoints.length > 0 ? ` · ${totals.legs.length} étapes` : ""} · ETA{" "}
-              <strong className="font-mono">{etaText(totals.etaMin)}</strong>
+              {road?.ok ? "Route routière " : "Route "}
+              <strong className="font-mono">{(road?.ok ? road.distanceKm : totals.distanceKm).toFixed(1)} km</strong>
+              {!road?.ok && waypoints.length > 0 ? ` · ${totals.legs.length} étapes` : ""} · ETA{" "}
+              <strong className="font-mono">{etaText(road?.ok ? road.durationMin : totals.etaMin)}</strong>
             </p>
             <p className="text-xs text-muted-foreground">
               Premier cap : {start.name || "départ"} → {(waypoints[0]?.name || dest.name) || "arrivée"} · cap
@@ -496,8 +646,22 @@ export function NavPanel() {
           {elev.ok ? (
             <>
               <TerrainProfile prof={elev} />
+              {crossing ? (
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <Badge tone={crossing.slopeExceeded || crossing.altExceeded ? "warn" : "ok"}>
+                    {crossing.slopeExceeded || crossing.altExceeded ? "franchissement" : "franchissable"}
+                  </Badge>
+                  <span className="text-muted-foreground">
+                    pente moy. max {crossing.maxSlopePct} % (à {Math.round(crossing.atKmSlope)} km) · sommet{" "}
+                    {crossing.maxElevM} m (à {Math.round(crossing.atKmElev)} km)
+                  </span>
+                  {crossing.slopeExceeded ? <span className="text-warn">pente &gt; {maxSlope} %</span> : null}
+                  {crossing.altExceeded ? <span className="text-warn">altitude &gt; {maxAlt} m</span> : null}
+                </div>
+              ) : null}
               <p className="text-[11px] text-muted-foreground">
-                {elev.source} — un massif se voit, pas un ravin d'un mètre. Nécessite Internet.
+                {elev.source} — un massif se voit, pas un ravin d'un mètre. Pente = moyenne entre relevés.
+                Nécessite Internet.
               </p>
             </>
           ) : (

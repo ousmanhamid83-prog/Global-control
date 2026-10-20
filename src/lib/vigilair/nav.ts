@@ -235,6 +235,87 @@ export function safeDetour(aLat: number, aLon: number, bLat: number, bLon: numbe
   return { clear: false, waypoint: null };
 }
 
+export type NamedPoint = { lat: number; lon: number; name?: string };
+
+function xmlEsc(s: string): string {
+  return s.replace(/[<>&'"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;" })[c]!);
+}
+
+/** Route au format GPX 1.1 — importable par un GPS de véhicule (Garmin…) ou une appli carto. */
+export function toGpx(name: string, points: NamedPoint[], hazards: NamedPoint[] = []): string {
+  const wpts = hazards
+    .map(
+      (h, i) =>
+        `  <wpt lat="${h.lat.toFixed(6)}" lon="${h.lon.toFixed(6)}"><name>${xmlEsc(h.name ?? `obstacle ${i + 1}`)}</name><sym>Danger</sym></wpt>`,
+    )
+    .join("\n");
+  const rtepts = points
+    .map(
+      (p, i) =>
+        `    <rtept lat="${p.lat.toFixed(6)}" lon="${p.lon.toFixed(6)}"><name>${xmlEsc(p.name ?? `P${i + 1}`)}</name></rtept>`,
+    )
+    .join("\n");
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<gpx version="1.1" creator="AfriControl" xmlns="http://www.topografix.com/GPX/1/1">\n` +
+    (wpts ? wpts + "\n" : "") +
+    `  <rte><name>${xmlEsc(name)}</name>\n${rtepts}\n  </rte>\n</gpx>\n`
+  );
+}
+
+/** Points « lat, lon » en texte brut — à dicter à la radio ou coller dans un GPS basique. */
+export function toWaypointText(points: NamedPoint[]): string {
+  return points.map((p, i) => `${p.name ?? `P${i + 1}`}: ${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`).join("\n");
+}
+
+export type Crossing = {
+  maxSlopePct: number;
+  atKmSlope: number;
+  maxElevM: number;
+  atKmElev: number;
+  slopeExceeded: boolean;
+  altExceeded: boolean;
+};
+
+/**
+ * Franchissabilité d'un profil : pente moyenne max (entre deux relevés) et altitude max, avec les
+ * seuils du véhicule. La pente est une MOYENNE sur l'espacement des points (pas un mur local).
+ */
+export function profileCrossings(
+  points: { alongKm: number; elevM: number }[],
+  maxSlopePct: number,
+  maxElevM: number | null,
+): Crossing {
+  let maxSlope = 0;
+  let atKmSlope = 0;
+  let maxElev = -Infinity;
+  let atKmElev = 0;
+  for (let i = 0; i < points.length; i++) {
+    if (points[i]!.elevM > maxElev) {
+      maxElev = points[i]!.elevM;
+      atKmElev = points[i]!.alongKm;
+    }
+    if (i > 0) {
+      const dKm = points[i]!.alongKm - points[i - 1]!.alongKm;
+      if (dKm > 0) {
+        const slope = (Math.abs(points[i]!.elevM - points[i - 1]!.elevM) / (dKm * 1000)) * 100;
+        if (slope > maxSlope) {
+          maxSlope = slope;
+          atKmSlope = points[i]!.alongKm;
+        }
+      }
+    }
+  }
+  return {
+    maxSlopePct: Math.round(maxSlope * 10) / 10,
+    atKmSlope,
+    maxElevM: Math.round(maxElev),
+    atKmElev,
+    slopeExceeded: maxSlope > maxSlopePct,
+    altExceeded: maxElevM != null && maxElev > maxElevM,
+  };
+}
+
 /**
  * Déclinaison magnétique APPROCHÉE (°, Est positif) pour la bande saharo-sahélienne. Estimation
  * grossière à vérifier sur carte aéronautique — le cap magnétique = cap vrai − déclinaison. null hors

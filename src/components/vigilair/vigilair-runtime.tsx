@@ -11,6 +11,7 @@ import { routeHazards } from "@/lib/vigilair/nav";
 import { useVigilair } from "@/lib/vigilair/store";
 import { startTelemetry } from "@/lib/vigilair/telemetry";
 import type { Threat } from "@/lib/vigilair/types";
+import { hydrateRoutes } from "@/lib/vigilair/routes";
 import { hydrateFromServer } from "@/lib/vigilair/watch-sites";
 
 /** Survives les changements de route — AppShell se démonte, pas le 1090 ni le quart. */
@@ -120,10 +121,13 @@ function TelemetryWatch() {
 /** Charge les sites surveillés partagés du poste au démarrage, et re-synchronise au retour de focus. */
 function WatchSitesHydrate() {
   useEffect(() => {
-    void hydrateFromServer();
-    const onFocus = () => void hydrateFromServer();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    const sync = () => {
+      void hydrateFromServer();
+      void hydrateRoutes();
+    };
+    sync();
+    window.addEventListener("focus", sync);
+    return () => window.removeEventListener("focus", sync);
   }, []);
   return null;
 }

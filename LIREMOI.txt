@@ -299,9 +299,23 @@ Navigation directe jusqu'au site (Capteurs > Navigation)
 - PROFIL DE TERRAIN : bouton « Profil de terrain » → le poste interroge un service d'élévation public
   (ASTER GDEM 30 m, opentopodata) et trace l'altitude le long de la route (min–max, dénivelé D+) pour
   repérer un massif à franchir. ~30 m : un relief se voit, pas un ravin d'un mètre. Nécessite Internet.
-- Honnêteté : navigation directe, PAS d'itinéraire routier et PAS de guidage d'arme. Le contournement
-  est une proposition (pas un plan optimal) ; le relief et les pistes se lisent sur l'imagerie et à
-  l'œil. Réception seule : ça aide un véhicule à tenir un cap.
+- ITINÉRAIRE ROUTIER (OSM) : bouton « Itinéraire routier » → là où des routes existent (axes
+  principaux, ex. N'Djamena–Abéché), le poste trace la route réelle (OSRM/OpenStreetMap) avec distance
+  et durée ; la route tracée sur le COP suit alors les pistes. En zone sans route (BET, Ennedi) OSM
+  accroche une route lointaine : c'est détecté (trajet aberrant) et le poste revient au CAP DIRECT. On
+  a donc les DEUX : itinéraire routier quand il existe, cap direct sinon.
+- EXPORT GPX / POINTS : « Export GPX » télécharge la route (et les obstacles en waypoints) au format
+  GPX 1.1 — importable par un GPS de véhicule (Garmin…) ou une appli carto. « Copier les points »
+  copie les « lat, lon » en texte, à dicter à la radio ou coller dans un GPS basique.
+- ROUTES MÉMORISÉES (partagées) : « Enregistrer cette route » garde une route validée sur le poste
+  (serveur, data/routes.json), partagée par tous les navigateurs et conservée au redémarrage. « Charger »
+  la rouvre. Comme les sites surveillés.
+- ALARME DE FRANCHISSEMENT : champs « Pente max % » et « Alt. max m » (limites du véhicule). Sur le
+  profil, le poste affiche « franchissable » ou « FRANCHISSEMENT » avec la pente moyenne max et le
+  sommet. La pente est une MOYENNE entre relevés (~30 m) : un massif se voit, pas un mur local.
+- Honnêteté : navigation directe par cap OU itinéraire routier OSM selon le terrain, PAS de guidage
+  d'arme. Le contournement est une proposition ; le relief et les pistes se lisent sur l'imagerie et à
+  l'œil. Réception seule : ça aide un véhicule à tenir un cap ou suivre une piste.
 
 Durcissement défensif
 - En-têtes de sécurité sur chaque réponse (nosniff, Referrer-Policy no-referrer, Permissions-Policy
