@@ -66,7 +66,8 @@ import {
   type ZoneRow,
   type ZoneStatus,
 } from "./zones";
-import { mineZoneRows, nearestMine } from "./mines";
+import { mineZoneRows } from "./mines";
+import { nearestWatchSite, watchZoneRows } from "./watch-sites";
 import { reportZoneBreach } from "./zones-ops";
 
 const JOURNAL_KEY = "vigilair-journal-v1";
@@ -297,7 +298,7 @@ const mlatWarned = new Set<string>();
 
 function applyZoneAlerts(tracks: Track[], now: number, alerts: AlertItem[]): void {
   const zones = getLiveZones();
-  const picture = evaluateZones(tracks, [...zones, ...mineZoneRows()]);
+  const picture = evaluateZones(tracks, [...zones, ...mineZoneRows(), ...watchZoneRows()]);
   useVigilair.setState({ zonePicture: picture });
   const liveIds = new Set(tracks.map((t) => t.id));
   for (const key of [...zoneWarned]) {
@@ -1788,15 +1789,18 @@ export function ingestLivePicture(pic: LivePicture) {
     // graphiques sans sonner. Les feux FIRMS sonnent sur le théâtre élargi (Tchad, Darfour, AES) ;
     // au-delà (Sahel large, monde) ils restent muets : en saison sèche il y en a des dizaines par
     // jour, ils noieraient les alertes drone et intrusion.
-    // EXCEPTION : un phénomène près d'un SITE MINIER sonne toujours (crue, feu, séisme sur un site
-    // isolé = sûreté directe), où qu'il soit sur le continent — sans feu FIRMS lointain de masse.
-    const nm = nearestMine(p.lat, p.lon);
-    const nearMine = nm != null && nm.distKm <= 200 && (p.kind !== "feu" || rank >= 3);
+    // EXCEPTION : un phénomène près d'un SITE SURVEILLÉ (minier intégré OU ajouté par l'opérateur)
+    // sonne toujours, où qu'il soit sur le continent. Crue / séisme / volcan : rayon large (200 km,
+    // impact régional). Feu : rayon serré (40 km) pour alerter dès qu'un foyer touche le périmètre
+    // sans sonner sur chaque feu de brousse du Sahel à 150 km.
+    const nm = nearestWatchSite(p.lat, p.lon);
+    const nearRadiusKm = p.kind === "feu" ? 40 : 200;
+    const nearMine = nm != null && nm.distKm <= nearRadiusKm;
     if (rank < 3 && !nearMine) continue;
     phenomWarned.add(p.id);
     // Feu : corps enrichi — foyers groupés, FRP, confiance, jour/nuit, ville la plus proche —
     // en gardant la vérité du capteur (pixel 375 m : un foyer, pas l'image d'une voiture).
-    const mineTag = nearMine && nm ? ` · près de ${nm.mine.short} (${Math.round(nm.distKm)} km)` : "";
+    const mineTag = nearMine && nm ? ` · près de ${nm.site.short} (${Math.round(nm.distKm)} km)` : "";
     let body = `${p.body}${mineTag} · ouvrir capture 10 m`;
     let title = p.title;
     if (p.kind === "feu" && p.fire) {

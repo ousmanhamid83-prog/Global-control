@@ -5,7 +5,7 @@ import { haversineKm, headingBetween } from "./geo";
 import { PROTECTED_SITES } from "./sensors";
 import type { ProtectedSite, Track } from "./types";
 
-export type ZoneKind = ProtectedSite["kind"] | "mine";
+export type ZoneKind = ProtectedSite["kind"] | "mine" | "custom";
 
 export type ZoneRow = {
   id: string;
@@ -42,6 +42,7 @@ export const ZONE_KIND_LABEL: Record<ZoneKind, string> = {
   pont: "Pont / axe",
   ministere: "Site civil",
   mine: "Périmètre minier",
+  custom: "Site surveillé",
 };
 
 export const ZONE_LEVEL_LABEL: Record<ZoneLevel, string> = {

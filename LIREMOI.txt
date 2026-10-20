@@ -245,6 +245,20 @@ Comparateur avant/après — Capteurs > onglet « Changement »
   aucun satellite. Nécessite la clé Copernicus gratuite (même clé que la couche « Sentinel-2 ») ;
   sans clé, l'onglet le dit au lieu d'inventer une image.
 
+Sites surveillés — ajouter ses propres sites au périmètre de sécurité (Capteurs > Changement)
+- Le lot d'usine (sites miniers) n'est jamais complet. L'opérateur ajoute ses propres sites — camp,
+  poste avancé, forage, village, pont — avec un champ : Nom, Latitude, Longitude, Rayon (km).
+- Chaque site ajouté compte comme un site intégré :
+  · une CRUE / un SÉISME / un VOLCAN à moins de 200 km SONNE (impact régional) ;
+  · un FEU à moins de 40 km SONNE (serré, pour ne pas sonner sur chaque feu de brousse du Sahel à
+    150 km mais alerter dès qu'un foyer touche le périmètre) ;
+  · le périmètre est armé et évalué contre l'intrusion drone, comme une bulle de protection ;
+  · le site devient sélectionnable dans le comparateur avant/après.
+  L'alerte porte « près de <site> (<km>) », et le badge « site surveillé » apparaît dans le volet
+  Phénomènes mondiaux.
+- Enregistré LOCALEMENT sur le poste (navigateur) : les sites restent sur ce PC. Jusqu'à 50 sites.
+  Réception seule : on surveille, on n'émet rien.
+
 Durcissement défensif
 - En-têtes de sécurité sur chaque réponse (nosniff, Referrer-Policy no-referrer, Permissions-Policy
   capteurs coupés). Aucune télémétrie tierce. Les sources externes (1090ES, météo…) sont

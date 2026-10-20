@@ -1120,13 +1120,24 @@ export const sentinelCheck = createServerFn({ method: "GET" })
  */
 export const fetchChangePair = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((raw: { mineId?: string }) => ({ mineId: String(raw?.mineId ?? "") }))
+  .validator((raw: { lat?: number; lon?: number; radiusKm?: number }) => ({
+    lat: Number(raw?.lat),
+    lon: Number(raw?.lon),
+    radiusKm: Number(raw?.radiusKm),
+  }))
   .handler(async ({ data }): Promise<import("./sentinelhub.server").ChangePair> => {
     const sh = await import("./sentinelhub.server");
-    const { mineById } = await import("./mines");
-    const m = mineById(data.mineId);
-    if (!m) return { ok: false, configured: sh.sentinelConfigured(), reason: "site inconnu" };
-    return sh.sentinelChangePair(m.lat, m.lon, m.radiusKm);
+    const okCoords =
+      Number.isFinite(data.lat) &&
+      data.lat >= -90 &&
+      data.lat <= 90 &&
+      Number.isFinite(data.lon) &&
+      data.lon >= -180 &&
+      data.lon <= 180 &&
+      Number.isFinite(data.radiusKm) &&
+      data.radiusKm > 0;
+    if (!okCoords) return { ok: false, configured: sh.sentinelConfigured(), reason: "coordonnées invalides" };
+    return sh.sentinelChangePair(data.lat, data.lon, data.radiusKm);
   });
 
 /** Phonie ATC — état de l'enregistrement du flux public (réception seule). */

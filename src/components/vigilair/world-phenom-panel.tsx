@@ -4,7 +4,7 @@ import { KIND_LABEL } from "@/lib/vigilair/capture";
 import { threatRank } from "@/lib/vigilair/catalog";
 import { threatTone } from "@/lib/vigilair/format";
 import { AO, haversineKm, nearestCity } from "@/lib/vigilair/geo";
-import { nearestMine } from "@/lib/vigilair/mines";
+import { nearestWatchSite } from "@/lib/vigilair/watch-sites";
 import { useVigilair } from "@/lib/vigilair/store";
 import { formatAge, useWallClock } from "@/lib/vigilair/telemetry";
 import { X } from "lucide-react";
@@ -57,14 +57,14 @@ export function WorldPhenomPanel() {
             {rows.map((p) => {
               const fttjKm = Math.round(haversineKm(AO.airport.lat, AO.airport.lon, p.lat, p.lon));
               const city = nearestCity(p.lat, p.lon);
-              const nm = nearestMine(p.lat, p.lon);
+              const nm = nearestWatchSite(p.lat, p.lon);
               const nearSite = nm != null && nm.distKm <= 200;
               return (
                 <li key={p.id} className="space-y-1.5 px-4 py-3">
                   <div className="flex items-center gap-2">
                     <Badge tone={threatTone(p.level)}>{p.level}</Badge>
                     <Badge>{KIND_LABEL[p.kind]}</Badge>
-                    {nearSite ? <Badge tone="warn">site minier</Badge> : null}
+                    {nearSite && nm ? <Badge tone="warn">{nm.site.custom ? "site surveillé" : "site minier"}</Badge> : null}
                     <span className="ml-auto font-mono text-[11px] text-muted-foreground">
                       {p.at ? `il y a ${formatAge(wall - p.at)}` : "—"}
                     </span>
@@ -72,11 +72,14 @@ export function WorldPhenomPanel() {
                   <p className="text-sm text-fg">{p.title}</p>
                   <p className="text-xs text-muted-foreground">
                     {city.name} · {fttjKm.toLocaleString("fr-FR")} km de FTTJ
-                    {nearSite && nm ? ` · ${nm.mine.short} à ${Math.round(nm.distKm)} km` : ""}
+                    {nearSite && nm ? ` · ${nm.site.short} à ${Math.round(nm.distKm)} km` : ""}
                   </p>
                   <Button
                     size="sm"
                     variant="outline"
+                    data-phenom-kind={p.kind}
+                    data-phenom-lat={p.lat}
+                    data-phenom-lon={p.lon}
                     onClick={() => {
                       openCapture({ lat: p.lat, lon: p.lon, kind: "scene", title: p.title, body: p.body, source: p.source });
                       setOpen(false);
