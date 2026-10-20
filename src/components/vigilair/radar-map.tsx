@@ -345,6 +345,61 @@ function drawMines(
   }
 }
 
+/** Route de navigation active : axe (ligne), étapes (points) et obstacles captés (cercles). */
+function drawNavRoute(
+  ctx: CanvasRenderingContext2D,
+  pj: (lat: number, lon: number) => { x: number; y: number },
+  ice: string,
+  crit: string,
+  fg: string,
+  muted: string,
+) {
+  const route = useVigilair.getState().navRoute;
+  if (!route || route.points.length < 2) return;
+  ctx.save();
+  // axe
+  ctx.strokeStyle = ice;
+  ctx.lineWidth = 2;
+  ctx.globalAlpha = 0.9;
+  ctx.setLineDash([7, 4]);
+  ctx.beginPath();
+  route.points.forEach((p, i) => {
+    const q = pj(p.lat, p.lon);
+    if (i === 0) ctx.moveTo(q.x, q.y);
+    else ctx.lineTo(q.x, q.y);
+  });
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // obstacles
+  for (const hz of route.hazards) {
+    const q = pj(hz.lat, hz.lon);
+    ctx.globalAlpha = 0.45;
+    ctx.strokeStyle = crit;
+    ctx.beginPath();
+    ctx.arc(q.x, q.y, 11, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 0.95;
+    ctx.fillStyle = crit;
+    ctx.beginPath();
+    ctx.arc(q.x, q.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // étapes
+  ctx.globalAlpha = 1;
+  ctx.font = "500 9px 'IBM Plex Mono', monospace";
+  route.points.forEach((p, i) => {
+    const q = pj(p.lat, p.lon);
+    const end = i === 0 || i === route.points.length - 1;
+    ctx.fillStyle = end ? fg : ice;
+    ctx.beginPath();
+    ctx.arc(q.x, q.y, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = muted;
+    ctx.fillText(i === 0 ? "départ" : i === route.points.length - 1 ? "arrivée" : `ét.${i}`, q.x + 6, q.y - 6);
+  });
+  ctx.restore();
+}
+
 function drawPeaks(
   ctx: CanvasRenderingContext2D,
   pj: (lat: number, lon: number) => { x: number; y: number },
@@ -757,6 +812,7 @@ function draw(
   }
 
   drawMines(ctx, pj, w, h, sizeKm, scale, ice, fg, muted, warn, crit, st.mineId);
+  drawNavRoute(ctx, pj, ice, crit, fg, muted);
 
   const sensors =
     close || scale === "veille"

@@ -147,6 +147,29 @@ export function destinationPoint(lat: number, lon: number, brgDeg: number, distK
 
 export type LatLon = { lat: number; lon: number };
 
+/** Route active partagée (tracée sur la carte du COP, surveillée par l'alarme). */
+export type NavRoute = {
+  points: LatLon[];
+  hazards: { id: string; lat: number; lon: number; level?: string }[];
+};
+
+/** Échantillonne une route multi-étapes (alongKm cumulé) — pour le profil de terrain. */
+export function routePath(points: LatLon[], stepKm = 10): PathPoint[] {
+  const out: PathPoint[] = [];
+  let along0 = 0;
+  for (let i = 0; i + 1 < points.length; i++) {
+    const a = points[i]!;
+    const b = points[i + 1]!;
+    const seg = samplePath(a.lat, a.lon, b.lat, b.lon, stepKm);
+    for (let j = 0; j < seg.length; j++) {
+      if (i > 0 && j === 0) continue; // raccord : évite le doublon
+      out.push({ lat: seg[j]!.lat, lon: seg[j]!.lon, alongKm: along0 + seg[j]!.alongKm });
+    }
+    along0 += distanceKm(a.lat, a.lon, b.lat, b.lon);
+  }
+  return out;
+}
+
 export type RouteTotals = {
   distanceKm: number;
   etaMin: number | null;

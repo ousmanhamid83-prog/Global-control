@@ -67,6 +67,7 @@ import {
   type ZoneStatus,
 } from "./zones";
 import { mineZoneRows } from "./mines";
+import type { NavRoute } from "./nav";
 import { nearestWatchSite, watchZoneRows } from "./watch-sites";
 import { reportZoneBreach } from "./zones-ops";
 
@@ -155,6 +156,10 @@ type VigilairState = {
   copTool: CopTool;
   /** Panneau « Phénomènes mondiaux » ouvert (crues/catastrophes lointaines, accès en un clic). */
   worldPhenomOpen: boolean;
+  /** Route de navigation active (tracée sur le COP, surveillée par l'alarme). */
+  navRoute: NavRoute | null;
+  /** Alarme sonore quand un obstacle réel surgit sur la route active. */
+  navAlarm: boolean;
   ewArmed: boolean;
   ppi: PpiParams;
   history: HistSample[];
@@ -215,6 +220,9 @@ type VigilairState = {
   setSatMeta: (v: SatMeta) => void;
   setCopTool: (v: CopTool) => void;
   setWorldPhenomOpen: (v: boolean) => void;
+  setNavRoute: (r: NavRoute | null) => void;
+  setNavAlarm: (v: boolean) => void;
+  pushAlert: (a: AlertItem) => void;
   setAxisId: (id: string | null) => void;
   setPeakId: (id: string | null) => void;
   setShowPeaks: (on: boolean) => void;
@@ -479,6 +487,8 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   satMeta: null,
   copTool: "lock",
   worldPhenomOpen: false,
+  navRoute: null,
+  navAlarm: true,
   ewArmed: false,
   ppi: DEFAULT_PPI,
   history: [],
@@ -592,6 +602,9 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   setSatMeta: (satMeta) => set({ satMeta }),
   setCopTool: (copTool) => set({ copTool }),
   setWorldPhenomOpen: (worldPhenomOpen) => set({ worldPhenomOpen }),
+  setNavRoute: (navRoute) => set({ navRoute }),
+  setNavAlarm: (navAlarm) => set({ navAlarm }),
+  pushAlert: (a) => set({ alerts: [a, ...get().alerts].slice(0, 48) }),
   setAxisId: (axisId) => set({ axisId }),
   setPeakId: (peakId) => set({ peakId }),
   setShowPeaks: (showPeaks) => set({ showPeaks }),

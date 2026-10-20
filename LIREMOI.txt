@@ -290,9 +290,18 @@ Navigation directe jusqu'au site (Capteurs > Navigation)
     « Insérer le contournement » l'ajoute comme étape et l'axe repasse « dégagé » ;
   · s'il ne trouve aucune route sûre (≤ 180 km de détour), il conseille le DEMI-TOUR et propose
     l'itinéraire retour. C'est le « faute de route sûre, on rebrousse » demandé.
+- SUR LA CARTE DU COP : la route (axe), les étapes et les obstacles s'affichent aussi sur la vraie
+  carte imagerie du poste (onglet Situation), pas seulement dans un schéma — on les voit sur le relief
+  et les villes du répertoire.
+- ALARME / NOTIFICATION : quand un NOUVEL obstacle réel surgit à moins de 25 km de la route ACTIVE,
+  le poste pousse une alerte dans le bandeau ET sonne (bip court), même si on n'est pas sur l'onglet
+  Navigation. Interrupteur « Alarme sonore ». Un même foyer ne re-sonne pas à chaque relevé.
+- PROFIL DE TERRAIN : bouton « Profil de terrain » → le poste interroge un service d'élévation public
+  (ASTER GDEM 30 m, opentopodata) et trace l'altitude le long de la route (min–max, dénivelé D+) pour
+  repérer un massif à franchir. ~30 m : un relief se voit, pas un ravin d'un mètre. Nécessite Internet.
 - Honnêteté : navigation directe, PAS d'itinéraire routier et PAS de guidage d'arme. Le contournement
-  est une proposition (pas un plan optimal) ; le relief, les oueds et les pistes se lisent sur
-  l'imagerie et à l'œil. Réception seule : ça aide un véhicule à tenir un cap.
+  est une proposition (pas un plan optimal) ; le relief et les pistes se lisent sur l'imagerie et à
+  l'œil. Réception seule : ça aide un véhicule à tenir un cap.
 
 Durcissement défensif
 - En-têtes de sécurité sur chaque réponse (nosniff, Referrer-Policy no-referrer, Permissions-Policy

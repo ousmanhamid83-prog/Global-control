@@ -1,11 +1,12 @@
 import { type ReactNode, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Compass, Crosshair, Navigation, Plus, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
+import { Compass, Crosshair, Eraser, Mountain, Navigation, Plus, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { KIND_LABEL } from "@/lib/vigilair/capture";
 import { threatTone } from "@/lib/vigilair/format";
 import { gpsStatus } from "@/lib/vigilair/live-feeds";
+import { fetchElevationProfile, type ElevationProfile } from "@/lib/vigilair/nav-api";
 import { MINE_REGION_LABEL, MINES } from "@/lib/vigilair/mines";
 import {
   axisHazards,
@@ -190,6 +191,30 @@ function RouteMap({ pts, hazards }: { pts: LatLon[]; hazards: { lat: number; lon
   );
 }
 
+/** Profil de terrain (élévation le long de la route) — relief réel ASTER 30 m. */
+function TerrainProfile({ prof }: { prof: Extract<ElevationProfile, { ok: true }> }) {
+  const W = 620;
+  const H = 150;
+  const pad = 30;
+  const totalKm = prof.points[prof.points.length - 1]?.alongKm || 1;
+  const range = Math.max(1, prof.maxM - prof.minM);
+  const X = (km: number) => pad + (km / totalKm) * (W - 2 * pad);
+  const Y = (m: number) => H - pad - ((m - prof.minM) / range) * (H - 2 * pad);
+  const line = prof.points.map((p, i) => `${i ? "L" : "M"} ${X(p.alongKm).toFixed(1)} ${Y(p.elevM).toFixed(1)}`).join(" ");
+  const area = `${line} L ${X(totalKm).toFixed(1)} ${H - pad} L ${X(0).toFixed(1)} ${H - pad} Z`;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full rounded-sm border border-border bg-bg" aria-hidden>
+      <path d={area} className="fill-ok/15" />
+      <path d={line} className="fill-none stroke-ok" strokeWidth="2" />
+      <text x={pad} y={Y(prof.maxM) - 3} className="fill-muted-foreground" fontSize="10">{prof.maxM} m</text>
+      <text x={pad} y={H - pad + 12} className="fill-muted-foreground" fontSize="10">{prof.minM} m · 0 km</text>
+      <text x={W - pad} y={H - pad + 12} textAnchor="end" className="fill-muted-foreground" fontSize="10">
+        {Math.round(totalKm)} km
+      </text>
+    </svg>
+  );
+}
+
 /**
  * Navigation directe dynamique jusqu'au site — cap, distance, ETA, étapes, et SÛRETÉ DE L'AXE en
  * continu : dès qu'un phénomène réel borde la route, le poste le signale, propose un contournement,
@@ -205,6 +230,11 @@ export function NavPanel() {
   const [speed, setSpeed] = useState("40");
   const [decl, setDecl] = useState("");
   const [fix, setFix] = useState<LatLon | null>(null);
+  const setNavRoute = useVigilair((s) => s.setNavRoute);
+  const navAlarm = useVigilair((s) => s.navAlarm);
+  const setNavAlarm = useVigilair((s) => s.setNavAlarm);
+  const [elev, setElev] = useState<ElevationProfile | null>(null);
+  const [elevBusy, setElevBusy] = useState(false);
 
   useEffect(() => {
     let dead = false;
@@ -270,6 +300,30 @@ export function NavPanel() {
 
   const declNum = num(decl) ?? 0;
   const firstLeg = totals?.legs[0] ?? null;
+
+  // Publie la route active dans le store : tracée sur le COP, surveillée par l'alarme.
+  useEffect(() => {
+    if (pts.length >= 2) {
+      setNavRoute({ points: pts, hazards: hazards.map((h) => ({ id: h.id, lat: h.lat, lon: h.lon, level: h.level })) });
+    } else {
+      setNavRoute(null);
+    }
+  }, [pts, hazards, setNavRoute]);
+
+  const runProfile = () => {
+    if (pts.length < 2) return;
+    setElevBusy(true);
+    fetchElevationProfile({ data: { points: pts } })
+      .then(setElev)
+      .catch(() => setElev({ ok: false, reason: "échec" }))
+      .finally(() => setElevBusy(false));
+  };
+  const clearRoute = () => {
+    setStart(EMPTY);
+    setDest(EMPTY);
+    setWaypoints([]);
+    setElev(null);
+  };
 
   const insertDetour = () => {
     if (!analysis || analysis.detour.clear || !analysis.detour.waypoint) return;
@@ -346,7 +400,23 @@ export function NavPanel() {
             Déclinaison °E (approchée)
             <Input className="w-20" inputMode="decimal" value={decl} onChange={(e) => setDecl(e.target.value)} />
           </label>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input type="checkbox" checked={navAlarm} onChange={(e) => setNavAlarm(e.target.checked)} />
+            Alarme sonore
+          </label>
+          <Button data-nav="profile" size="sm" variant="outline" disabled={!ready || elevBusy} onClick={runProfile}>
+            <Mountain className="mr-1 size-3.5" />
+            {elevBusy ? "Profil…" : "Profil de terrain"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={clearRoute}>
+            <Eraser className="mr-1 size-3.5" />
+            Effacer
+          </Button>
         </div>
+        <p className="text-[11px] text-muted-foreground">
+          La route et les obstacles s'affichent aussi sur la carte du COP (onglet Situation). L'alarme
+          sonne, même hors de cet onglet, dès qu'un nouvel obstacle réel borde la route active.
+        </p>
       </div>
 
       {/* Bandeau de sûreté dynamique */}
@@ -409,6 +479,32 @@ export function NavPanel() {
       )}
 
       {totals ? <RouteMap pts={pts} hazards={hazards} /> : null}
+
+      {elev ? (
+        <div className="space-y-2 rounded-md border border-border bg-surface p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Mountain className="size-4 text-muted-foreground" aria-hidden />
+            <h3 className="text-sm font-medium">Profil de terrain</h3>
+            {elev.ok ? (
+              <Badge tone="default">
+                {elev.minM}–{elev.maxM} m · D+ {elev.gainM} m
+              </Badge>
+            ) : (
+              <Badge tone="warn">indisponible</Badge>
+            )}
+          </div>
+          {elev.ok ? (
+            <>
+              <TerrainProfile prof={elev} />
+              <p className="text-[11px] text-muted-foreground">
+                {elev.source} — un massif se voit, pas un ravin d'un mètre. Nécessite Internet.
+              </p>
+            </>
+          ) : (
+            <p className="font-mono text-xs text-crit">{elev.reason} — le profil a besoin d'Internet.</p>
+          )}
+        </div>
+      ) : null}
 
       {totals ? (
         <div className="space-y-2 rounded-md border border-border bg-surface p-4">
