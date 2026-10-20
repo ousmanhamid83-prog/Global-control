@@ -10,7 +10,7 @@ import { validateSite, type SiteInput, type WatchSite } from "./watch-sites-core
 
 const DIR = path.join(process.cwd(), "data");
 const FILE = path.join(DIR, "watch-sites.json");
-const MAX_SITES = 100;
+const MAX_SITES = 1000;
 
 const g = globalThis as unknown as { __afriWatchSites?: WatchSite[] };
 

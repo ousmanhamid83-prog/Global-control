@@ -266,8 +266,23 @@ Sites surveillés — ajouter ses propres sites au périmètre de sécurité (Ca
 - STOCKAGE PARTAGÉ : les sites sont enregistrés SUR LE POSTE (serveur, fichier data/watch-sites.json),
   donc partagés par tous les navigateurs qui parlent à ce poste et conservés au redémarrage — plus
   seulement dans un seul navigateur. Un miroir local sert à peindre instantanément au chargement.
-  Jusqu'à 100 sites. Réception seule : on surveille, on n'émet rien. (Pour partager entre PLUSIEURS
+  Jusqu'à 1000 sites. Réception seule : on surveille, on n'émet rien. (Pour partager entre PLUSIEURS
   postes physiques distincts, il faudrait un serveur central commun — à câbler si besoin.)
+
+Navigation directe jusqu'au site (Capteurs > Navigation)
+- En zone saharo-sahélienne (BET, Ennedi) il n'y a pas de route : on tient un CAP, pas un itinéraire
+  routier (comme en mer, comme au désert). Le poste calcule, d'un point à un site :
+  · le CAP VRAI (° + rose des vents) et une flèche boussole ;
+  · la DISTANCE grand-cercle (orthodromie) et l'ETA à la vitesse de marche choisie.
+- Départ : bouton « Position GPS » (si une antenne GPS est branchée), un lieu du répertoire, un site
+  surveillé, ou des coordonnées. Destination : idem. Cap vrai — ajouter la déclinaison magnétique si
+  on suit une boussole.
+- SÛRETÉ DE L'AXE : le poste balaie la ligne droite et signale les obstacles CAPTÉS (crue, feu,
+  séisme) à moins de 25 km de l'axe, avec « à X km sur l'axe · Y km à gauche/droite ». « Axe dégagé »
+  s'il n'y en a pas au dernier relevé.
+- Honnêteté : navigation directe, PAS d'itinéraire routier et PAS de guidage d'arme. Le relief, les
+  oueds et les pistes se lisent sur l'imagerie et à l'œil ; ceci aide un véhicule à tenir un cap.
+  Réception seule.
 
 Durcissement défensif
 - En-têtes de sécurité sur chaque réponse (nosniff, Referrer-Policy no-referrer, Permissions-Policy
