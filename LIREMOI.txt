@@ -256,8 +256,18 @@ Sites surveillés — ajouter ses propres sites au périmètre de sécurité (Ca
   · le site devient sélectionnable dans le comparateur avant/après.
   L'alerte porte « près de <site> (<km>) », et le badge « site surveillé » apparaît dans le volet
   Phénomènes mondiaux.
-- Enregistré LOCALEMENT sur le poste (navigateur) : les sites restent sur ce PC. Jusqu'à 50 sites.
-  Réception seule : on surveille, on n'émet rien.
+- RECHERCHE DE LIEU intégrée : en Afrique les cartes publiques décrochent après Abéché (Ennedi, BET,
+  Ouaddaï, Wadi Fira… Amdjarass n'est sur presque aucune carte). Un champ « Rechercher un lieu »
+  contient un répertoire Tchad/Sahel (Amdjarass, Fada, Faya, Abéché, Biltine, Iriba, Guéréda, Am
+  Timan, Mao, Bongor, Doba, Ounianga, Zouar, Gouro… + sous-préfectures) : tape le nom, le poste
+  remplit les coordonnées — sans dépendre d'une carte externe mauvaise ou hors-ligne. Tolère les
+  accents et la casse (« amdjarass » = « Amdjarass »). Ces lieux affinent aussi le « lieu le plus
+  proche » des phénomènes dans tout le théâtre tchadien.
+- STOCKAGE PARTAGÉ : les sites sont enregistrés SUR LE POSTE (serveur, fichier data/watch-sites.json),
+  donc partagés par tous les navigateurs qui parlent à ce poste et conservés au redémarrage — plus
+  seulement dans un seul navigateur. Un miroir local sert à peindre instantanément au chargement.
+  Jusqu'à 100 sites. Réception seule : on surveille, on n'émet rien. (Pour partager entre PLUSIEURS
+  postes physiques distincts, il faudrait un serveur central commun — à câbler si besoin.)
 
 Durcissement défensif
 - En-têtes de sécurité sur chaque réponse (nosniff, Referrer-Policy no-referrer, Permissions-Policy

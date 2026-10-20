@@ -11,3 +11,6 @@ public/sentinel/
 
 # Enregistrements archivés (bandes 1090ES réelles, générées au runtime)
 recordings/
+
+# État partagé du poste généré au runtime (sites surveillés)
+data/

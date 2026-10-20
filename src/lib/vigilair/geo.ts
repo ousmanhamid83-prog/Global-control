@@ -218,6 +218,25 @@ export const SAHEL_CITIES: SahelCity[] = [
   { name: "Kassala", lat: 15.451, lon: 36.4, tier: 2 },
   { name: "Port-Soudan", lat: 19.616, lon: 37.216, tier: 2 },
   { name: "Kufra", lat: 24.183, lon: 23.283, tier: 2 },
+  // Tchad — est, nord et sud, là où les cartes publiques décrochent après Abéché.
+  { name: "Amdjarass", lat: 16.027, lon: 22.634, tier: 2 },
+  { name: "Biltine", lat: 14.527, lon: 20.925, tier: 3 },
+  { name: "Iriba", lat: 15.117, lon: 22.247, tier: 3 },
+  { name: "Guéréda", lat: 14.519, lon: 22.113, tier: 3 },
+  { name: "Adré", lat: 13.466, lon: 22.199, tier: 3 },
+  { name: "Goz Beïda", lat: 12.223, lon: 21.414, tier: 3 },
+  { name: "Am Timan", lat: 11.033, lon: 20.283, tier: 2 },
+  { name: "Oum Hadjer", lat: 13.296, lon: 19.69, tier: 3 },
+  { name: "Mao", lat: 14.119, lon: 15.313, tier: 2 },
+  { name: "Moussoro", lat: 13.641, lon: 16.49, tier: 3 },
+  { name: "Massakory", lat: 12.993, lon: 15.73, tier: 3 },
+  { name: "Bongor", lat: 10.281, lon: 15.372, tier: 2 },
+  { name: "Pala", lat: 9.364, lon: 14.908, tier: 2 },
+  { name: "Doba", lat: 8.651, lon: 16.85, tier: 2 },
+  { name: "Koumra", lat: 8.912, lon: 17.554, tier: 3 },
+  { name: "Ounianga Kébir", lat: 19.067, lon: 20.503, tier: 3 },
+  { name: "Zouar", lat: 20.45, lon: 16.517, tier: 3 },
+  { name: "Gouro", lat: 19.525, lon: 19.863, tier: 3 },
 ];
 
 /** Ville connue la plus proche d'un point, avec la distance en km (pour situer un foyer). */

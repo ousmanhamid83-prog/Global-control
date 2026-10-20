@@ -1,29 +1,23 @@
 /**
- * Sites surveillés ajoutés par l'opérateur — le périmètre de sécurité n'est jamais complet d'usine.
- * L'opérateur ajoute ses propres sites (camp, poste avancé, forage, village, pont…) avec leurs
- * coordonnées ; ils comptent alors comme les sites miniers intégrés : un phénomène (crue, feu,
- * séisme) à proximité SONNE, le périmètre est évalué pour l'intrusion drone, et le site est
- * sélectionnable dans le comparateur avant/après.
+ * Sites surveillés — le périmètre de sécurité n'est jamais complet d'usine. L'opérateur ajoute ses
+ * sites (camp, poste avancé, forage, village, pont) ; ils comptent comme les sites miniers intégrés :
+ * un phénomène proche SONNE, le périmètre est évalué contre l'intrusion, et le site est comparable
+ * en avant/après.
  *
- * Stockage local au poste (navigateur). Lecture seule côté capteurs : on n'émet rien, on surveille.
- * La logique pure (validation, plus-proche) vit dans watch-sites-core (testable sous node).
+ * Stockage SERVEUR (partagé par tous les navigateurs du poste, conservé au redémarrage). Un miroir
+ * local (navigateur) sert à peindre et à faire sonner les alertes dès le chargement, avant la
+ * réponse serveur. La logique pure (validation, plus-proche) vit dans watch-sites-core (testable).
  */
 
 import { MINES } from "./mines";
-import {
-  nearestFrom,
-  validateSite,
-  type NearWatch,
-  type SiteInput,
-  type WatchSite,
-} from "./watch-sites-core";
+import { nearestFrom, type NearWatch, type SiteInput, type WatchSite } from "./watch-sites-core";
+import { watchSiteAdd, watchSiteRemove, watchSitesList } from "./watch-sites-api";
 import type { ZoneRow } from "./zones";
 
 export type { NearWatch, SiteInput, WatchSite } from "./watch-sites-core";
 export { validateSite, nearestFrom } from "./watch-sites-core";
 
-const KEY = "africontrol.watchsites.v1";
-const MAX_SITES = 50;
+const MIRROR_KEY = "africontrol.watchsites.mirror.v1";
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
@@ -38,42 +32,47 @@ function isValid(s: unknown): s is WatchSite {
     o.name.trim().length > 0 &&
     typeof o.lat === "number" &&
     Number.isFinite(o.lat) &&
-    o.lat >= -90 &&
-    o.lat <= 90 &&
     typeof o.lon === "number" &&
     Number.isFinite(o.lon) &&
-    o.lon >= -180 &&
-    o.lon <= 180 &&
     typeof o.radiusKm === "number" &&
     Number.isFinite(o.radiusKm) &&
     o.radiusKm > 0
   );
 }
 
-function read(): WatchSite[] {
-  if (cache) return cache;
-  if (typeof window === "undefined") return (cache = []);
+function readMirror(): WatchSite[] {
+  if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(KEY);
+    const raw = window.localStorage.getItem(MIRROR_KEY);
     const arr: unknown = raw ? JSON.parse(raw) : [];
-    cache = Array.isArray(arr) ? arr.filter(isValid) : [];
+    return Array.isArray(arr) ? arr.filter(isValid) : [];
   } catch {
-    cache = [];
+    return [];
   }
-  return cache;
 }
 
-function write(list: WatchSite[]): void {
-  cache = list;
+function writeMirror(list: WatchSite[]): void {
+  if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(list));
+    window.localStorage.setItem(MIRROR_KEY, JSON.stringify(list));
   } catch {
     /* mode privé / quota : la liste reste au moins en mémoire pour la session */
   }
+}
+
+/** Lecture synchrone (cache mémoire, initialisé depuis le miroir local au premier accès). */
+function read(): WatchSite[] {
+  if (!cache) cache = readMirror();
+  return cache;
+}
+
+function set(list: WatchSite[]): void {
+  cache = list;
+  writeMirror(list);
   listeners.forEach((l) => l());
 }
 
-/** Liste des sites ajoutés (référence stable tant que rien ne change : OK pour useSyncExternalStore). */
+/** Liste des sites (référence stable tant que rien ne change : OK pour useSyncExternalStore). */
 export function watchSitesSnapshot(): WatchSite[] {
   return read();
 }
@@ -83,17 +82,33 @@ export function subscribeWatchSites(l: Listener): () => void {
   return () => listeners.delete(l);
 }
 
-export function addCustomSite(input: SiteInput): { ok: boolean; error?: string } {
-  const v = validateSite(input);
-  if (!v.ok) return { ok: false, error: v.error };
-  const list = read();
-  if (list.length >= MAX_SITES) return { ok: false, error: `maximum ${MAX_SITES} sites` };
-  write([...list, v.site]);
-  return { ok: true };
+/** Charge la liste partagée depuis le poste et remplace le cache local. À appeler au démarrage. */
+export async function hydrateFromServer(): Promise<void> {
+  try {
+    const sites = await watchSitesList();
+    set(Array.isArray(sites) ? sites.filter(isValid) : []);
+  } catch {
+    /* poste injoignable (rare, c'est localhost) : on garde le miroir local */
+  }
 }
 
-export function removeCustomSite(id: string): void {
-  write(read().filter((s) => s.id !== id));
+export async function addCustomSite(input: SiteInput): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await watchSiteAdd({ data: input });
+    if (res.ok && res.sites) set(res.sites.filter(isValid));
+    return { ok: res.ok, error: res.error };
+  } catch {
+    return { ok: false, error: "poste injoignable" };
+  }
+}
+
+export async function removeCustomSite(id: string): Promise<void> {
+  try {
+    const res = await watchSiteRemove({ data: { id } });
+    if (res?.sites) set(res.sites.filter(isValid));
+  } catch {
+    /* ignore : réessayable */
+  }
 }
 
 function allWatchPoints(): NearWatch[] {

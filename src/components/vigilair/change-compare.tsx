@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { diffHeatmap } from "@/lib/vigilair/change-diff";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { MINE_REGION_LABEL, MINES } from "@/lib/vigilair/mines";
+import { searchPlaces, type Place } from "@/lib/vigilair/places";
 import {
   addCustomSite,
   removeCustomSite,
@@ -35,9 +36,22 @@ function SiteManager() {
   const [lon, setLon] = useState("");
   const [radius, setRadius] = useState("5");
   const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState("");
+  const results: Place[] = query.trim() ? searchPlaces(query, 8) : [];
 
-  const add = () => {
-    const res = addCustomSite({ name, lat: Number(lat), lon: Number(lon), radiusKm: Number(radius) });
+  const pick = (pl: Place) => {
+    setName(pl.name);
+    setLat(String(pl.lat));
+    setLon(String(pl.lon));
+    setQuery("");
+    setErr(null);
+  };
+
+  const add = async () => {
+    setBusy(true);
+    const res = await addCustomSite({ name, lat: Number(lat), lon: Number(lon), radiusKm: Number(radius) });
+    setBusy(false);
     if (!res.ok) {
       setErr(res.error ?? "saisie invalide");
       return;
@@ -58,10 +72,40 @@ function SiteManager() {
       </div>
       <p className="text-sm text-muted-foreground">
         Le lot d'usine (sites miniers) n'est jamais complet. Ajoute tes propres sites — camp, poste
-        avancé, forage, village, pont. Chacun <strong>sonne</strong> pour une crue / un feu / un
-        séisme à moins de 200 km, arme un <strong>périmètre</strong> contre l'intrusion drone, et
-        devient sélectionnable dans le comparateur avant/après. Enregistré localement sur ce poste.
+        avancé, forage, village, pont. Chacun <strong>sonne</strong> pour une crue / un séisme à moins
+        de 200 km (un feu à moins de 40 km), arme un <strong>périmètre</strong> contre l'intrusion
+        drone, et devient sélectionnable dans le comparateur. Partagé par tous les postes.
       </p>
+      {/* Recherche de lieu : les cartes publiques décrochent après Abéché (Ennedi, BET, Amdjarass…).
+          On tape un nom, le poste remplit les coordonnées, sans dépendre d'une carte externe. */}
+      <div className="relative">
+        <Input
+          data-site="search"
+          placeholder="Rechercher un lieu (Amdjarass, Fada, Faya, Abéché…) → remplit les coordonnées"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {results.length > 0 ? (
+          <ul className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-sm border border-border bg-bg shadow-xl">
+            {results.map((pl) => (
+              <li key={`${pl.name}-${pl.lat}-${pl.lon}`}>
+                <button
+                  type="button"
+                  data-place={pl.name}
+                  onClick={() => pick(pl)}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-secondary"
+                >
+                  <span className="text-fg">{pl.name}</span>
+                  {pl.region ? <span className="text-muted-foreground">{pl.region}</span> : null}
+                  <span className="ml-auto font-mono text-muted-foreground">
+                    {pl.lat.toFixed(3)}, {pl.lon.toFixed(3)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_auto_auto_auto]">
         <Input data-site="name" placeholder="Nom (ex. Camp Nord)" value={name} onChange={(e) => setName(e.target.value)} />
         <Input
@@ -88,9 +132,9 @@ function SiteManager() {
           value={radius}
           onChange={(e) => setRadius(e.target.value)}
         />
-        <Button data-site="add" size="sm" variant="outline" onClick={add}>
+        <Button data-site="add" size="sm" variant="outline" disabled={busy} onClick={() => void add()}>
           <Plus className="mr-1 size-3.5" />
-          Ajouter
+          {busy ? "…" : "Ajouter"}
         </Button>
       </div>
       {err ? <p className="font-mono text-xs text-crit">{err}</p> : null}
@@ -107,7 +151,7 @@ function SiteManager() {
                 size="sm"
                 variant="ghost"
                 className="ml-auto"
-                onClick={() => removeCustomSite(s.id)}
+                onClick={() => void removeCustomSite(s.id)}
                 aria-label={`retirer ${s.name}`}
               >
                 <Trash2 className="size-3.5" />

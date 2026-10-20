@@ -8,6 +8,7 @@ import { ChefSealHost } from "@/components/vigilair/chef-seal";
 import { useEffect } from "react";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { startTelemetry } from "@/lib/vigilair/telemetry";
+import { hydrateFromServer } from "@/lib/vigilair/watch-sites";
 
 /** Survives les changements de route — AppShell se démonte, pas le 1090 ni le quart. */
 export function VigilairRuntime() {
@@ -23,6 +24,7 @@ export function VigilairRuntime() {
       <WatchMode />
       <IdleLock />
       <ChefSealHost />
+      <WatchSitesHydrate />
     </>
   );
 }
@@ -30,5 +32,16 @@ export function VigilairRuntime() {
 /** Fraîcheur des liaisons, historique court et fil d'événements de la console. */
 function TelemetryWatch() {
   useEffect(() => startTelemetry(), []);
+  return null;
+}
+
+/** Charge les sites surveillés partagés du poste au démarrage, et re-synchronise au retour de focus. */
+function WatchSitesHydrate() {
+  useEffect(() => {
+    void hydrateFromServer();
+    const onFocus = () => void hydrateFromServer();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
   return null;
 }
