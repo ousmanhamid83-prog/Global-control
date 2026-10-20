@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { Compass, Crosshair, Navigation, TriangleAlert } from "lucide-react";
+import { Compass, Crosshair, Navigation, Plus, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +7,16 @@ import { KIND_LABEL } from "@/lib/vigilair/capture";
 import { threatTone } from "@/lib/vigilair/format";
 import { gpsStatus } from "@/lib/vigilair/live-feeds";
 import { MINE_REGION_LABEL, MINES } from "@/lib/vigilair/mines";
-import { axisHazards, solve, type Hazard } from "@/lib/vigilair/nav";
+import {
+  axisHazards,
+  cardinal,
+  declinationEstimate,
+  routeHazards,
+  routeTotals,
+  safeDetour,
+  type Hazard,
+  type LatLon,
+} from "@/lib/vigilair/nav";
 import { searchPlaces, type Place } from "@/lib/vigilair/places";
 import { useVigilair } from "@/lib/vigilair/store";
 import type { Threat } from "@/lib/vigilair/types";
@@ -19,11 +28,19 @@ function num(s: string): number | null {
   const n = Number(s);
   return s.trim() !== "" && Number.isFinite(n) ? n : null;
 }
+function toLL(p: Pt): LatLon | null {
+  const lat = num(p.lat);
+  const lon = num(p.lon);
+  return lat != null && lon != null ? { lat, lon } : null;
+}
 function etaText(min: number | null): string {
   if (min == null) return "—";
   const h = Math.floor(min / 60);
   const m = Math.round(min % 60);
   return h > 0 ? `${h} h ${String(m).padStart(2, "0")}` : `${m} min`;
+}
+function mag(trueDeg: number, decl: number): number {
+  return ((trueDeg - decl) % 360 + 360) % 360;
 }
 
 type SiteOpt = { name: string; lat: number; lon: number };
@@ -98,9 +115,9 @@ function Picker({
         </select>
       ) : null}
       <div className="grid grid-cols-[1fr_auto_auto] gap-2">
-        <Input placeholder="Nom" value={pt.name} onChange={(e) => setPt({ ...pt, name: e.target.value })} />
-        <Input className="w-24" inputMode="decimal" placeholder="Lat" value={pt.lat} onChange={(e) => setPt({ ...pt, lat: e.target.value })} />
-        <Input className="w-24" inputMode="decimal" placeholder="Lon" value={pt.lon} onChange={(e) => setPt({ ...pt, lon: e.target.value })} />
+        <Input data-nav={`name-${label}`} placeholder="Nom" value={pt.name} onChange={(e) => setPt({ ...pt, name: e.target.value })} />
+        <Input data-nav={`lat-${label}`} className="w-24" inputMode="decimal" placeholder="Lat" value={pt.lat} onChange={(e) => setPt({ ...pt, lat: e.target.value })} />
+        <Input data-nav={`lon-${label}`} className="w-24" inputMode="decimal" placeholder="Lon" value={pt.lon} onChange={(e) => setPt({ ...pt, lon: e.target.value })} />
       </div>
     </div>
   );
@@ -109,20 +126,12 @@ function Picker({
 /** Flèche de cap (SVG) — pointe vers le cap, le Nord reste en haut. */
 function CompassRose({ deg }: { deg: number }) {
   return (
-    <svg viewBox="0 0 120 120" className="size-28" aria-hidden>
+    <svg viewBox="0 0 120 120" className="size-24 shrink-0" aria-hidden>
       <circle cx="60" cy="60" r="56" className="fill-none stroke-border" strokeWidth="2" />
-      <text x="60" y="16" textAnchor="middle" className="fill-muted-foreground" fontSize="11">
-        N
-      </text>
-      <text x="108" y="64" textAnchor="middle" className="fill-muted-foreground" fontSize="11">
-        E
-      </text>
-      <text x="60" y="112" textAnchor="middle" className="fill-muted-foreground" fontSize="11">
-        S
-      </text>
-      <text x="12" y="64" textAnchor="middle" className="fill-muted-foreground" fontSize="11">
-        O
-      </text>
+      <text x="60" y="16" textAnchor="middle" className="fill-muted-foreground" fontSize="11">N</text>
+      <text x="108" y="64" textAnchor="middle" className="fill-muted-foreground" fontSize="11">E</text>
+      <text x="60" y="112" textAnchor="middle" className="fill-muted-foreground" fontSize="11">S</text>
+      <text x="12" y="64" textAnchor="middle" className="fill-muted-foreground" fontSize="11">O</text>
       <g transform={`rotate(${deg} 60 60)`}>
         <line x1="60" y1="60" x2="60" y2="16" className="stroke-crit" strokeWidth="3" />
         <polygon points="60,10 54,24 66,24" className="fill-crit" />
@@ -132,19 +141,70 @@ function CompassRose({ deg }: { deg: number }) {
   );
 }
 
+/** Schéma de route (équirectangulaire) : étapes, segments et obstacles. Axe tracé, mis à jour en continu. */
+function RouteMap({ pts, hazards }: { pts: LatLon[]; hazards: { lat: number; lon: number; id: string }[] }) {
+  const W = 620;
+  const H = 300;
+  const pad = 26;
+  const all = [...pts, ...hazards];
+  if (all.length < 2) return null;
+  const lats = all.map((p) => p.lat);
+  const lons = all.map((p) => p.lon);
+  const latMid = (Math.min(...lats) + Math.max(...lats)) / 2;
+  const kx = Math.cos((latMid * Math.PI) / 180) || 1;
+  let minLat = Math.min(...lats);
+  let maxLat = Math.max(...lats);
+  let minLon = Math.min(...lons);
+  let maxLon = Math.max(...lons);
+  const spanLat = Math.max(0.1, maxLat - minLat);
+  const spanLon = Math.max(0.1, (maxLon - minLon) * kx);
+  // marge
+  minLat -= spanLat * 0.1;
+  maxLat += spanLat * 0.1;
+  minLon -= (spanLon / kx) * 0.1;
+  maxLon += (spanLon / kx) * 0.1;
+  const sx = (W - 2 * pad) / Math.max(0.1, (maxLon - minLon) * kx);
+  const sy = (H - 2 * pad) / Math.max(0.1, maxLat - minLat);
+  const s = Math.min(sx, sy);
+  const X = (lon: number) => pad + (lon - minLon) * kx * s;
+  const Y = (lat: number) => H - pad - (lat - minLat) * s;
+  const path = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${X(p.lon).toFixed(1)} ${Y(p.lat).toFixed(1)}`).join(" ");
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full rounded-sm border border-border bg-bg" aria-hidden>
+      <path d={path} className="fill-none stroke-ok" strokeWidth="2" strokeDasharray="6 4" />
+      {hazards.map((h) => (
+        <g key={`h-${h.id}`}>
+          <circle cx={X(h.lon)} cy={Y(h.lat)} r="14" className="fill-crit/15 stroke-crit/50" />
+          <circle cx={X(h.lon)} cy={Y(h.lat)} r="4" className="fill-crit" />
+        </g>
+      ))}
+      {pts.map((p, i) => (
+        <g key={`p-${i}`}>
+          <circle cx={X(p.lon)} cy={Y(p.lat)} r="5" className={i === 0 || i === pts.length - 1 ? "fill-fg" : "fill-ok"} />
+          <text x={X(p.lon) + 7} y={Y(p.lat) - 6} className="fill-muted-foreground" fontSize="10">
+            {i === 0 ? "départ" : i === pts.length - 1 ? "arrivée" : `étape ${i}`}
+          </text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
 /**
- * Navigation directe jusqu'à un site — cap vrai, distance, ETA, et sûreté de l'axe. En Afrique
- * saharo-sahélienne il n'y a pas de route : on tient un CAP (comme en mer, comme dans le désert).
- * Réception seule : ça aide un véhicule à tenir un cap, ça ne guide rien. Aucun logiciel grand public
- * ne fait ça depuis une console de surveillance.
+ * Navigation directe dynamique jusqu'au site — cap, distance, ETA, étapes, et SÛRETÉ DE L'AXE en
+ * continu : dès qu'un phénomène réel borde la route, le poste le signale, propose un contournement,
+ * ou conseille le demi-tour s'il n'y a pas de route sûre. Pas de route goudronnée dans le BET : on
+ * tient un cap. Réception seule : ça aide un véhicule à tenir un cap, ça ne guide rien.
  */
 export function NavPanel() {
   const custom = useSyncExternalStore(subscribeWatchSites, watchSitesSnapshot, watchSitesSnapshot);
   const phenomena = useVigilair((s) => s.phenomena);
   const [start, setStart] = useState<Pt>(EMPTY);
   const [dest, setDest] = useState<Pt>(EMPTY);
+  const [waypoints, setWaypoints] = useState<Pt[]>([]);
   const [speed, setSpeed] = useState("40");
-  const [fix, setFix] = useState<{ lat: number; lon: number } | null>(null);
+  const [decl, setDecl] = useState("");
+  const [fix, setFix] = useState<LatLon | null>(null);
 
   useEffect(() => {
     let dead = false;
@@ -167,23 +227,62 @@ export function NavPanel() {
     ...MINES.map((m) => ({ name: `${m.short} · ${MINE_REGION_LABEL[m.region]}`, lat: m.lat, lon: m.lon })),
   ];
 
-  const aLat = num(start.lat);
-  const aLon = num(start.lon);
-  const bLat = num(dest.lat);
-  const bLon = num(dest.lon);
-  const ready = aLat != null && aLon != null && bLat != null && bLon != null;
   const spd = num(speed) ?? 0;
+  const pts = useMemo<LatLon[]>(() => {
+    const a = toLL(start);
+    const b = toLL(dest);
+    if (!a || !b) return [];
+    const w = waypoints.map(toLL).filter((x): x is LatLon => x != null);
+    return [a, ...w, b];
+  }, [start, dest, waypoints]);
+  const ready = pts.length >= 2;
 
-  const nav = useMemo(
-    () => (ready ? solve(aLat!, aLon!, bLat!, bLon!, spd) : null),
-    [ready, aLat, aLon, bLat, bLon, spd],
+  // Déclinaison auto-estimée depuis le départ (éditable).
+  useEffect(() => {
+    const a = toLL(start);
+    if (decl.trim() === "" && a) {
+      const d = declinationEstimate(a.lat, a.lon);
+      if (d != null) setDecl(String(d));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [start.lat, start.lon]);
+
+  const hazList: Hazard[] = useMemo(
+    () => phenomena.map((p) => ({ id: p.id, kind: p.kind, level: p.level, lat: p.lat, lon: p.lon, title: p.title })),
+    [phenomena],
   );
 
-  const hazards = useMemo(() => {
-    if (!ready) return [];
-    const list: Hazard[] = phenomena.map((p) => ({ id: p.id, kind: p.kind, level: p.level, lat: p.lat, lon: p.lon, title: p.title }));
-    return axisHazards(aLat!, aLon!, bLat!, bLon!, list, 25, 5);
-  }, [ready, aLat, aLon, bLat, bLon, phenomena]);
+  const totals = useMemo(() => (pts.length >= 2 ? routeTotals(pts, spd) : null), [pts, spd]);
+  const hazards = useMemo(() => (pts.length >= 2 ? routeHazards(pts, hazList, 25, 5) : []), [pts, hazList]);
+
+  // Première étape non sûre + contournement proposé.
+  const analysis = useMemo(() => {
+    if (pts.length < 2) return null;
+    for (let k = 0; k + 1 < pts.length; k++) {
+      const a = pts[k]!;
+      const b = pts[k + 1]!;
+      if (axisHazards(a.lat, a.lon, b.lat, b.lon, hazList, 25).length > 0) {
+        return { legIndex: k, detour: safeDetour(a.lat, a.lon, b.lat, b.lon, hazList, 25) };
+      }
+    }
+    return null;
+  }, [pts, hazList]);
+
+  const declNum = num(decl) ?? 0;
+  const firstLeg = totals?.legs[0] ?? null;
+
+  const insertDetour = () => {
+    if (!analysis || analysis.detour.clear || !analysis.detour.waypoint) return;
+    const w = analysis.detour.waypoint;
+    const next = [...waypoints];
+    next.splice(analysis.legIndex, 0, { name: "Contournement", lat: w.lat.toFixed(4), lon: w.lon.toFixed(4) });
+    setWaypoints(next);
+  };
+  const demiTour = () => {
+    setStart(dest);
+    setDest(start);
+    setWaypoints([]);
+  };
 
   return (
     <section className="space-y-4">
@@ -191,13 +290,13 @@ export function NavPanel() {
         <div className="flex flex-wrap items-center gap-2">
           <Navigation className="size-4 text-muted-foreground" aria-hidden />
           <h2 className="text-sm font-medium">Navigation directe jusqu'au site</h2>
-          <Badge tone="default">cap vrai · orthodromie</Badge>
+          <Badge tone="default">cap vrai · orthodromie · dynamique</Badge>
         </div>
         <p className="text-sm text-muted-foreground">
-          Pas de route dans le BET ni l'Ennedi : on tient un <strong>cap</strong>, pas un itinéraire
-          routier (il n'existe pas de données routières fiables ici). Le poste calcule le cap vrai, la
-          distance et l'ETA d'un point à un site, et signale les <strong>obstacles captés</strong>
-          (crue, feu, séisme) qui bordent l'axe. Réception seule : ça aide un véhicule à tenir un cap.
+          Pas de route dans le BET ni l'Ennedi : on tient un <strong>cap</strong>. Le poste calcule le
+          cap, la distance et l'ETA, trace l'axe, et surveille <strong>en continu</strong> les
+          obstacles réels captés (crue, feu, séisme). Si l'axe n'est pas sûr, il propose un
+          <strong> contournement</strong> ou conseille le <strong>demi-tour</strong>. Réception seule.
         </p>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <Picker
@@ -206,13 +305,7 @@ export function NavPanel() {
             setPt={setStart}
             sites={sites}
             extra={
-              <Button
-                data-nav="gps"
-                size="sm"
-                variant="outline"
-                disabled={!fix}
-                onClick={() => fix && setStart({ name: "Position GPS", lat: String(fix.lat), lon: String(fix.lon) })}
-              >
+              <Button data-nav="gps" size="sm" variant="outline" disabled={!fix} onClick={() => fix && setStart({ name: "Position GPS", lat: String(fix.lat), lon: String(fix.lon) })}>
                 <Crosshair className="mr-1 size-3.5" />
                 {fix ? "Position GPS" : "GPS —"}
               </Button>
@@ -220,39 +313,104 @@ export function NavPanel() {
           />
           <Picker label="Destination" pt={dest} setPt={setDest} sites={sites} />
         </div>
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          Vitesse de marche (km/h)
-          <Input className="w-24" inputMode="decimal" value={speed} onChange={(e) => setSpeed(e.target.value)} />
-        </label>
+
+        {waypoints.length > 0 ? (
+          <div className="space-y-2">
+            {waypoints.map((w, i) => (
+              <Picker
+                key={`wp-${i}`}
+                label={`Étape ${i + 1}`}
+                pt={w}
+                setPt={(p) => setWaypoints(waypoints.map((x, j) => (j === i ? p : x)))}
+                sites={sites}
+                extra={
+                  <Button size="sm" variant="ghost" onClick={() => setWaypoints(waypoints.filter((_, j) => j !== i))} aria-label={`retirer étape ${i + 1}`}>
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                }
+              />
+            ))}
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Button size="sm" variant="outline" onClick={() => setWaypoints([...waypoints, EMPTY])}>
+            <Plus className="mr-1 size-3.5" />
+            Ajouter une étape
+          </Button>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            Vitesse (km/h)
+            <Input className="w-20" inputMode="decimal" value={speed} onChange={(e) => setSpeed(e.target.value)} />
+          </label>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            Déclinaison °E (approchée)
+            <Input className="w-20" inputMode="decimal" value={decl} onChange={(e) => setDecl(e.target.value)} />
+          </label>
+        </div>
       </div>
 
-      {nav ? (
+      {/* Bandeau de sûreté dynamique */}
+      {ready && analysis ? (
+        <div className="space-y-2 rounded-md border border-crit/60 bg-crit/10 p-4">
+          <div className="flex items-center gap-2">
+            <TriangleAlert className="size-4 text-crit" aria-hidden />
+            <span className="text-sm font-medium text-crit">Axe non sûr — obstacle réel sur la route</span>
+          </div>
+          {!analysis.detour.clear && analysis.detour.waypoint ? (
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <span className="text-fg">
+                Contournement possible par la {analysis.detour.side} (+{Math.round(analysis.detour.offsetKm)} km).
+              </span>
+              <Button size="sm" variant="outline" onClick={insertDetour}>
+                <RotateCcw className="mr-1 size-3.5" />
+                Insérer le contournement
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <span className="text-fg">Aucune route sûre trouvée (≤ 180 km de détour). Demi-tour conseillé.</span>
+              <Button size="sm" variant="outline" onClick={demiTour}>
+                <RotateCcw className="mr-1 size-3.5" />
+                Itinéraire retour (demi-tour)
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {totals && firstLeg ? (
         <div className="flex flex-wrap items-center gap-6 rounded-md border border-border bg-surface p-4">
-          <CompassRose deg={nav.bearingDeg} />
+          <CompassRose deg={firstLeg.bearingDeg} />
           <div className="space-y-1">
             <div className="flex items-baseline gap-2">
               <Compass className="size-4 text-muted-foreground" aria-hidden />
-              <span className="font-mono text-3xl text-fg">{Math.round(nav.bearingDeg)}°</span>
-              <span className="text-lg text-muted-foreground">{nav.cardinal}</span>
+              <span className="font-mono text-3xl text-fg">{Math.round(firstLeg.bearingDeg)}°</span>
+              <span className="text-lg text-muted-foreground">{cardinal(firstLeg.bearingDeg)}</span>
+              <span className="text-sm text-muted-foreground">
+                · magn. {Math.round(mag(firstLeg.bearingDeg, declNum))}°
+              </span>
             </div>
             <p className="text-sm text-fg">
-              Distance <strong className="font-mono">{nav.distanceKm.toFixed(1)} km</strong> · ETA{" "}
-              <strong className="font-mono">{etaText(nav.etaMin)}</strong>
+              Route <strong className="font-mono">{totals.distanceKm.toFixed(1)} km</strong>
+              {waypoints.length > 0 ? ` · ${totals.legs.length} étapes` : ""} · ETA{" "}
+              <strong className="font-mono">{etaText(totals.etaMin)}</strong>
             </p>
             <p className="text-xs text-muted-foreground">
-              {start.name || "départ"} → {dest.name || "destination"} · cap vrai (ajouter la
-              déclinaison magnétique si boussole)
+              Premier cap : {start.name || "départ"} → {(waypoints[0]?.name || dest.name) || "arrivée"} · cap
+              vrai (magn. = vrai − déclinaison)
             </p>
           </div>
         </div>
       ) : (
         <p className="rounded-md border border-border bg-surface p-4 text-sm text-muted-foreground">
           Choisis un <strong>départ</strong> (bouton « Position GPS », un lieu, ou des coordonnées) et
-          une <strong>destination</strong> pour obtenir le cap et la distance.
+          une <strong>destination</strong> pour tracer la route et obtenir le cap.
         </p>
       )}
 
-      {nav ? (
+      {totals ? <RouteMap pts={pts} hazards={hazards} /> : null}
+
+      {totals ? (
         <div className="space-y-2 rounded-md border border-border bg-surface p-4">
           <div className="flex items-center gap-2">
             <TriangleAlert className="size-4 text-muted-foreground" aria-hidden />
@@ -263,8 +421,8 @@ export function NavPanel() {
           </div>
           {hazards.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              Aucun phénomène capté à moins de 25 km de la ligne droite, au dernier relevé. Le terrain
-              (oueds, dunes, champs de mines) se reconnaît à l'œil — ceci n'est pas un relevé de route.
+              Aucun phénomène capté à moins de 25 km de la route, au dernier relevé (mis à jour en
+              continu). Le terrain (oueds, dunes, champs de mines) se reconnaît à l'œil.
             </p>
           ) : (
             <ul className="divide-y divide-border">
@@ -274,7 +432,7 @@ export function NavPanel() {
                   <Badge>{KIND_LABEL[h.kind as keyof typeof KIND_LABEL] ?? h.kind}</Badge>
                   <span className="text-fg">{h.title}</span>
                   <span className="ml-auto font-mono text-muted-foreground">
-                    à {Math.round(h.alongKm)} km sur l'axe · {Math.round(h.offsetKm)} km à {h.side}
+                    à {Math.round(h.alongKm)} km sur la route · {Math.round(h.offsetKm)} km à {h.side}
                   </span>
                 </li>
               ))}
@@ -285,8 +443,9 @@ export function NavPanel() {
 
       <p className="rounded-md border border-border bg-surface px-4 py-2 text-[11px] text-muted-foreground">
         Navigation directe (orthodromie), cap vrai — pas d'itinéraire routier, pas de guidage d'arme.
-        Les obstacles sont ceux captés (phénomènes réels) ; le relief et les pistes se lisent sur
-        l'imagerie et à l'œil. Réception seule.
+        Le contournement est une proposition (point de passage qui dégage l'axe), pas un plan de route
+        optimal ; le relief et les pistes se lisent sur l'imagerie et à l'œil. Déclinaison approchée, à
+        vérifier sur carte. Réception seule.
       </p>
     </section>
   );

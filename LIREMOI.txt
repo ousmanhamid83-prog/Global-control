@@ -277,12 +277,22 @@ Navigation directe jusqu'au site (Capteurs > Navigation)
 - Départ : bouton « Position GPS » (si une antenne GPS est branchée), un lieu du répertoire, un site
   surveillé, ou des coordonnées. Destination : idem. Cap vrai — ajouter la déclinaison magnétique si
   on suit une boussole.
-- SÛRETÉ DE L'AXE : le poste balaie la ligne droite et signale les obstacles CAPTÉS (crue, feu,
-  séisme) à moins de 25 km de l'axe, avec « à X km sur l'axe · Y km à gauche/droite ». « Axe dégagé »
-  s'il n'y en a pas au dernier relevé.
-- Honnêteté : navigation directe, PAS d'itinéraire routier et PAS de guidage d'arme. Le relief, les
-  oueds et les pistes se lisent sur l'imagerie et à l'œil ; ceci aide un véhicule à tenir un cap.
-  Réception seule.
+- ÉTAPES : on enchaîne des points de passage (« Ajouter une étape ») pour contourner une zone connue ;
+  distance, caps et ETA sont cumulés sur toute la route.
+- CARTE DE ROUTE : un schéma trace l'axe, les étapes et les obstacles (pastilles) ; il se met à jour
+  en continu.
+- CAP MAGNÉTIQUE : le poste affiche aussi le cap magnétique (= cap vrai − déclinaison). La déclinaison
+  est pré-estimée pour le Sahel (approchée, ±2°, à vérifier sur carte) et reste éditable.
+- SÛRETÉ DE L'AXE, EN CONTINU : à chaque relevé, le poste balaie la route et signale les obstacles
+  CAPTÉS (crue, feu, séisme) à moins de 25 km, avec « à X km sur la route · Y km à gauche/droite ».
+  Si l'axe n'est pas sûr :
+  · il PROPOSE UN CONTOURNEMENT (point de passage décalé qui dégage les deux demi-étapes) — un clic
+    « Insérer le contournement » l'ajoute comme étape et l'axe repasse « dégagé » ;
+  · s'il ne trouve aucune route sûre (≤ 180 km de détour), il conseille le DEMI-TOUR et propose
+    l'itinéraire retour. C'est le « faute de route sûre, on rebrousse » demandé.
+- Honnêteté : navigation directe, PAS d'itinéraire routier et PAS de guidage d'arme. Le contournement
+  est une proposition (pas un plan optimal) ; le relief, les oueds et les pistes se lisent sur
+  l'imagerie et à l'œil. Réception seule : ça aide un véhicule à tenir un cap.
 
 Durcissement défensif
 - En-têtes de sécurité sur chaque réponse (nosniff, Referrer-Policy no-referrer, Permissions-Policy

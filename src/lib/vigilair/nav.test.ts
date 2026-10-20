@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { axisHazards, bearingDeg, cardinal, distanceKm, relativeTurn, solve } from "./nav.ts";
+import {
+  axisHazards,
+  bearingDeg,
+  cardinal,
+  destinationPoint,
+  distanceKm,
+  relativeTurn,
+  routeTotals,
+  safeDetour,
+  solve,
+} from "./nav.ts";
 
 test("cap : plein est ≈ 90°, plein nord ≈ 0°", () => {
   // à l'équateur, aller vers l'est = cap 90
@@ -42,4 +52,33 @@ test("axisHazards : un danger sur l'axe est retenu, un danger loin est ignoré",
   assert.ok(haz[0]!.offsetKm < 25 && haz[0]!.offsetKm > 5);
   assert.ok(haz[0]!.alongKm > 150 && haz[0]!.alongKm < 300); // ~ moitié de ~445 km
   assert.equal(haz[0]!.side, "gauche"); // nord de l'axe est→ sur un cap est, le nord est à gauche
+});
+
+test("destinationPoint : 111 km plein nord ≈ +1° de latitude", () => {
+  const [lat, lon] = destinationPoint(0, 0, 0, 111.2);
+  assert.ok(Math.abs(lat - 1) < 0.02);
+  assert.ok(Math.abs(lon) < 0.001);
+});
+
+test("routeTotals : somme des étapes", () => {
+  const r = routeTotals([{ lat: 0, lon: 0 }, { lat: 0, lon: 1 }, { lat: 0, lon: 2 }], 60);
+  assert.equal(r.legs.length, 2);
+  assert.ok(Math.abs(r.distanceKm - 222.4) < 2);
+  assert.ok(r.etaMin && Math.abs(r.etaMin - 222.4) < 3);
+});
+
+test("safeDetour : axe dégagé → clear ; obstacle sur l'axe → point de contournement qui dégage", () => {
+  const far = [{ id: "x", kind: "feu", lat: 9, lon: 0.5, title: "loin" }]; // ~1000 km au nord
+  assert.deepEqual(safeDetour(0, 0, 0, 1, far, 25), { clear: true });
+
+  const onAxis = [{ id: "y", kind: "inondation", lat: 0, lon: 0.5, title: "sur l'axe" }]; // pile au milieu
+  const d = safeDetour(0, 0, 0, 1, onAxis, 25);
+  assert.equal(d.clear, false);
+  if (d.clear === false && d.waypoint) {
+    // les deux demi-étapes doivent être dégagées
+    assert.equal(axisHazards(0, 0, d.waypoint.lat, d.waypoint.lon, onAxis, 25).length, 0);
+    assert.equal(axisHazards(d.waypoint.lat, d.waypoint.lon, 0, 1, onAxis, 25).length, 0);
+  } else {
+    assert.fail("un contournement aurait dû être trouvé");
+  }
 });
