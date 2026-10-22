@@ -7,7 +7,8 @@ import { IdleLock } from "@/components/vigilair/idle-lock";
 import { ChefSealHost } from "@/components/vigilair/chef-seal";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { blobStats, diffHeatmap, frameHeading, presenceHint } from "@/lib/vigilair/change-diff";
+import { allBlobs, blobStats, diffHeatmap, frameHeading, mergeNearbyBlobs, presenceHint } from "@/lib/vigilair/change-diff";
+import { confirmedTracks, stepTracker, type Track2D } from "@/lib/vigilair/track2d";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { fetchDroneFrame } from "@/lib/vigilair/drones-api";
 import { dronesSnapshot, hydrateDrones, subscribeDrones } from "@/lib/vigilair/drones";
@@ -60,8 +61,10 @@ function DroneWatch() {
   const idx = useRef(0);
   const prevFrame = useRef<Map<string, ImageData>>(new Map());
   const lastAlert = useRef<Map<string, number>>(new Map());
-  /** Trace de suivi : derniers centres de la zone en mouvement, par drone (sans identité). */
-  const trail = useRef<Map<string, { x: number; y: number; t: number }[]>>(new Map());
+  /** Pistage multi-cibles, par drone (sans identité) : pistes en cours, prochain id, heure du relevé. */
+  const tracksRef = useRef<Map<string, Track2D[]>>(new Map());
+  const seedRef = useRef<Map<string, number>>(new Map());
+  const lastAt = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     if (!on) return;
@@ -112,27 +115,45 @@ function DroneWatch() {
         const stats = diff.mask ? blobStats(diff.mask, PX, PX, 6) : { count: 0, totalChanged: 0, largest: null };
         const hint = presenceHint(stats.largest, PX, PX);
 
-        // Suivi de piste (sans identité) : on suit le CENTRE de la zone en mouvement d'une trame à
-        // l'autre → trace, sens de déplacement à l'écran, vitesse estimée. Ce n'est pas « qui », c'est « où ça va ».
-        let heading: string | undefined;
-        let speed: number | undefined;
-        let trailPts: { x: number; y: number }[] | undefined;
-        if (stats.largest) {
-          const arr = trail.current.get(drone.id) ?? [];
-          arr.push({ x: stats.largest.cx, y: stats.largest.cy, t: Date.now() });
-          while (arr.length > 8) arr.shift();
-          trail.current.set(drone.id, arr);
-          if (arr.length >= 2) {
-            const a = arr[arr.length - 2]!;
-            const b = arr[arr.length - 1]!;
-            const dx = b.x - a.x;
-            const dy = b.y - a.y;
-            const dt = Math.max(0.001, (b.t - a.t) / 1000);
-            heading = frameHeading(dx, dy);
-            speed = Math.round(((Math.hypot(dx, dy) / PX) * 100 / dt) * 10) / 10;
-          }
-          trailPts = arr.map((p) => ({ x: p.x, y: p.y }));
-        }
+        // Pistage MULTI-CIBLES (sans identité) : chaque zone de mouvement (après recollage des bandes
+        // départ/arrivée) devient une détection ; on les associe aux pistes d'une trame à l'autre →
+        // plusieurs pistes suivies en parallèle, chacune avec son cap et son allure. « Où va chaque
+        // présence », jamais « qui c'est ».
+        const now2 = Date.now();
+        const prevAt = lastAt.current.get(drone.id) ?? now2 - (Math.max(2, cadence || 15) * 1000);
+        const dt = Math.max(0.2, (now2 - prevAt) / 1000);
+        lastAt.current.set(drone.id, now2);
+        const detections = diff.mask
+          ? mergeNearbyBlobs(allBlobs(diff.mask, PX, PX, 6), 8).map((b) => ({ cx: b.cx, cy: b.cy }))
+          : [];
+        const stepped = stepTracker(
+          tracksRef.current.get(drone.id) ?? [],
+          detections,
+          seedRef.current.get(drone.id) ?? 1,
+          { gate: PX * 0.4, maxMisses: 2, maxTrail: 8 },
+        );
+        tracksRef.current.set(drone.id, stepped.tracks);
+        seedRef.current.set(drone.id, stepped.nextId);
+        const confirmed = confirmedTracks(stepped.tracks, 2);
+        const whereOf = (cx: number, cy: number) => {
+          const hx = cx / PX < 0.34 ? "gauche" : cx / PX > 0.66 ? "droite" : "centre";
+          const hy = cy / PX < 0.34 ? "haut" : cy / PX > 0.66 ? "bas" : "milieu";
+          return `${hy}-${hx}`;
+        };
+        const tracksOut = confirmed
+          .map((t) => ({
+            id: t.id,
+            heading: frameHeading(t.vx, t.vy),
+            speed: Math.round(((Math.hypot(t.vx, t.vy) / PX) * 100 / dt) * 10) / 10,
+            where: whereOf(t.cx, t.cy),
+          }))
+          .sort((a, b) => a.id - b.id);
+        // Piste principale (la plus établie) pour l'affichage compact.
+        const primary = confirmed.slice().sort((a, b) => b.hits - a.hits)[0];
+        const heading = primary ? frameHeading(primary.vx, primary.vy) : undefined;
+        const speed = primary
+          ? Math.round(((Math.hypot(primary.vx, primary.vy) / PX) * 100 / dt) * 10) / 10
+          : undefined;
 
         // Capture de preuve : trame figée + surcouche mouvement + boîte de la plus grande zone + trace.
         let frame: string | undefined;
@@ -163,19 +184,22 @@ function DroneWatch() {
                 stats.largest.y1 - stats.largest.y0 + 1,
               );
             }
-            // Trace de suivi : ligne bleue reliant les derniers centres, point sur la position courante.
-            if (trailPts && trailPts.length >= 2) {
-              cctx.strokeStyle = "rgba(120,200,255,0.9)";
-              cctx.lineWidth = 1.5;
-              cctx.beginPath();
-              cctx.moveTo(trailPts[0]!.x, trailPts[0]!.y);
-              for (let i = 1; i < trailPts.length; i++) cctx.lineTo(trailPts[i]!.x, trailPts[i]!.y);
-              cctx.stroke();
-              const head = trailPts[trailPts.length - 1]!;
+            // Pistage multi-cibles : une trace + un point + un label « T{id} » par piste établie.
+            cctx.font = "9px monospace";
+            for (const t of confirmed) {
+              if (t.trail.length >= 2) {
+                cctx.strokeStyle = "rgba(120,200,255,0.9)";
+                cctx.lineWidth = 1.5;
+                cctx.beginPath();
+                cctx.moveTo(t.trail[0]!.x, t.trail[0]!.y);
+                for (let i = 1; i < t.trail.length; i++) cctx.lineTo(t.trail[i]!.x, t.trail[i]!.y);
+                cctx.stroke();
+              }
               cctx.fillStyle = "rgba(120,200,255,0.95)";
               cctx.beginPath();
-              cctx.arc(head.x, head.y, 2.5, 0, Math.PI * 2);
+              cctx.arc(t.cx, t.cy, 2.5, 0, Math.PI * 2);
               cctx.fill();
+              cctx.fillText(`T${t.id}`, Math.min(PX - 14, t.cx + 4), Math.max(9, t.cy - 4));
             }
             frame = comp.toDataURL("image/png");
           }
@@ -189,6 +213,8 @@ function DroneWatch() {
           pct,
           at: Date.now(),
           zones: stats.count,
+          targets: confirmed.length,
+          tracks: tracksOut,
           hint: hint.hint,
           where: hint.where,
           heading,
@@ -201,8 +227,12 @@ function DroneWatch() {
           const last = lastAlert.current.get(drone.id) ?? 0;
           if (Date.now() - last > 10 * 60 * 1000) {
             lastAlert.current.set(drone.id, Date.now());
-            const zonesTxt = stats.count > 0 ? `${stats.count} zone${stats.count > 1 ? "s" : ""} · ` : "";
-            const track = heading && heading !== "immobile" ? ` · se déplace vers ${heading}${speed ? ` ~${speed}%/s` : ""}` : "";
+            const nT = tracksOut.length;
+            const pistesTxt = nT > 0 ? `${nT} piste${nT > 1 ? "s" : ""} · ` : `${hint.hint} · `;
+            const detail = tracksOut
+              .slice(0, 3)
+              .map((t) => `T${t.id} → ${t.heading}${t.speed ? ` ${t.speed}%/s` : ""}`)
+              .join(" · ");
             const patrol = armed ? " · périmètre armé : vérifier la capture, envoyer une patrouille" : "";
             pushAlert({
               id: `drone-motion-${drone.id}-${Date.now()}`,
@@ -210,7 +240,7 @@ function DroneWatch() {
               at: Date.now(),
               level,
               title: armed ? "Présence sur périmètre armé (drone)" : "Mouvement détecté (imagerie drone)",
-              body: `${drone.name} · ${pct}% du cadre · ${zonesTxt}${hint.hint} · ${hint.where}${track} · ${drone.site || "site"}${patrol} · suivi/présence, identification à l'œil sur la capture`,
+              body: `${drone.name} · ${pct}% du cadre · ${pistesTxt}${detail || hint.where} · ${drone.site || "site"}${patrol} · suivi/présence, identification à l'œil sur la capture`,
               acked: false,
             });
             navBeep();

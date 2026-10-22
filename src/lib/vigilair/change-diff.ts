@@ -109,17 +109,14 @@ export function diffHeatmap(
 
 /**
  * Regroupe les pixels en mouvement en ZONES connexes (4-connexité, pile itérative — pas de récursion).
- * Renvoie le nombre de zones ≥ minArea, le total de pixels, et la plus grande zone (boîte + centre).
- * Pure : c'est de la géométrie de changement, aucun modèle, aucune identité.
+ * Renvoie TOUTES les zones ≥ minArea (boîte + aire + centre). Pure : géométrie de changement, aucun
+ * modèle, aucune identité.
  */
-export function blobStats(mask: Uint8Array, width: number, height: number, minArea = 4): PresenceStats {
+export function allBlobs(mask: Uint8Array, width: number, height: number, minArea = 4): MoveBlob[] {
   const n = width * height;
   const seen = new Uint8Array(n);
   const stack: number[] = [];
-  let count = 0;
-  let totalChanged = 0;
-  let largest: MoveBlob | null = null;
-  for (let i = 0; i < n; i++) totalChanged += mask[i] ? 1 : 0;
+  const blobs: MoveBlob[] = [];
   for (let start = 0; start < n; start++) {
     if (!mask[start] || seen[start]) continue;
     let area = 0;
@@ -149,12 +146,57 @@ export function blobStats(mask: Uint8Array, width: number, height: number, minAr
       if (y < height - 1 && mask[idx + width] && !seen[idx + width]) { seen[idx + width] = 1; stack.push(idx + width); }
     }
     if (area < minArea) continue;
-    count++;
-    if (!largest || area > largest.area) {
-      largest = { area, x0, y0, x1, y1, cx: sx / area, cy: sy / area };
+    blobs.push({ area, x0, y0, x1, y1, cx: sx / area, cy: sy / area });
+  }
+  return blobs;
+}
+
+/**
+ * Fusionne les zones dont les boîtes sont proches (à ≤ gap px). Un objet qui se déplace produit en
+ * différence d'image deux bandes (départ + arrivée) : on les recolle pour qu'UNE cible = UNE zone,
+ * au lieu de deux. Centre pondéré par l'aire. Pure.
+ */
+export function mergeNearbyBlobs(blobs: MoveBlob[], gap: number): MoveBlob[] {
+  const items = blobs.map((b) => ({ ...b }));
+  let merged = true;
+  while (merged) {
+    merged = false;
+    outer: for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const a = items[i]!;
+        const b = items[j]!;
+        const near =
+          a.x0 - gap <= b.x1 && b.x0 - gap <= a.x1 && a.y0 - gap <= b.y1 && b.y0 - gap <= a.y1;
+        if (!near) continue;
+        const area = a.area + b.area;
+        items[i] = {
+          area,
+          x0: Math.min(a.x0, b.x0),
+          y0: Math.min(a.y0, b.y0),
+          x1: Math.max(a.x1, b.x1),
+          y1: Math.max(a.y1, b.y1),
+          cx: (a.cx * a.area + b.cx * b.area) / area,
+          cy: (a.cy * a.area + b.cy * b.area) / area,
+        };
+        items.splice(j, 1);
+        merged = true;
+        break outer;
+      }
     }
   }
-  return { count, totalChanged, largest };
+  return items;
+}
+
+/**
+ * Agrégat de présence : nombre de zones ≥ minArea, total de pixels changés, et la plus grande zone.
+ */
+export function blobStats(mask: Uint8Array, width: number, height: number, minArea = 4): PresenceStats {
+  let totalChanged = 0;
+  for (let i = 0; i < mask.length; i++) totalChanged += mask[i] ? 1 : 0;
+  const blobs = allBlobs(mask, width, height, minArea);
+  let largest: MoveBlob | null = null;
+  for (const b of blobs) if (!largest || b.area > largest.area) largest = b;
+  return { count: blobs.length, totalChanged, largest };
 }
 
 /**

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { blobStats, diffHeatmap, frameHeading, presenceHint } from "./change-diff.ts";
+import { allBlobs, blobStats, diffHeatmap, frameHeading, mergeNearbyBlobs, presenceHint } from "./change-diff.ts";
 
 /** Fabrique une image RGBA pleine d'une couleur. */
 function fill(w: number, h: number, r: number, g: number, b: number): Uint8ClampedArray {
@@ -150,6 +150,40 @@ test("presenceHint : géométrie vers indice prudent, jamais une identité", () 
   assert.equal(presenceHint({ area: 20, x0: 0, y0: 0, x1: 4, y1: 4, cx: 2, cy: 2 }, 100, 100).hint, "mouvement ténu");
   // rien
   assert.equal(presenceHint(null, 100, 100).hint, "aucune zone nette");
+});
+
+test("allBlobs renvoie toutes les zones ≥ minArea", () => {
+  const before = fill(16, 16, 100, 100, 100);
+  const after = fill(16, 16, 100, 100, 100);
+  const paint = (x0: number, y0: number, rw: number, rh: number) => {
+    for (let y = y0; y < y0 + rh; y++)
+      for (let x = x0; x < x0 + rw; x++) {
+        const p = (y * 16 + x) * 4;
+        after[p] = 230; after[p + 1] = 220; after[p + 2] = 200;
+      }
+  };
+  paint(1, 1, 2, 2);
+  paint(10, 10, 3, 3);
+  const { mask } = diffHeatmap(before, after, 16, 16, { threshold: 30, mask: true });
+  const blobs = allBlobs(mask!, 16, 16, 1);
+  assert.equal(blobs.length, 2);
+});
+
+test("mergeNearbyBlobs recolle deux bandes proches en une cible", () => {
+  // deux bandes séparées de 3 px (départ + arrivée d'un même mobile) → une seule zone après fusion
+  const bands = [
+    { area: 30, x0: 10, y0: 40, x1: 15, y1: 65, cx: 12, cy: 52 },
+    { area: 30, x0: 18, y0: 40, x1: 23, y1: 65, cx: 20, cy: 52 },
+  ];
+  assert.equal(mergeNearbyBlobs(bands, 4).length, 1);
+  // avec un gap nul, elles restent séparées (écart de 3 px > 0)
+  assert.equal(mergeNearbyBlobs(bands, 0).length, 2);
+  // deux vraies cibles éloignées ne fusionnent pas
+  const far = [
+    { area: 30, x0: 5, y0: 5, x1: 10, y1: 10, cx: 7, cy: 7 },
+    { area: 30, x0: 90, y0: 90, x1: 95, y1: 95, cx: 92, cy: 92 },
+  ];
+  assert.equal(mergeNearbyBlobs(far, 6).length, 2);
 });
 
 test("frameHeading : sens écran sur 8 secteurs, dy vers le bas", () => {

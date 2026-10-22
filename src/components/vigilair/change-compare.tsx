@@ -317,8 +317,9 @@ function SiteManager() {
           Un drone inscrit est reconnu <strong>ami</strong> : sa piste 1090ES (s'il émet) n'est plus
           comptée comme intrusion. Son <strong>image</strong> (station sol / nacelle) devient une source
           d'analyse : la veille compare deux trames, signale un <strong>mouvement/présence</strong> et
-          <strong> suit la piste</strong> (sens + vitesse à l'écran) — jamais une identification de
-          personne. AfriControl <strong>suit et analyse</strong>, il ne pilote pas, n'arme rien.
+          <strong> suit plusieurs pistes</strong> en parallèle (cap + vitesse à l'écran, id par piste) —
+          jamais une identification de personne. AfriControl <strong>suit et analyse</strong>, il ne
+          pilote pas, n'arme rien.
           <strong> Identifiant</strong> = hex ICAO (ex. 3C6DD2) ou indicatif. L'URL accepte une image
           fixe (snapshot JPEG) ou un flux <strong>MJPEG</strong> ; le RTSP demande une passerelle.
         </p>
@@ -384,7 +385,7 @@ function SiteManager() {
                     ) : null}
                     {m && m.pct != null && !m.error ? (
                       <span className="text-muted-foreground">
-                        {m.zones ? `${m.zones} zone${m.zones > 1 ? "s" : ""} · ` : ""}
+                        {m.targets ? `${m.targets} piste${m.targets > 1 ? "s" : ""} · ` : ""}
                         {m.hint}
                         {m.where && m.where !== "—" ? ` · ${m.where}` : ""}
                         {m.heading && m.heading !== "immobile" ? ` · → ${m.heading}${m.speed ? ` ${m.speed}%/s` : ""}` : ""}
@@ -416,16 +417,23 @@ function SiteManager() {
                       />
                       <div className="min-w-0 flex-1 space-y-1 text-[11px] text-muted-foreground">
                         <p className="text-fg">
-                          Mouvement <strong>{m.pct}%</strong> · {m.zones ?? 0} zone{(m.zones ?? 0) > 1 ? "s" : ""} · {m.hint} · {m.where}
-                          {m.heading && m.heading !== "immobile" ? (
-                            <> · suit vers <strong>{m.heading}</strong>{m.speed ? ` ~${m.speed}%/s` : ""}</>
-                          ) : null}
+                          Mouvement <strong>{m.pct}%</strong> · {m.targets ?? 0} piste{(m.targets ?? 0) > 1 ? "s" : ""} · {m.hint} · {m.where}
                         </p>
+                        {m.tracks && m.tracks.length > 0 ? (
+                          <ul className="font-mono text-[10.5px]">
+                            {m.tracks.map((t) => (
+                              <li key={t.id}>
+                                T{t.id} · {t.where} · {t.heading === "immobile" ? "immobile" : <>→ {t.heading} {t.speed}%/s</>}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
                         <p>
-                          Zone de mouvement surlignée en orange, plus grande zone encadrée, <strong>trace de
-                          suivi</strong> en bleu. C'est une <strong>aide à la décision</strong> : l'opérateur
-                          regarde et <strong>identifie à l'œil</strong>. AfriControl ne reconnaît ni visage ni
-                          plaque, ne cible pas.
+                          Zones de mouvement surlignées en orange, plus grande zone encadrée, <strong>une trace
+                          de suivi par piste</strong> (bleu, label T1/T2…). Pistage multi-cibles : chaque présence
+                          garde sa piste d'une trame à l'autre. C'est une <strong>aide à la décision</strong> :
+                          l'opérateur regarde et <strong>identifie à l'œil</strong>. AfriControl ne reconnaît ni
+                          visage ni plaque, ne cible pas.
                         </p>
                         {m.level === "critique" ? (
                           <p className="text-crit">Périmètre armé : envoyer une patrouille.</p>

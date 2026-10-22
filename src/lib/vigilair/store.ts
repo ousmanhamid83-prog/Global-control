@@ -82,10 +82,14 @@ export type DroneMotion = {
   hint?: string;
   /** Localisation grossière de la plus grande zone dans le cadre (ex. « bas-gauche »). */
   where?: string;
-  /** Suivi de piste : sens de déplacement à l'écran de la zone en mouvement (ex. « droite »). */
+  /** Suivi de piste : sens de déplacement à l'écran de la piste principale (ex. « droite »). */
   heading?: string;
-  /** Suivi de piste : vitesse estimée de la zone (% du cadre / s). */
+  /** Suivi de piste : vitesse estimée de la piste principale (% du cadre / s). */
   speed?: number;
+  /** Pistage multi-cibles : nombre de pistes établies simultanément. */
+  targets?: number;
+  /** Pistage multi-cibles : une entrée par piste (id stable, cap écran, vitesse, position). */
+  tracks?: { id: number; heading: string; speed: number; where: string }[];
   /** Capture : trame figée + surcouche mouvement + trace (data URL), pour revue humaine. */
   frame?: string;
   /** Niveau de la dernière alerte liée (elevee / critique si périmètre armé). */
