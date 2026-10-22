@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { diffHeatmap } from "./change-diff.ts";
+import { blobStats, diffHeatmap, presenceHint } from "./change-diff.ts";
 
 /** Fabrique une image RGBA pleine d'une couleur. */
 function fill(w: number, h: number, r: number, g: number, b: number): Uint8ClampedArray {
@@ -71,4 +71,83 @@ test("différence sous le seuil ignorée (bruit d'illumination)", () => {
   const after = fill(w, h, 110, 108, 112); // ~ +8/canal, sous le seuil 30
   const res = diffHeatmap(before, after, w, h, { threshold: 30 });
   assert.equal(res.changedFrac, 0);
+});
+
+/** Pose un rectangle « changé » (after ≠ before) dans un cadre uni. */
+function withRect(w: number, h: number, x0: number, y0: number, rw: number, rh: number) {
+  const before = fill(w, h, 100, 100, 100);
+  const after = fill(w, h, 100, 100, 100);
+  for (let y = y0; y < y0 + rh; y++) {
+    for (let x = x0; x < x0 + rw; x++) {
+      const p = (y * w + x) * 4;
+      after[p] = 230;
+      after[p + 1] = 220;
+      after[p + 2] = 200;
+    }
+  }
+  return { before, after };
+}
+
+test("diffHeatmap renvoie un masque quand on le demande", () => {
+  const { before, after } = withRect(10, 10, 1, 1, 3, 2);
+  const res = diffHeatmap(before, after, 10, 10, { threshold: 30, mask: true });
+  assert.ok(res.mask instanceof Uint8Array);
+  assert.equal(res.mask!.reduce((s, v) => s + v, 0), 6); // 3×2 pixels changés
+  // sans l'option, pas de masque
+  assert.equal(diffHeatmap(before, after, 10, 10, { threshold: 30 }).mask, undefined);
+});
+
+test("blobStats regroupe une zone connexe et donne sa boîte + centre", () => {
+  const { before, after } = withRect(12, 12, 2, 3, 4, 2); // 1 zone 4×2 = 8 px
+  const { mask } = diffHeatmap(before, after, 12, 12, { threshold: 30, mask: true });
+  const st = blobStats(mask!, 12, 12, 1);
+  assert.equal(st.count, 1);
+  assert.equal(st.totalChanged, 8);
+  assert.ok(st.largest);
+  assert.equal(st.largest!.area, 8);
+  assert.equal(st.largest!.x0, 2);
+  assert.equal(st.largest!.x1, 5);
+  assert.equal(st.largest!.y0, 3);
+  assert.equal(st.largest!.y1, 4);
+});
+
+test("blobStats sépare deux zones disjointes et garde la plus grande", () => {
+  const before = fill(16, 16, 100, 100, 100);
+  const after = fill(16, 16, 100, 100, 100);
+  const paint = (x0: number, y0: number, rw: number, rh: number) => {
+    for (let y = y0; y < y0 + rh; y++)
+      for (let x = x0; x < x0 + rw; x++) {
+        const p = (y * 16 + x) * 4;
+        after[p] = 230; after[p + 1] = 220; after[p + 2] = 200;
+      }
+  };
+  paint(1, 1, 2, 2); // 4 px
+  paint(10, 10, 3, 3); // 9 px (plus grande)
+  const { mask } = diffHeatmap(before, after, 16, 16, { threshold: 30, mask: true });
+  const st = blobStats(mask!, 16, 16, 1);
+  assert.equal(st.count, 2);
+  assert.equal(st.totalChanged, 13);
+  assert.equal(st.largest!.area, 9);
+});
+
+test("blobStats ignore les taches sous minArea (bruit)", () => {
+  const before = fill(16, 16, 100, 100, 100);
+  const after = fill(16, 16, 100, 100, 100);
+  const p = (2 * 16 + 2) * 4; // 1 pixel isolé
+  after[p] = 230; after[p + 1] = 220; after[p + 2] = 200;
+  const { mask } = diffHeatmap(before, after, 16, 16, { threshold: 30, mask: true });
+  assert.equal(blobStats(mask!, 16, 16, 4).count, 0); // sous minArea=4
+  assert.equal(blobStats(mask!, 16, 16, 1).count, 1);
+});
+
+test("presenceHint : géométrie vers indice prudent, jamais une identité", () => {
+  // zone large et allongée au centre-bas → indice « véhicule possible » (≥ 4 % du cadre)
+  const wide = presenceHint({ area: 600, x0: 10, y0: 60, x1: 50, y1: 74, cx: 30, cy: 67 }, 100, 100);
+  assert.ok(wide.aspect >= 1.3);
+  assert.equal(wide.where, "bas-gauche");
+  assert.match(wide.hint, /véhicule possible/);
+  // zone minuscule → mouvement ténu
+  assert.equal(presenceHint({ area: 20, x0: 0, y0: 0, x1: 4, y1: 4, cx: 2, cy: 2 }, 100, 100).hint, "mouvement ténu");
+  // rien
+  assert.equal(presenceHint(null, 100, 100).hint, "aucune zone nette");
 });

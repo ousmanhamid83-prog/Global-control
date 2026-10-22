@@ -258,12 +258,25 @@ Nos drones — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs > Changemen
   la « Veille mouvement (imagerie drone) » récupère une trame (proxy serveur, pour lire les pixels),
   la compare à la précédente, et SONNE si une part du cadre a bougé au-delà du seuil réglable (% du
   cadre). C'est de la détection de MOUVEMENT / PRÉSENCE — jamais une identification de personne.
+- NATURE DE LA PRÉSENCE (sans identité) : le poste regroupe les pixels qui ont bougé en ZONES connexes
+  et lit leur géométrie — nombre de zones, taille, où dans le cadre — pour en tirer un INDICE prudent
+  (« silhouette compacte / piéton possible », « masse large / véhicule possible », « indéterminée »).
+  C'est une CLASSE, jamais un NOM : un indice à confirmer à l'œil, pas une reconnaissance d'objet.
+- CAPTURE DE PREUVE POUR L'OPÉRATEUR : à la détection, la trame est FIGÉE avec la zone de mouvement
+  surlignée (orange) et la plus grande zone encadrée ; bouton « Capture » dans la liste. L'opérateur
+  OUVRE la capture, REGARDE, et IDENTIFIE à l'œil. C'est lui qui reconnaît qui c'est — jamais une IA.
+- ALERTE ZONE RENFORCÉE : si le SITE du drone est un périmètre armé (mine, ou site surveillé armé),
+  l'alerte passe en CRITIQUE « Présence sur périmètre armé » avec « envoyer une patrouille ». Sinon
+  elle reste « Mouvement détecté » (élevée). Bandeau + bip dans les deux cas.
 - CE QU'ON NE FAIT PAS : AfriControl SUIT et ANALYSE ; il ne PILOTE pas le drone, ne lui commande rien,
-  n'est pas une arme. L'analyse d'image dit « ça a bougé là », pas « qui ». Le proxy n'accepte qu'une
-  URL déjà inscrite au registre (pas un proxy ouvert), et seulement une image.
+  n'est pas une arme. Il dit « ça a bougé là, plutôt tel gabarit » — jamais « c'est untel ». PAS de
+  reconnaissance de VISAGE, PAS de lecture de PLAQUE, PAS de ciblage : l'identité reste à l'œil humain
+  sur la capture. Le proxy n'accepte qu'une URL déjà inscrite au registre (pas un proxy ouvert), et
+  seulement une image.
 - LIMITES ASSUMÉES : le marquage ami sur la carte suppose que le drone ÉMET l'ADS-B avec un hex/
   indicatif qui matche (un drone muet reste au registre et à l'analyse d'image, sans piste air) ; la
-  veille mouvement suppose une URL d'image fixe jointe — sinon le drone est juste suivi/inscrit.
+  veille mouvement suppose une URL d'image fixe jointe — sinon le drone est juste suivi/inscrit ;
+  l'indice piéton/véhicule est une aide, pas une certitude — l'œil tranche.
 
 Comparateur avant/après — Capteurs > onglet « Changement »
 - Pas de direct : un satellite ne repasse que tous les quelques jours. On ne traque pas une voiture

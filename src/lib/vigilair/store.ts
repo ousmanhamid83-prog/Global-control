@@ -70,6 +70,23 @@ import { mineZoneRows } from "./mines";
 import type { NavRoute } from "./nav";
 import { nearestWatchSite, watchZoneRows } from "./watch-sites";
 import { dronesPeek, matchOwnDrone } from "./drones";
+
+/** Dernier relevé de la veille drone : mouvement %, zones, indice de présence, et capture figée. */
+export type DroneMotion = {
+  pct: number | null;
+  at: number;
+  error?: string;
+  /** Nombre de zones de mouvement distinctes. */
+  zones?: number;
+  /** Indice de présence (prudent, à confirmer à l'œil) — jamais une identité. */
+  hint?: string;
+  /** Localisation grossière de la plus grande zone dans le cadre (ex. « bas-gauche »). */
+  where?: string;
+  /** Capture : trame figée + surcouche mouvement (data URL), pour revue humaine. */
+  frame?: string;
+  /** Niveau de la dernière alerte liée (elevee / critique si périmètre armé). */
+  level?: "elevee" | "critique";
+};
 import { reportZoneBreach } from "./zones-ops";
 
 const JOURNAL_KEY = "vigilair-journal-v1";
@@ -169,8 +186,8 @@ type VigilairState = {
   droneWatch: boolean;
   /** Seuil (% du cadre en mouvement) au-delà duquel la veille drone alerte. */
   droneThreshold: number;
-  /** Dernier résultat d'analyse par drone (id → % mouvement / horodatage / erreur), pour l'UI. */
-  droneMotion: Record<string, { pct: number | null; at: number; error?: string }>;
+  /** Dernier résultat d'analyse par drone (mouvement %, zones, indice de présence, capture), pour l'UI. */
+  droneMotion: Record<string, DroneMotion>;
   ewArmed: boolean;
   ppi: PpiParams;
   history: HistSample[];
@@ -237,7 +254,7 @@ type VigilairState = {
   setChangeThreshold: (v: number) => void;
   setDroneWatch: (v: boolean) => void;
   setDroneThreshold: (v: number) => void;
-  setDroneMotion: (id: string, res: { pct: number | null; at: number; error?: string }) => void;
+  setDroneMotion: (id: string, res: DroneMotion) => void;
   pushAlert: (a: AlertItem) => void;
   setAxisId: (id: string | null) => void;
   setPeakId: (id: string | null) => void;

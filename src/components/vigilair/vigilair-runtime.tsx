@@ -7,7 +7,7 @@ import { IdleLock } from "@/components/vigilair/idle-lock";
 import { ChefSealHost } from "@/components/vigilair/chef-seal";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { diffHeatmap } from "@/lib/vigilair/change-diff";
+import { blobStats, diffHeatmap, presenceHint } from "@/lib/vigilair/change-diff";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { fetchDroneFrame } from "@/lib/vigilair/drones-api";
 import { dronesSnapshot, hydrateDrones, subscribeDrones } from "@/lib/vigilair/drones";
@@ -67,6 +67,15 @@ function DroneWatch() {
     let dead = false;
     const PX = 128;
 
+    const norm = (s?: string) => (s ?? "").trim().toLowerCase();
+    /** Le site du drone est-il un PÉRIMÈTRE ARMÉ (mine, ou site surveillé armé) ? → alerte critique. */
+    const isArmedPerimeter = (site?: string) => {
+      const s = norm(site);
+      if (!s) return false;
+      if (MINES.some((m) => norm(m.short) === s || norm(m.name) === s)) return true;
+      return watchSitesSnapshot().some((w) => norm(w.name) === s && w.armed !== false);
+    };
+
     const analyse = async () => {
       if (dead) return;
       const drone = watched[idx.current % watched.length]!;
@@ -95,20 +104,71 @@ function DroneWatch() {
           setDroneMotion(drone.id, { pct: null, at: Date.now() });
           return;
         }
-        const diff = diffHeatmap(prev.data, cur.data, PX, PX, { threshold: 34 });
+        const diff = diffHeatmap(prev.data, cur.data, PX, PX, { threshold: 34, mask: true });
         const pct = Math.round(diff.changedFrac * 1000) / 10;
-        setDroneMotion(drone.id, { pct, at: Date.now() });
+        const stats = diff.mask ? blobStats(diff.mask, PX, PX, 6) : { count: 0, totalChanged: 0, largest: null };
+        const hint = presenceHint(stats.largest, PX, PX);
+
+        // Capture de preuve : trame figée + surcouche mouvement + boîte de la plus grande zone.
+        let frame: string | undefined;
+        try {
+          const comp = document.createElement("canvas");
+          comp.width = PX;
+          comp.height = PX;
+          const cctx = comp.getContext("2d");
+          if (cctx) {
+            cctx.drawImage(img, 0, 0, PX, PX);
+            const tmp = document.createElement("canvas");
+            tmp.width = PX;
+            tmp.height = PX;
+            const tctx = tmp.getContext("2d");
+            if (tctx) {
+              const ov = tctx.createImageData(PX, PX);
+              ov.data.set(diff.overlay);
+              tctx.putImageData(ov, 0, 0);
+              cctx.drawImage(tmp, 0, 0);
+            }
+            if (stats.largest) {
+              cctx.strokeStyle = "rgba(120,230,160,0.95)";
+              cctx.lineWidth = 2;
+              cctx.strokeRect(
+                stats.largest.x0,
+                stats.largest.y0,
+                stats.largest.x1 - stats.largest.x0 + 1,
+                stats.largest.y1 - stats.largest.y0 + 1,
+              );
+            }
+            frame = comp.toDataURL("image/png");
+          }
+        } catch {
+          /* capture indisponible : l'alerte et les chiffres suffisent */
+        }
+
+        const armed = pct >= threshold && isArmedPerimeter(drone.site);
+        const level: "elevee" | "critique" = armed ? "critique" : "elevee";
+        setDroneMotion(drone.id, {
+          pct,
+          at: Date.now(),
+          zones: stats.count,
+          hint: hint.hint,
+          where: hint.where,
+          frame,
+          level: pct >= threshold ? level : undefined,
+        });
+
         if (pct >= threshold) {
           const last = lastAlert.current.get(drone.id) ?? 0;
           if (Date.now() - last > 10 * 60 * 1000) {
             lastAlert.current.set(drone.id, Date.now());
+            const zonesTxt = stats.count > 0 ? `${stats.count} zone${stats.count > 1 ? "s" : ""} · ` : "";
+            const patrol = armed ? " · périmètre armé : vérifier la capture, envoyer une patrouille" : "";
             pushAlert({
               id: `drone-motion-${drone.id}-${Date.now()}`,
               trackId: "",
               at: Date.now(),
-              level: "elevee",
-              title: "Mouvement détecté (imagerie drone)",
-              body: `${drone.name} · ${pct}% du cadre a bougé · ${drone.site || "site"} · présence/mouvement, pas d'identification`,
+              level,
+              title: armed ? "Présence sur périmètre armé (drone)" : "Mouvement détecté (imagerie drone)",
+              body: `${drone.name} · ${pct}% du cadre · ${zonesTxt}${hint.hint} · ${hint.where} · ${drone.site || "site"}${patrol} · présence/mouvement, identification à l'œil sur la capture`,
               acked: false,
             });
             navBeep();

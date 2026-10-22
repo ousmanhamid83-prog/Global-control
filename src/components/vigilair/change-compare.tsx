@@ -69,6 +69,7 @@ function SiteManager() {
   const [drSite, setDrSite] = useState("");
   const [drUrl, setDrUrl] = useState("");
   const [drErr, setDrErr] = useState<string | null>(null);
+  const [openCapture, setOpenCapture] = useState<string | null>(null);
   const addDr = async () => {
     setDrErr(null);
     const r = await addDrone({ name: drName, ident: drIdent, site: drSite, snapshotUrl: drUrl });
@@ -349,25 +350,69 @@ function SiteManager() {
           <ul className="divide-y divide-border rounded-sm border border-border">
             {drones.map((d) => {
               const m = droneMotion[d.id];
+              const alarmed = m?.pct != null && m.pct >= droneThreshold;
+              const open = openCapture === d.id;
               return (
-                <li key={d.id} className="flex flex-wrap items-center gap-2 px-3 py-1.5 text-xs">
-                  <Badge tone="ok">ami</Badge>
-                  <span className="text-fg">{d.name}</span>
-                  <span className="text-muted-foreground">
-                    {d.ident}
-                    {d.site ? ` · ${d.site}` : ""}
-                    {d.snapshotUrl ? " · image ✓" : " · pas d'image"}
-                  </span>
-                  {m ? (
-                    <Badge tone={m.error ? "warn" : m.pct != null && m.pct >= droneThreshold ? "crit" : "default"}>
-                      {m.error ? m.error : m.pct == null ? "trame de réf." : `mvt ${m.pct}%`}
-                    </Badge>
-                  ) : null}
-                  <div className="ml-auto flex items-center gap-1">
-                    <Button data-drone-remove={d.id} size="sm" variant="ghost" onClick={() => void removeDrone(d.id)} aria-label={`retirer ${d.name}`}>
-                      <Trash2 className="size-3.5" />
-                    </Button>
+                <li key={d.id} className="flex flex-col gap-1.5 px-3 py-1.5 text-xs">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone="ok">ami</Badge>
+                    <span className="text-fg">{d.name}</span>
+                    <span className="text-muted-foreground">
+                      {d.ident}
+                      {d.site ? ` · ${d.site}` : ""}
+                      {d.snapshotUrl ? " · image ✓" : " · pas d'image"}
+                    </span>
+                    {m ? (
+                      <Badge tone={m.error ? "warn" : alarmed ? "crit" : "default"}>
+                        {m.error ? m.error : m.pct == null ? "trame de réf." : `mvt ${m.pct}%`}
+                      </Badge>
+                    ) : null}
+                    {m && m.pct != null && !m.error ? (
+                      <span className="text-muted-foreground">
+                        {m.zones ? `${m.zones} zone${m.zones > 1 ? "s" : ""} · ` : ""}
+                        {m.hint}
+                        {m.where && m.where !== "—" ? ` · ${m.where}` : ""}
+                      </span>
+                    ) : null}
+                    <div className="ml-auto flex items-center gap-1">
+                      {m?.frame ? (
+                        <Button
+                          data-drone-capture={d.id}
+                          size="sm"
+                          variant={alarmed ? "outline" : "ghost"}
+                          onClick={() => setOpenCapture(open ? null : d.id)}
+                        >
+                          {open ? "Fermer" : "Capture"}
+                        </Button>
+                      ) : null}
+                      <Button data-drone-remove={d.id} size="sm" variant="ghost" onClick={() => void removeDrone(d.id)} aria-label={`retirer ${d.name}`}>
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
                   </div>
+                  {open && m?.frame ? (
+                    <div className="flex flex-wrap items-start gap-3 rounded-sm border border-border bg-bg/60 p-2">
+                      <img
+                        data-drone-frame={d.id}
+                        src={m.frame}
+                        alt={`capture ${d.name}`}
+                        className="h-40 w-40 rounded-sm border border-border object-cover [image-rendering:pixelated]"
+                      />
+                      <div className="min-w-0 flex-1 space-y-1 text-[11px] text-muted-foreground">
+                        <p className="text-fg">
+                          Mouvement <strong>{m.pct}%</strong> · {m.zones ?? 0} zone{(m.zones ?? 0) > 1 ? "s" : ""} · {m.hint} · {m.where}
+                        </p>
+                        <p>
+                          Zone de mouvement surlignée en orange, plus grande zone encadrée. C'est une
+                          <strong> aide à la décision</strong> : l'opérateur regarde et <strong>identifie à l'œil</strong>.
+                          AfriControl ne reconnaît ni visage ni plaque, ne cible pas.
+                        </p>
+                        {m.level === "critique" ? (
+                          <p className="text-crit">Périmètre armé : envoyer une patrouille.</p>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
                 </li>
               );
             })}
