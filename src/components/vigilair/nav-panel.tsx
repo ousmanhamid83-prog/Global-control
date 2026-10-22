@@ -12,8 +12,10 @@ import {
   axisHazards,
   cardinal,
   declinationEstimate,
+  parsePoints,
   profileCrossings,
   routeHazards,
+  routePath,
   routeTotals,
   safeDetour,
   toGpx,
@@ -22,11 +24,11 @@ import {
   type LatLon,
   type NamedPoint,
 } from "@/lib/vigilair/nav";
-import { searchPlaces, type Place } from "@/lib/vigilair/places";
+import { nearestPlace, searchPlaces, type Place } from "@/lib/vigilair/places";
 import { deleteRoute, routesSnapshot, saveRoute, subscribeRoutes } from "@/lib/vigilair/routes";
 import { useVigilair } from "@/lib/vigilair/store";
 import type { Threat } from "@/lib/vigilair/types";
-import { subscribeWatchSites, watchSitesSnapshot } from "@/lib/vigilair/watch-sites";
+import { addCustomSite, subscribeWatchSites, watchSitesSnapshot } from "@/lib/vigilair/watch-sites";
 
 type Pt = { name: string; lat: string; lon: string };
 const EMPTY: Pt = { name: "", lat: "", lon: "" };
@@ -258,6 +260,11 @@ export function NavPanel() {
   const [maxSlope, setMaxSlope] = useState("15");
   const [maxAlt, setMaxAlt] = useState("");
   const [saveName, setSaveName] = useState("");
+  const openCapture = useVigilair((s) => s.openCapture);
+  const [importText, setImportText] = useState("");
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [fine, setFine] = useState<ElevationProfile | null>(null);
+  const [fineBusy, setFineBusy] = useState(false);
 
   useEffect(() => {
     let dead = false;
@@ -359,10 +366,56 @@ export function NavPanel() {
   const runProfile = () => {
     if (pts.length < 2) return;
     setElevBusy(true);
+    setFine(null);
     fetchElevationProfile({ data: { points: effPts.length >= 2 ? effPts : pts } })
       .then(setElev)
       .catch(() => setElev({ ok: false, reason: "échec" }))
       .finally(() => setElevBusy(false));
+  };
+  // Zoom relief : ré-échantillonne finement le tronçon le plus raide du profil grossier.
+  const runFineRelief = () => {
+    if (!elev?.ok || elev.points.length < 2) return;
+    let k = 1;
+    let best = -1;
+    for (let i = 1; i < elev.points.length; i++) {
+      const dKm = elev.points[i]!.alongKm - elev.points[i - 1]!.alongKm;
+      const s = dKm > 0 ? Math.abs(elev.points[i]!.elevM - elev.points[i - 1]!.elevM) / dKm : 0;
+      if (s > best) {
+        best = s;
+        k = i;
+      }
+    }
+    const a = elev.points[k - 1]!;
+    const b = elev.points[k]!;
+    setFineBusy(true);
+    fetchElevationProfile({ data: { points: [{ lat: a.lat, lon: a.lon }, { lat: b.lat, lon: b.lon }], stepKm: 0.3 } })
+      .then(setFine)
+      .catch(() => setFine({ ok: false, reason: "échec" }))
+      .finally(() => setFineBusy(false));
+  };
+  const captureAt = (lat: number, lon: number, name: string) =>
+    openCapture({ lat, lon, kind: "scene", title: `Axe · ${name}`, body: "inspection imagerie de l'axe", source: "navigation" });
+  const doImportRoute = () => {
+    const parsed = parsePoints(importText);
+    if (parsed.length < 2) {
+      setImportMsg("Il faut au moins 2 points (une ligne « lat, lon » par point).");
+      return;
+    }
+    loadSaved(parsed);
+    setImportMsg(`${parsed.length} points → route chargée.`);
+  };
+  const doImportSites = async () => {
+    const parsed = parsePoints(importText);
+    if (parsed.length === 0) {
+      setImportMsg("Aucun point valide (une ligne « lat, lon » par point).");
+      return;
+    }
+    let ok = 0;
+    for (const p of parsed) {
+      const r = await addCustomSite({ name: p.name || `${p.lat.toFixed(3)}, ${p.lon.toFixed(3)}`, lat: p.lat, lon: p.lon, radiusKm: 5 });
+      if (r.ok) ok++;
+    }
+    setImportMsg(`${ok}/${parsed.length} sites ajoutés (rayon 5 km).`);
   };
   const runRoad = () => {
     if (!ready) return;
@@ -400,7 +453,18 @@ export function NavPanel() {
     setWaypoints([]);
     setElev(null);
     setRoad(null);
+    setFine(null);
   };
+
+  // Points d'inspection le long de l'axe (≤ 10) — chacun ouvre une capture imagerie à l'œil.
+  const axisPoints = useMemo(() => {
+    if (effPts.length < 2) return [] as { lat: number; lon: number; alongKm: number; name: string }[];
+    const path = routePath(effPts, Math.max(5, Math.round(routeTotals(effPts).distanceKm / 10)));
+    const keep = Math.max(1, Math.ceil(path.length / 10));
+    return path
+      .filter((_, i) => i % keep === 0 || i === path.length - 1)
+      .map((p) => ({ lat: p.lat, lon: p.lon, alongKm: p.alongKm, name: nearestPlace(p.lat, p.lon)?.place.name ?? `${p.lat.toFixed(2)}, ${p.lon.toFixed(2)}` }));
+  }, [effPts]);
 
   const insertDetour = () => {
     if (!analysis || analysis.detour.clear || !analysis.detour.waypoint) return;
@@ -568,6 +632,36 @@ export function NavPanel() {
         )}
       </div>
 
+      {/* Import de points — zones non sourcées : coller une liste lat/lon → route ou sites. */}
+      <div className="space-y-2 rounded-md border border-border bg-surface p-4 hud">
+        <div className="flex flex-wrap items-center gap-2">
+          <Plus className="size-4 text-muted-foreground" aria-hidden />
+          <h3 className="text-sm font-medium">Importer des points (zone non sourcée)</h3>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Le répertoire ne couvre pas tout. Colle une liste — une ligne par point : « Nom, lat, lon »
+          ou « lat, lon ». On en fait une <strong>route</strong> ou des <strong>sites surveillés</strong>,
+          sans dépendre d'une carte externe.
+        </p>
+        <textarea
+          data-nav="import"
+          value={importText}
+          onChange={(e) => setImportText(e.target.value)}
+          rows={4}
+          placeholder={"Camp Nord, 16.03, 22.63\nPoste 2, 15.2, 21.9\n14.9, 21.4"}
+          className="w-full rounded-sm border border-border bg-bg px-2 py-1.5 font-mono text-xs text-fg"
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button data-nav="import-route" size="sm" variant="outline" onClick={doImportRoute}>
+            En route
+          </Button>
+          <Button data-nav="import-sites" size="sm" variant="outline" onClick={() => void doImportSites()}>
+            En sites surveillés
+          </Button>
+          {importMsg ? <span className="text-xs text-muted-foreground">{importMsg}</span> : null}
+        </div>
+      </div>
+
       {/* Bandeau de sûreté dynamique */}
       {ready && analysis ? (
         <div className="space-y-2 rounded-md border border-crit/60 bg-crit/10 p-4">
@@ -630,6 +724,31 @@ export function NavPanel() {
 
       {totals ? <RouteMap pts={pts} hazards={hazards} /> : null}
 
+      {axisPoints.length > 0 ? (
+        <div className="space-y-2 rounded-md border border-border bg-surface p-4">
+          <div className="flex items-center gap-2">
+            <Navigation className="size-4 text-muted-foreground" aria-hidden />
+            <h3 className="text-sm font-medium">Inspection imagerie de l'axe</h3>
+            <Badge tone="default">{axisPoints.length} points</Badge>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Capture l'imagerie réelle à chaque point de l'axe, à inspecter à l'œil — l'image n'est pas
+            analysée par la machine (pas de détection auto). La meilleure résolution dispo s'ouvre dans la vue.
+          </p>
+          <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+            {axisPoints.map((pt, i) => (
+              <li key={`ax-${i}`} className="flex items-center gap-2 text-xs">
+                <span className="font-mono text-muted-foreground">{Math.round(pt.alongKm)} km</span>
+                <span className="truncate text-fg">{pt.name}</span>
+                <Button size="sm" variant="ghost" className="ml-auto" onClick={() => captureAt(pt.lat, pt.lon, pt.name)}>
+                  Capture
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {elev ? (
         <div className="space-y-2 rounded-md border border-border bg-surface p-4">
           <div className="flex flex-wrap items-center gap-2">
@@ -657,6 +776,24 @@ export function NavPanel() {
                   </span>
                   {crossing.slopeExceeded ? <span className="text-warn">pente &gt; {maxSlope} %</span> : null}
                   {crossing.altExceeded ? <span className="text-warn">altitude &gt; {maxAlt} m</span> : null}
+                </div>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-3">
+                <Button data-nav="fine" size="sm" variant="outline" disabled={fineBusy} onClick={runFineRelief}>
+                  <Mountain className="mr-1 size-3.5" />
+                  {fineBusy ? "Zoom…" : "Zoom relief (tronçon le plus raide)"}
+                </Button>
+                {fine && !fine.ok ? <span className="text-xs text-crit">{fine.reason}</span> : null}
+              </div>
+              {fine && fine.ok ? (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-xs">
+                    <Badge tone="warn">zoom ~300 m/pas</Badge>
+                    <span className="text-muted-foreground">
+                      tronçon {fine.minM}–{fine.maxM} m · pente locale max {profileCrossings(fine.points, 999, null).maxSlopePct} %
+                    </span>
+                  </div>
+                  <TerrainProfile prof={fine} />
                 </div>
               ) : null}
               <p className="text-[11px] text-muted-foreground">

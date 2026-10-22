@@ -6,6 +6,7 @@ import {
   cardinal,
   destinationPoint,
   distanceKm,
+  parsePoints,
   profileCrossings,
   relativeTurn,
   routeTotals,
@@ -113,4 +114,20 @@ test("profileCrossings : pente et altitude au-delà du seuil", () => {
   const flat = profileCrossings([{ alongKm: 0, elevM: 300 }, { alongKm: 10, elevM: 305 }], 15, 1000);
   assert.equal(flat.slopeExceeded, false);
   assert.equal(flat.altExceeded, false);
+});
+
+test("parsePoints : noms + coordonnées, formats variés, lignes invalides ignorées", () => {
+  const txt = [
+    "# commentaire",
+    "Komé, 8.5428, 16.7806",
+    "15.45, 36.40",
+    "Poste 12 : 12.5  22.6",
+    "ligne sans coord",
+    "999, 0",
+  ].join("\n");
+  const pts = parsePoints(txt);
+  assert.equal(pts.length, 3);
+  assert.deepEqual(pts[0], { lat: 8.5428, lon: 16.7806, name: "Komé" });
+  assert.deepEqual(pts[1], { lat: 15.45, lon: 36.4, name: undefined });
+  assert.deepEqual(pts[2], { lat: 12.5, lon: 22.6, name: "Poste 12" });
 });

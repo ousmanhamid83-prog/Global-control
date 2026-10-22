@@ -313,6 +313,20 @@ Navigation directe jusqu'au site (Capteurs > Navigation)
 - ALARME DE FRANCHISSEMENT : champs « Pente max % » et « Alt. max m » (limites du véhicule). Sur le
   profil, le poste affiche « franchissable » ou « FRANCHISSEMENT » avec la pente moyenne max et le
   sommet. La pente est une MOYENNE entre relevés (~30 m) : un massif se voit, pas un mur local.
+- IMPORT DE POINTS (zones non sourcées) : le répertoire ne couvre pas tout. On colle une liste —
+  une ligne par point « Nom, lat, lon » ou « lat, lon » — et on en fait une ROUTE ou des SITES
+  surveillés, sans carte externe. Ainsi un lieu absent du répertoire (relevé GPS, point connu) entre
+  quand même.
+- INSPECTION IMAGERIE DE L'AXE : sous la route, une liste de points (nommés d'après le répertoire)
+  avec un bouton « Capture » → ouvre l'imagerie réelle de ce point, à inspecter À L'ŒIL. L'image
+  n'est PAS analysée par la machine (pas de détection auto) — on la regarde, segment par segment.
+- ZOOM RELIEF : le profil global lisse les pentes. « Zoom relief » ré-échantillonne finement
+  (~300 m/pas) le tronçon le plus raide pour attraper une barre qu'une moyenne masque — dans la
+  limite de la résolution ~30 m (une falaise sous 30 m reste invisible).
+- LIMITES ASSUMÉES : l'imagerie est un FOND, pas une source d'analyse (l'œil tranche). Le profil
+  donne l'altitude et la pente moyenne, PAS la nature du sol (roche / sable) ni la franchissabilité
+  réelle — ça reste la reco. En zone vierge : le cap marche toujours avec des coordonnées ; le nom
+  et la route routière, non.
 - Honnêteté : navigation directe par cap OU itinéraire routier OSM selon le terrain, PAS de guidage
   d'arme. Le contournement est une proposition ; le relief et les pistes se lisent sur l'imagerie et à
   l'œil. Réception seule : ça aide un véhicule à tenir un cap ou suivre une piste.

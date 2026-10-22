@@ -268,6 +268,28 @@ export function toWaypointText(points: NamedPoint[]): string {
   return points.map((p, i) => `${p.name ?? `P${i + 1}`}: ${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`).join("\n");
 }
 
+/**
+ * Analyse une liste collée de points — « Nom, lat, lon », « lat, lon », « Poste 12 : 15.0, 22.6 »…
+ * Les DEUX derniers nombres de la ligne sont lat puis lon ; ce qui précède est le nom. Décimal.
+ */
+export function parsePoints(text: string): NamedPoint[] {
+  const out: NamedPoint[] = [];
+  for (const raw of text.split(/\r?\n/).slice(0, 400)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const m = [...line.matchAll(/-?\d+(?:\.\d+)?/g)];
+    if (m.length < 2) continue;
+    const latTok = m[m.length - 2]!;
+    const lonTok = m[m.length - 1]!;
+    const lat = Number(latTok[0]);
+    const lon = Number(lonTok[0]);
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) continue;
+    const name = line.slice(0, latTok.index).replace(/[:,;\t ]+$/, "").trim();
+    out.push({ lat, lon, name: name || undefined });
+  }
+  return out;
+}
+
 export type Crossing = {
   maxSlopePct: number;
   atKmSlope: number;

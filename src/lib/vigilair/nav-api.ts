@@ -51,21 +51,16 @@ export const fetchRoadRoute = createServerFn({ method: "POST" })
     return { ok: true, distanceKm: Math.round(roadKm * 10) / 10, durationMin: Math.round(r.duration / 60), geometry };
   });
 
+export type ElevPoint = { alongKm: number; elevM: number; lat: number; lon: number };
 export type ElevationProfile =
-  | {
-      ok: true;
-      points: { alongKm: number; elevM: number }[];
-      minM: number;
-      maxM: number;
-      gainM: number;
-      source: string;
-    }
+  | { ok: true; points: ElevPoint[]; minM: number; maxM: number; gainM: number; source: string }
   | { ok: false; reason: string };
 
 export const fetchElevationProfile = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((raw: { points?: LatLon[] }) => ({
+  .validator((raw: { points?: LatLon[]; stepKm?: number }) => ({
     points: Array.isArray(raw?.points) ? raw.points.slice(0, 30) : [],
+    stepKm: Number.isFinite(Number(raw?.stepKm)) && Number(raw?.stepKm) > 0 ? Number(raw?.stepKm) : null,
   }))
   .handler(async ({ data }): Promise<ElevationProfile> => {
     const pts = data.points.filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lon));
@@ -73,7 +68,8 @@ export const fetchElevationProfile = createServerFn({ method: "POST" })
 
     let total = 0;
     for (let i = 1; i < pts.length; i++) total += distanceKm(pts[i - 1]!.lat, pts[i - 1]!.lon, pts[i]!.lat, pts[i]!.lon);
-    const step = Math.max(3, Math.ceil(total / 80));
+    // stepKm forcé (zoom relief fin) ou calculé pour ~80 points sur toute la route.
+    const step = data.stepKm != null ? Math.max(0.1, data.stepKm) : Math.max(3, Math.ceil(total / 80));
     let path = routePath(pts, step);
     if (path.length > 90) {
       const keep = Math.ceil(path.length / 90);
@@ -94,10 +90,12 @@ export const fetchElevationProfile = createServerFn({ method: "POST" })
     if (!res.ok) return { ok: false, reason: `service élévation ${res.status}` };
     const j = (await res.json()) as { results?: { elevation: number | null }[]; status?: string };
     const results = j.results ?? [];
-    const points: { alongKm: number; elevM: number }[] = [];
+    const points: ElevPoint[] = [];
     for (let i = 0; i < path.length; i++) {
       const e = results[i]?.elevation;
-      if (typeof e === "number" && Number.isFinite(e)) points.push({ alongKm: path[i]!.alongKm, elevM: e });
+      if (typeof e === "number" && Number.isFinite(e)) {
+        points.push({ alongKm: path[i]!.alongKm, elevM: e, lat: path[i]!.lat, lon: path[i]!.lon });
+      }
     }
     if (points.length < 2) return { ok: false, reason: "pas de données d'élévation" };
 
