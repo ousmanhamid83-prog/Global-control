@@ -113,7 +113,7 @@ export async function removeCustomSite(id: string): Promise<void> {
 
 function allWatchPoints(): NearWatch[] {
   const mines: NearWatch[] = MINES.map((m) => ({ id: m.id, name: m.name, short: m.short, custom: false, lat: m.lat, lon: m.lon }));
-  const custom: NearWatch[] = read().map((s) => ({ id: s.id, name: s.name, short: s.name, custom: true, lat: s.lat, lon: s.lon }));
+  const custom: NearWatch[] = read().map((s) => ({ id: s.id, name: s.name, short: s.name, custom: true, lat: s.lat, lon: s.lon, alertKm: s.alertKm }));
   return [...mines, ...custom];
 }
 
@@ -131,7 +131,7 @@ export function watchZoneRows(): ZoneRow[] {
     lat: s.lat,
     lon: s.lon,
     radiusKm: s.radiusKm,
-    armed: true,
+    armed: s.armed !== false,
     note: "site surveillé ajouté par l'opérateur",
   }));
 }

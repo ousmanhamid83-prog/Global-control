@@ -230,6 +230,22 @@ Imagerie Sentinel-2 fraîche (Copernicus) — Capteurs > Outils, couche « Senti
   images publiques, il ne commande aucun satellite. Pour le sous-métrique (30 cm), il faut une clé
   commerciale (Planet/Maxar) — je ne simule pas ce que le compte gratuit ne donne pas.
 
+Détection auto pour les sites (Capteurs > Changement > Sites surveillés)
+- CHANGEMENT AUTO : interrupteur « Surveillance changement auto (Sentinel-2) ». Le poste passe en
+  revue les sites (un toutes les 3 min), compare seul les deux passages, et SONNE si la zone a bougé
+  au-delà du seuil réglable (% du cadre). C'est de la détection de CHANGEMENT (piste/bâtiment/engin
+  neuf), PAS d'objet ni d'identité. Nécessite la clé Copernicus (sinon le scan ne renvoie rien).
+- PAR SITE : à l'ajout, « Intrusion aérienne armée » (on/off) et « Rayon alerte phénomènes (km) »
+  propre au site (sinon défaut : feu 40 km, crue/séisme 200 km). Les badges « désarmé » / « alerte
+  N km » le rappellent dans la liste.
+- CAPTEURS SOL (périmètre) : registre partagé (caméra / barrière / radar) — l'ENTRÉE pour la
+  détection temps réel véhicule/personne AU SOL, ce que l'imagerie satellite ne fait pas. États
+  manuels (ok / alarme / HS) pour l'instant ; une alarme SONNE au bandeau. Un vrai capteur poussera
+  son état sur ce registre quand le matériel sera câblé (data/sensors.json, server fns dédiées).
+- CE QU'ON NE FAIT PAS : identification / suivi automatique de personnes ou de véhicules SUR L'IMAGE.
+  Deux raisons : l'imagerie est archivée (pas du direct, donc pas de suivi temps réel), et c'est du
+  ciblage, pas de la sûreté de site. Le temps réel au sol passe par des capteurs sol, pas l'image.
+
 Comparateur avant/après — Capteurs > onglet « Changement »
 - Pas de direct : un satellite ne repasse que tous les quelques jours. On ne traque pas une voiture
   qui roule ; on compare deux PASSAGES DATÉS du même périmètre. C'est pour ça qu'on lance des

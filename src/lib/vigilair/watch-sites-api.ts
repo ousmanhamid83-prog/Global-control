@@ -17,11 +17,13 @@ export const watchSitesList = createServerFn({ method: "GET" })
 
 export const watchSiteAdd = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((raw: { name?: string; lat?: number; lon?: number; radiusKm?: number }) => ({
+  .validator((raw: { name?: string; lat?: number; lon?: number; radiusKm?: number; armed?: boolean; alertKm?: number }) => ({
     name: String(raw?.name ?? ""),
     lat: Number(raw?.lat),
     lon: Number(raw?.lon),
     radiusKm: Number(raw?.radiusKm),
+    armed: raw?.armed !== false,
+    alertKm: Number.isFinite(Number(raw?.alertKm)) ? Number(raw?.alertKm) : undefined,
   }))
   .handler(async ({ data }): Promise<{ ok: boolean; error?: string; sites?: WatchSite[] }> => {
     const m = await import("./watch-sites.server");

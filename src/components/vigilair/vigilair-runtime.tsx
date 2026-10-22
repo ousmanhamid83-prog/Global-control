@@ -5,14 +5,18 @@ import { ZoneWatch } from "@/components/vigilair/zone-watch";
 import { WatchMode } from "@/components/vigilair/watch-mode";
 import { IdleLock } from "@/components/vigilair/idle-lock";
 import { ChefSealHost } from "@/components/vigilair/chef-seal";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
+import { diffHeatmap } from "@/lib/vigilair/change-diff";
+import { fetchChangePair } from "@/lib/vigilair/live-feeds";
+import { MINES } from "@/lib/vigilair/mines";
 import { routeHazards } from "@/lib/vigilair/nav";
 import { useVigilair } from "@/lib/vigilair/store";
 import { startTelemetry } from "@/lib/vigilair/telemetry";
 import type { Threat } from "@/lib/vigilair/types";
+import { hydrateSensors, sensorsSnapshot, subscribeSensors } from "@/lib/vigilair/ground-sensors";
 import { hydrateRoutes } from "@/lib/vigilair/routes";
-import { hydrateFromServer } from "@/lib/vigilair/watch-sites";
+import { hydrateFromServer, subscribeWatchSites, watchSitesSnapshot } from "@/lib/vigilair/watch-sites";
 
 /** Survives les changements de route — AppShell se démonte, pas le 1090 ni le quart. */
 export function VigilairRuntime() {
@@ -30,8 +34,132 @@ export function VigilairRuntime() {
       <ChefSealHost />
       <WatchSitesHydrate />
       <NavWatch />
+      <ChangeWatch />
+      <SensorWatch />
     </>
   );
+}
+
+/** Capteurs sol : alerte quand un capteur passe en « alarme » (manuel aujourd'hui, matériel demain). */
+function SensorWatch() {
+  const sensors = useSyncExternalStore(subscribeSensors, sensorsSnapshot, sensorsSnapshot);
+  const pushAlert = useVigilair((s) => s.pushAlert);
+  const alarmed = useRef<Set<string>>(new Set());
+  const seeded = useRef(false);
+  useEffect(() => {
+    const now = new Set(sensors.filter((s) => s.state === "alarme").map((s) => s.id));
+    if (!seeded.current) {
+      seeded.current = true;
+      alarmed.current = now;
+      return;
+    }
+    for (const s of sensors) {
+      if (s.state === "alarme" && !alarmed.current.has(s.id)) {
+        pushAlert({
+          id: `sensor-${s.id}-${Date.now()}`,
+          trackId: "",
+          at: Date.now(),
+          level: "elevee",
+          title: "Capteur sol en alarme",
+          body: `${s.name} (${s.type}) · ${s.site}`,
+          acked: false,
+        });
+      }
+    }
+    alarmed.current = now;
+  }, [sensors, pushAlert]);
+  return null;
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("image illisible"));
+    img.src = src;
+  });
+}
+
+/** Scanne un site : % du cadre qui a changé entre deux passages Sentinel-2. null si clé absente / échec. */
+async function scanSiteChange(lat: number, lon: number, radiusKm: number): Promise<number | null> {
+  const pair = await fetchChangePair({ data: { lat, lon, radiusKm } });
+  if (!pair.ok) return null;
+  const [before, after] = await Promise.all([loadImage(pair.before.dataUrl), loadImage(pair.after.dataUrl)]);
+  const px = pair.px;
+  const off = document.createElement("canvas");
+  off.width = px;
+  off.height = px;
+  const ctx = off.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(before, 0, 0, px, px);
+  const b = ctx.getImageData(0, 0, px, px);
+  ctx.clearRect(0, 0, px, px);
+  ctx.drawImage(after, 0, 0, px, px);
+  const a = ctx.getImageData(0, 0, px, px);
+  const res = diffHeatmap(b.data, a.data, px, px, { threshold: 34 });
+  return Math.round(res.changedFrac * 1000) / 10;
+}
+
+/**
+ * Surveillance CHANGEMENT auto : passe en revue les sites (miniers + ajoutés), un par tick, compare
+ * seul les deux passages Sentinel-2 et SONNE si la zone a bougé au-delà du seuil. Détection de
+ * CHANGEMENT, pas d'objet ni d'identité. Nécessite la clé Copernicus ; sinon le scan ne renvoie rien.
+ */
+function ChangeWatch() {
+  const on = useVigilair((s) => s.changeWatch);
+  const threshold = useVigilair((s) => s.changeThreshold);
+  const pushAlert = useVigilair((s) => s.pushAlert);
+  const custom = useSyncExternalStore(subscribeWatchSites, watchSitesSnapshot, watchSitesSnapshot);
+  const idx = useRef(0);
+  const lastAlert = useRef<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    if (!on) return;
+    const sites = [
+      ...MINES.map((m) => ({ id: m.id, name: m.short, lat: m.lat, lon: m.lon, radiusKm: m.radiusKm })),
+      ...custom.map((s) => ({ id: s.id, name: s.name, lat: s.lat, lon: s.lon, radiusKm: s.radiusKm })),
+    ];
+    if (sites.length === 0) return;
+    let dead = false;
+    const scan = async () => {
+      if (dead) return;
+      const site = sites[idx.current % sites.length]!;
+      idx.current++;
+      let pct: number | null = null;
+      try {
+        pct = await scanSiteChange(site.lat, site.lon, site.radiusKm);
+      } catch {
+        pct = null;
+      }
+      if (dead || pct == null) return;
+      if (pct >= threshold) {
+        const last = lastAlert.current.get(site.id) ?? 0;
+        if (Date.now() - last > 6 * 3600 * 1000) {
+          lastAlert.current.set(site.id, Date.now());
+          pushAlert({
+            id: `site-change-${site.id}-${Date.now()}`,
+            trackId: "",
+            at: Date.now(),
+            level: "elevee",
+            title: "Changement détecté au site",
+            body: `${site.name} · ${pct}% du cadre a changé (Sentinel-2) · ouvrir le comparateur avant/après`,
+            acked: false,
+            lat: site.lat,
+            lon: site.lon,
+          });
+        }
+      }
+    };
+    const first = window.setTimeout(() => void scan(), 8000);
+    const timer = window.setInterval(() => void scan(), 180_000); // un site toutes les 3 min
+    return () => {
+      dead = true;
+      window.clearTimeout(first);
+      window.clearInterval(timer);
+    };
+  }, [on, threshold, custom, pushAlert]);
+
+  return null;
 }
 
 /** Bip court (WebAudio) — deux tons descendants. Silencieux si le navigateur bloque le son. */
@@ -124,6 +252,7 @@ function WatchSitesHydrate() {
     const sync = () => {
       void hydrateFromServer();
       void hydrateRoutes();
+      void hydrateSensors();
     };
     sync();
     window.addEventListener("focus", sync);

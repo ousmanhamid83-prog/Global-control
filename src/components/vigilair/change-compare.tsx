@@ -4,9 +4,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { diffHeatmap } from "@/lib/vigilair/change-diff";
+import { addSensor, removeSensor, sensorsSnapshot, setSensorState, subscribeSensors, type SensorType } from "@/lib/vigilair/ground-sensors";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { MINE_REGION_LABEL, MINES } from "@/lib/vigilair/mines";
 import { searchPlaces, type Place } from "@/lib/vigilair/places";
+import { useVigilair } from "@/lib/vigilair/store";
 import {
   addCustomSite,
   removeCustomSite,
@@ -35,10 +37,24 @@ function SiteManager() {
   const [lat, setLat] = useState("");
   const [lon, setLon] = useState("");
   const [radius, setRadius] = useState("5");
+  const [armed, setArmed] = useState(true);
+  const [alertKm, setAlertKm] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState("");
   const results: Place[] = query.trim() ? searchPlaces(query, 8) : [];
+  const changeWatch = useVigilair((s) => s.changeWatch);
+  const setChangeWatch = useVigilair((s) => s.setChangeWatch);
+  const changeThreshold = useVigilair((s) => s.changeThreshold);
+  const setChangeThreshold = useVigilair((s) => s.setChangeThreshold);
+  const sensors = useSyncExternalStore(subscribeSensors, sensorsSnapshot, sensorsSnapshot);
+  const [snSite, setSnSite] = useState("");
+  const [snType, setSnType] = useState<SensorType>("camera");
+  const [snName, setSnName] = useState("");
+  const addSn = async () => {
+    const r = await addSensor(snSite, snType, snName);
+    if (r.ok) setSnName("");
+  };
 
   const pick = (pl: Place) => {
     setName(pl.name);
@@ -50,7 +66,15 @@ function SiteManager() {
 
   const add = async () => {
     setBusy(true);
-    const res = await addCustomSite({ name, lat: Number(lat), lon: Number(lon), radiusKm: Number(radius) });
+    const ak = Number(alertKm);
+    const res = await addCustomSite({
+      name,
+      lat: Number(lat),
+      lon: Number(lon),
+      radiusKm: Number(radius),
+      armed,
+      alertKm: alertKm.trim() !== "" && Number.isFinite(ak) ? ak : undefined,
+    });
     setBusy(false);
     if (!res.ok) {
       setErr(res.error ?? "saisie invalide");
@@ -61,6 +85,7 @@ function SiteManager() {
     setLat("");
     setLon("");
     setRadius("5");
+    setAlertKm("");
   };
 
   return (
@@ -137,6 +162,16 @@ function SiteManager() {
           {busy ? "…" : "Ajouter"}
         </Button>
       </div>
+      <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+        <label className="flex items-center gap-2">
+          <input data-site="armed" type="checkbox" checked={armed} onChange={(e) => setArmed(e.target.checked)} />
+          Intrusion aérienne armée
+        </label>
+        <label className="flex items-center gap-2">
+          Rayon alerte phénomènes (km)
+          <Input data-site="alertkm" className="w-20" inputMode="decimal" placeholder="défaut" value={alertKm} onChange={(e) => setAlertKm(e.target.value)} />
+        </label>
+      </div>
       {err ? <p className="font-mono text-xs text-crit">{err}</p> : null}
       {custom.length > 0 ? (
         <ul className="divide-y divide-border rounded-sm border border-border">
@@ -146,6 +181,8 @@ function SiteManager() {
               <span className="font-mono text-muted-foreground">
                 {s.lat.toFixed(4)}, {s.lon.toFixed(4)} · {s.radiusKm} km
               </span>
+              {s.armed === false ? <Badge tone="default">désarmé</Badge> : null}
+              {s.alertKm ? <Badge tone="default">alerte {s.alertKm} km</Badge> : null}
               <Button
                 data-site-remove={s.id}
                 size="sm"
@@ -160,6 +197,87 @@ function SiteManager() {
           ))}
         </ul>
       ) : null}
+      {/* Détection auto de CHANGEMENT (Sentinel-2) — pas d'objet ni d'identité. */}
+      <div className="space-y-1 rounded-sm border border-border bg-bg/40 p-3">
+        <label className="flex flex-wrap items-center gap-2 text-sm">
+          <input data-site="changewatch" type="checkbox" checked={changeWatch} onChange={(e) => setChangeWatch(e.target.checked)} />
+          <span className="font-medium text-fg">Surveillance changement auto (Sentinel-2)</span>
+        </label>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span>Le poste compare seul les passages des sites et sonne si la zone a bougé au-delà de</span>
+          <Input
+            data-site="threshold"
+            className="w-16"
+            inputMode="decimal"
+            value={String(changeThreshold)}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (Number.isFinite(n)) setChangeThreshold(n);
+            }}
+          />
+          <span>% du cadre.</span>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Détection de CHANGEMENT (piste/bâtiment/engin neuf), pas d'objet ni d'identité. Un site toutes
+          les 3 min. Nécessite la clé Copernicus (sinon le scan ne renvoie rien).
+        </p>
+      </div>
+
+      {/* Capteurs SOL — l'entrée pour la détection temps réel véhicule/personne au sol. */}
+      <div className="space-y-2 rounded-sm border border-border bg-bg/40 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-sm font-medium text-fg">Capteurs sol (périmètre)</h3>
+          <Badge tone="default">{sensors.length}</Badge>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          L'<strong>entrée</strong> pour la détection temps réel véhicule/personne AU SOL
+          (caméra/barrière/radar) — ce que l'imagerie satellite ne fait pas. États manuels aujourd'hui ;
+          un vrai capteur poussera son état ici quand le matériel sera câblé. Une alarme sonne au bandeau.
+        </p>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_1fr_auto]">
+          <Input data-sensor="site" placeholder="Site (ex. Camp Nord)" value={snSite} onChange={(e) => setSnSite(e.target.value)} />
+          <select
+            data-sensor="type"
+            value={snType}
+            onChange={(e) => setSnType(e.target.value as SensorType)}
+            className="rounded-sm border border-border bg-bg px-2 py-1.5 text-sm text-fg"
+          >
+            <option value="camera">Caméra</option>
+            <option value="barriere">Barrière</option>
+            <option value="radar">Radar</option>
+            <option value="autre">Autre</option>
+          </select>
+          <Input data-sensor="name" placeholder="Nom du capteur" value={snName} onChange={(e) => setSnName(e.target.value)} />
+          <Button data-sensor="add" size="sm" variant="outline" onClick={() => void addSn()}>
+            <Plus className="mr-1 size-3.5" />
+            Ajouter
+          </Button>
+        </div>
+        {sensors.length > 0 ? (
+          <ul className="divide-y divide-border rounded-sm border border-border">
+            {sensors.map((s) => (
+              <li key={s.id} className="flex flex-wrap items-center gap-2 px-3 py-1.5 text-xs">
+                <Badge tone={s.state === "alarme" ? "crit" : s.state === "hs" ? "warn" : "ok"}>{s.state}</Badge>
+                <span className="text-fg">{s.name}</span>
+                <span className="text-muted-foreground">
+                  {s.type} · {s.site}
+                </span>
+                <div className="ml-auto flex items-center gap-1">
+                  <Button data-sensor-alarm={s.id} size="sm" variant="ghost" onClick={() => void setSensorState(s.id, s.state === "alarme" ? "ok" : "alarme")}>
+                    {s.state === "alarme" ? "Lever" : "Alarme"}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => void setSensorState(s.id, "hs")}>
+                    HS
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => void removeSensor(s.id)} aria-label={`retirer ${s.name}`}>
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
     </section>
   );
 }

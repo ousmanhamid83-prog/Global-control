@@ -160,6 +160,10 @@ type VigilairState = {
   navRoute: NavRoute | null;
   /** Alarme sonore quand un obstacle réel surgit sur la route active. */
   navAlarm: boolean;
+  /** Surveillance changement auto : compare seul les passages Sentinel-2 des sites et alerte. */
+  changeWatch: boolean;
+  /** Seuil (% du cadre changé) au-delà duquel la surveillance changement sonne. */
+  changeThreshold: number;
   ewArmed: boolean;
   ppi: PpiParams;
   history: HistSample[];
@@ -222,6 +226,8 @@ type VigilairState = {
   setWorldPhenomOpen: (v: boolean) => void;
   setNavRoute: (r: NavRoute | null) => void;
   setNavAlarm: (v: boolean) => void;
+  setChangeWatch: (v: boolean) => void;
+  setChangeThreshold: (v: number) => void;
   pushAlert: (a: AlertItem) => void;
   setAxisId: (id: string | null) => void;
   setPeakId: (id: string | null) => void;
@@ -489,6 +495,8 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   worldPhenomOpen: false,
   navRoute: null,
   navAlarm: true,
+  changeWatch: false,
+  changeThreshold: 8,
   ewArmed: false,
   ppi: DEFAULT_PPI,
   history: [],
@@ -604,6 +612,8 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   setWorldPhenomOpen: (worldPhenomOpen) => set({ worldPhenomOpen }),
   setNavRoute: (navRoute) => set({ navRoute }),
   setNavAlarm: (navAlarm) => set({ navAlarm }),
+  setChangeWatch: (changeWatch) => set({ changeWatch }),
+  setChangeThreshold: (changeThreshold) => set({ changeThreshold }),
   pushAlert: (a) => set({ alerts: [a, ...get().alerts].slice(0, 48) }),
   setAxisId: (axisId) => set({ axisId }),
   setPeakId: (peakId) => set({ peakId }),
@@ -1807,7 +1817,8 @@ export function ingestLivePicture(pic: LivePicture) {
     // impact régional). Feu : rayon serré (40 km) pour alerter dès qu'un foyer touche le périmètre
     // sans sonner sur chaque feu de brousse du Sahel à 150 km.
     const nm = nearestWatchSite(p.lat, p.lon);
-    const nearRadiusKm = p.kind === "feu" ? 40 : 200;
+    // Rayon d'alerte : propre au site s'il est réglé, sinon défaut par nature (feu serré, reste large).
+    const nearRadiusKm = nm?.site.alertKm ?? (p.kind === "feu" ? 40 : 200);
     const nearMine = nm != null && nm.distKm <= nearRadiusKm;
     if (rank < 3 && !nearMine) continue;
     phenomWarned.add(p.id);

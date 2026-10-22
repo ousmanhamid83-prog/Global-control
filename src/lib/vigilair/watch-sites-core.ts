@@ -9,6 +9,10 @@ export type WatchSite = {
   lat: number;
   lon: number;
   radiusKm: number;
+  /** Intrusion aérienne (drone/avion) armée sur ce périmètre. Défaut : vrai. */
+  armed?: boolean;
+  /** Rayon d'alerte phénomènes (crue/feu/séisme) propre au site, km. Sinon défaut par nature. */
+  alertKm?: number;
 };
 
 export type NearWatch = {
@@ -18,9 +22,10 @@ export type NearWatch = {
   custom: boolean;
   lat: number;
   lon: number;
+  alertKm?: number;
 };
 
-export type SiteInput = { name: string; lat: number; lon: number; radiusKm: number };
+export type SiteInput = { name: string; lat: number; lon: number; radiusKm: number; armed?: boolean; alertKm?: number };
 
 /** Distance grand-cercle en km (Haversine). Inlinée ici pour garder le module autonome. */
 export function distKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
@@ -45,7 +50,12 @@ export function validateSite(input: SiteInput): { ok: true; site: WatchSite } | 
   if (!Number.isFinite(input.radiusKm) || input.radiusKm < 0.5 || input.radiusKm > 100)
     return { ok: false, error: "rayon hors plage (0,5 à 100 km)" };
   const id = `custom:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-  return { ok: true, site: { id, name, lat: input.lat, lon: input.lon, radiusKm: input.radiusKm } };
+  const armed = input.armed !== false;
+  const alertKm =
+    Number.isFinite(Number(input.alertKm)) && Number(input.alertKm) >= 1 && Number(input.alertKm) <= 500
+      ? Number(input.alertKm)
+      : undefined;
+  return { ok: true, site: { id, name, lat: input.lat, lon: input.lon, radiusKm: input.radiusKm, armed, alertKm } };
 }
 
 /** Site le plus proche parmi une liste déjà résolue. Pur. */
