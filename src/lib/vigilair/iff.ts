@@ -34,9 +34,14 @@ const M4_DEMANDE =
 
 export const M4_DELAY_MS = 1400;
 
-/** Coopératif (FATL, ASECNA, civil) : ni piste à interroger en Mode 4, ni usurpation présumée. */
+/** Coopératif (FATL, ASECNA, civil, nos drones) : ni piste à interroger en Mode 4, ni usurpation présumée. */
 function isAmi(t: { friendKind?: FriendKind | null }): boolean {
-  return t.friendKind === "fatl" || t.friendKind === "asecna" || t.friendKind === "civil";
+  return (
+    t.friendKind === "fatl" ||
+    t.friendKind === "asecna" ||
+    t.friendKind === "civil" ||
+    t.friendKind === "drone"
+  );
 }
 
 export function m4Label(s: IffM4State): string {
@@ -393,7 +398,7 @@ export function resolveM4(track: Track, at: number): IffFix {
       m4Note: `${M4_VALID} ${site.name}.`,
     };
   }
-  if (kind === "asecna" || kind === "civil") {
+  if (kind === "asecna" || kind === "civil" || kind === "drone") {
     return {
       ...base,
       m4: "absent",

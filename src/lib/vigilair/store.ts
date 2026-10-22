@@ -69,6 +69,7 @@ import {
 import { mineZoneRows } from "./mines";
 import type { NavRoute } from "./nav";
 import { nearestWatchSite, watchZoneRows } from "./watch-sites";
+import { dronesPeek, matchOwnDrone } from "./drones";
 import { reportZoneBreach } from "./zones-ops";
 
 const JOURNAL_KEY = "vigilair-journal-v1";
@@ -164,6 +165,12 @@ type VigilairState = {
   changeWatch: boolean;
   /** Seuil (% du cadre changé) au-delà duquel la surveillance changement sonne. */
   changeThreshold: number;
+  /** Veille mouvement sur l'imagerie de NOS drones : compare deux trames et alerte un mouvement. */
+  droneWatch: boolean;
+  /** Seuil (% du cadre en mouvement) au-delà duquel la veille drone alerte. */
+  droneThreshold: number;
+  /** Dernier résultat d'analyse par drone (id → % mouvement / horodatage / erreur), pour l'UI. */
+  droneMotion: Record<string, { pct: number | null; at: number; error?: string }>;
   ewArmed: boolean;
   ppi: PpiParams;
   history: HistSample[];
@@ -228,6 +235,9 @@ type VigilairState = {
   setNavAlarm: (v: boolean) => void;
   setChangeWatch: (v: boolean) => void;
   setChangeThreshold: (v: number) => void;
+  setDroneWatch: (v: boolean) => void;
+  setDroneThreshold: (v: number) => void;
+  setDroneMotion: (id: string, res: { pct: number | null; at: number; error?: string }) => void;
   pushAlert: (a: AlertItem) => void;
   setAxisId: (id: string | null) => void;
   setPeakId: (id: string | null) => void;
@@ -497,6 +507,9 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   navAlarm: true,
   changeWatch: false,
   changeThreshold: 8,
+  droneWatch: false,
+  droneThreshold: 6,
+  droneMotion: {},
   ewArmed: false,
   ppi: DEFAULT_PPI,
   history: [],
@@ -614,6 +627,9 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   setNavAlarm: (navAlarm) => set({ navAlarm }),
   setChangeWatch: (changeWatch) => set({ changeWatch }),
   setChangeThreshold: (changeThreshold) => set({ changeThreshold }),
+  setDroneWatch: (droneWatch) => set({ droneWatch }),
+  setDroneThreshold: (droneThreshold) => set({ droneThreshold }),
+  setDroneMotion: (id, res) => set({ droneMotion: { ...get().droneMotion, [id]: res } }),
   pushAlert: (a) => set({ alerts: [a, ...get().alerts].slice(0, 48) }),
   setAxisId: (axisId) => set({ axisId }),
   setPeakId: (peakId) => set({ peakId }),
@@ -1720,6 +1736,23 @@ export function ingestLivePicture(pic: LivePicture) {
   const now = Date.now();
   const { tracks, born, emergencies } = mergeLiveTracks(liveTracks, pic.aircraft, now);
   liveTracks = tracks;
+  // NOS drones : une piste live appariée au registre devient AMI (friendKind "drone") — elle n'est
+  // plus comptée comme intrusion (isFriend l'exclut). AfriControl la SUIT, il ne la pilote pas.
+  const drones = dronesPeek();
+  if (drones.length > 0) {
+    for (const t of liveTracks) {
+      if (t.feed !== "adsb") continue;
+      const hit = matchOwnDrone(drones, t.id.slice(5), t.callsign);
+      if (hit) {
+        t.friendKind = "drone";
+        t.ownDrone = hit.name;
+      } else if (t.friendKind === "drone") {
+        // Drone retiré du registre entre deux relevés : on rend sa pleine évaluation.
+        t.friendKind = undefined;
+        t.ownDrone = undefined;
+      }
+    }
+  }
   const alerts: AlertItem[] = [];
   for (const tr of emergencies) {
     alerts.push({
@@ -1734,7 +1767,17 @@ export function ingestLivePicture(pic: LivePicture) {
   }
   for (const tr of born) {
     const d = haversineKm(tr.lat, tr.lon, AO.centerLat, AO.centerLon);
-    if (tr.category?.toUpperCase() === "B6") {
+    if (tr.friendKind === "drone") {
+      alerts.push({
+        id: `al-owndrone-${tr.id}`,
+        trackId: tr.id,
+        at: now,
+        level: "faible",
+        title: `${tr.ownDrone ?? tr.callsign} · notre drone en vol`,
+        body: `Drone du poste (${tr.callsign ?? tr.id.slice(5)}) · ${Math.round(d)} km de FTTJ · suivi ami, pas une intrusion. AfriControl n'émet pas.`,
+        acked: false,
+      });
+    } else if (tr.category?.toUpperCase() === "B6") {
       alerts.push({
         id: `al-uav-${tr.id}`,
         trackId: tr.id,

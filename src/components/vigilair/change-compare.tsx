@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { diffHeatmap } from "@/lib/vigilair/change-diff";
 import { addSensor, removeSensor, sensorsSnapshot, setSensorState, subscribeSensors, type SensorType } from "@/lib/vigilair/ground-sensors";
+import { addDrone, dronesSnapshot, removeDrone, subscribeDrones } from "@/lib/vigilair/drones";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { MINE_REGION_LABEL, MINES } from "@/lib/vigilair/mines";
 import { searchPlaces, type Place } from "@/lib/vigilair/places";
@@ -54,6 +55,30 @@ function SiteManager() {
   const addSn = async () => {
     const r = await addSensor(snSite, snType, snName);
     if (r.ok) setSnName("");
+  };
+
+  // Nos drones : registre partagé + veille mouvement sur leur imagerie.
+  const drones = useSyncExternalStore(subscribeDrones, dronesSnapshot, dronesSnapshot);
+  const droneWatch = useVigilair((s) => s.droneWatch);
+  const setDroneWatch = useVigilair((s) => s.setDroneWatch);
+  const droneThreshold = useVigilair((s) => s.droneThreshold);
+  const setDroneThreshold = useVigilair((s) => s.setDroneThreshold);
+  const droneMotion = useVigilair((s) => s.droneMotion);
+  const [drName, setDrName] = useState("");
+  const [drIdent, setDrIdent] = useState("");
+  const [drSite, setDrSite] = useState("");
+  const [drUrl, setDrUrl] = useState("");
+  const [drErr, setDrErr] = useState<string | null>(null);
+  const addDr = async () => {
+    setDrErr(null);
+    const r = await addDrone({ name: drName, ident: drIdent, site: drSite, snapshotUrl: drUrl });
+    if (r.ok) {
+      setDrName("");
+      setDrIdent("");
+      setDrUrl("");
+    } else {
+      setDrErr(r.error ?? "échec");
+    }
   };
 
   const pick = (pl: Place) => {
@@ -275,6 +300,77 @@ function SiteManager() {
                 </div>
               </li>
             ))}
+          </ul>
+        ) : null}
+      </div>
+
+      {/* NOS drones — suivi ami + imagerie comme SOURCE D'ANALYSE (mouvement), pas un fond. */}
+      <div className="space-y-2 rounded-sm border border-border bg-bg/40 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-sm font-medium text-fg">Nos drones (suivi + analyse imagerie)</h3>
+          <Badge tone="default">{drones.length}</Badge>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Un drone inscrit est reconnu <strong>ami</strong> : sa piste 1090ES (s'il émet) n'est plus
+          comptée comme intrusion. Son <strong>image fixe</strong> (station sol / nacelle) devient une
+          source d'analyse : la veille compare deux trames et signale un <strong>mouvement/présence</strong>
+          — jamais une identification de personne. AfriControl <strong>suit et analyse</strong>, il ne
+          pilote pas, n'arme rien. <strong>Identifiant</strong> = hex ICAO (ex. 3C6DD2) ou indicatif.
+        </p>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <Input data-drone="name" placeholder="Nom (ex. Aile-01)" value={drName} onChange={(e) => setDrName(e.target.value)} />
+          <Input data-drone="ident" placeholder="Identifiant (hex ICAO / indicatif)" value={drIdent} onChange={(e) => setDrIdent(e.target.value)} />
+          <Input data-drone="site" placeholder="Site rattaché" value={drSite} onChange={(e) => setDrSite(e.target.value)} />
+          <Input data-drone="url" placeholder="URL image fixe (http/https, option.)" value={drUrl} onChange={(e) => setDrUrl(e.target.value)} />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button data-drone="add" size="sm" variant="outline" onClick={() => void addDr()}>
+            <Plus className="mr-1 size-3.5" />
+            Inscrire le drone
+          </Button>
+          {drErr ? <span className="text-xs text-crit">{drErr}</span> : null}
+        </div>
+        <label className="flex flex-wrap items-center gap-2 text-xs text-fg">
+          <input data-drone="watch" type="checkbox" checked={droneWatch} onChange={(e) => setDroneWatch(e.target.checked)} />
+          Veille mouvement (imagerie drone)
+          <span className="text-muted-foreground">seuil</span>
+          <input
+            data-drone="threshold"
+            type="number"
+            min={1}
+            max={90}
+            value={droneThreshold}
+            onChange={(e) => setDroneThreshold(Math.max(1, Math.min(90, Number(e.target.value) || 1)))}
+            className="w-16 rounded-sm border border-border bg-bg px-2 py-1 text-xs text-fg"
+          />
+          <span className="text-muted-foreground">% du cadre</span>
+        </label>
+        {drones.length > 0 ? (
+          <ul className="divide-y divide-border rounded-sm border border-border">
+            {drones.map((d) => {
+              const m = droneMotion[d.id];
+              return (
+                <li key={d.id} className="flex flex-wrap items-center gap-2 px-3 py-1.5 text-xs">
+                  <Badge tone="ok">ami</Badge>
+                  <span className="text-fg">{d.name}</span>
+                  <span className="text-muted-foreground">
+                    {d.ident}
+                    {d.site ? ` · ${d.site}` : ""}
+                    {d.snapshotUrl ? " · image ✓" : " · pas d'image"}
+                  </span>
+                  {m ? (
+                    <Badge tone={m.error ? "warn" : m.pct != null && m.pct >= droneThreshold ? "crit" : "default"}>
+                      {m.error ? m.error : m.pct == null ? "trame de réf." : `mvt ${m.pct}%`}
+                    </Badge>
+                  ) : null}
+                  <div className="ml-auto flex items-center gap-1">
+                    <Button data-drone-remove={d.id} size="sm" variant="ghost" onClick={() => void removeDrone(d.id)} aria-label={`retirer ${d.name}`}>
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         ) : null}
       </div>

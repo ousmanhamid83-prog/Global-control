@@ -246,6 +246,25 @@ Détection auto pour les sites (Capteurs > Changement > Sites surveillés)
   Deux raisons : l'imagerie est archivée (pas du direct, donc pas de suivi temps réel), et c'est du
   ciblage, pas de la sûreté de site. Le temps réel au sol passe par des capteurs sol, pas l'image.
 
+Nos drones — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs > Changement > « Nos drones »)
+- REGISTRE PARTAGÉ : l'opérateur inscrit SES drones (Nom, Identifiant = hex ICAO ou indicatif, Site,
+  URL d'image fixe en option). Partagé par tout le poste (data/drones.json, server fns dédiées,
+  hydraté au démarrage et au retour de focus — comme les sites et les capteurs sol).
+- SUIVI AMI : une piste 1090ES (si le drone émet l'ADS-B) dont le hex/indicatif correspond à un drone
+  inscrit devient AMI (affiliation « drone ») : elle n'est PLUS comptée comme intrusion dans les
+  bulles, et au lieu d'une alerte « UAS B6 » le poste pose une info « notre drone en vol ». Retirer le
+  drone du registre lui rend sa pleine évaluation au relevé suivant.
+- IMAGERIE = SOURCE D'ANALYSE, PAS UN FOND : si le drone expose une image fixe (station sol / nacelle),
+  la « Veille mouvement (imagerie drone) » récupère une trame (proxy serveur, pour lire les pixels),
+  la compare à la précédente, et SONNE si une part du cadre a bougé au-delà du seuil réglable (% du
+  cadre). C'est de la détection de MOUVEMENT / PRÉSENCE — jamais une identification de personne.
+- CE QU'ON NE FAIT PAS : AfriControl SUIT et ANALYSE ; il ne PILOTE pas le drone, ne lui commande rien,
+  n'est pas une arme. L'analyse d'image dit « ça a bougé là », pas « qui ». Le proxy n'accepte qu'une
+  URL déjà inscrite au registre (pas un proxy ouvert), et seulement une image.
+- LIMITES ASSUMÉES : le marquage ami sur la carte suppose que le drone ÉMET l'ADS-B avec un hex/
+  indicatif qui matche (un drone muet reste au registre et à l'analyse d'image, sans piste air) ; la
+  veille mouvement suppose une URL d'image fixe jointe — sinon le drone est juste suivi/inscrit.
+
 Comparateur avant/après — Capteurs > onglet « Changement »
 - Pas de direct : un satellite ne repasse que tous les quelques jours. On ne traque pas une voiture
   qui roule ; on compare deux PASSAGES DATÉS du même périmètre. C'est pour ça qu'on lance des

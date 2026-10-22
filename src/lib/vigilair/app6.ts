@@ -11,7 +11,7 @@ import type { Threat, Track } from "./types";
 
 /** Ami par affiliation (FATL / ASECNA), distinct de l'origine constructeur. */
 function isFriend(t: Track): boolean {
-  return t.friendKind === "fatl" || t.friendKind === "asecna";
+  return t.friendKind === "fatl" || t.friendKind === "asecna" || t.friendKind === "drone";
 }
 
 /** Affiliation standard STANAG : la forme du cadre en dépend. */
@@ -72,7 +72,12 @@ export function affiliationOf(t: Track, threat: Threat): { affiliation: Affiliat
     }
     return {
       affiliation: "ami",
-      reason: t.friendKind === "fatl" ? "FATL · IFF Mode 4" : "ASECNA · plan de vol IFR",
+      reason:
+        t.friendKind === "fatl"
+          ? "FATL · IFF Mode 4"
+          : t.friendKind === "drone"
+            ? `Notre drone${t.ownDrone ? ` · ${t.ownDrone}` : ""}`
+            : "ASECNA · plan de vol IFR",
     };
   }
   const mandate = t.origin === "CN" || t.origin === "TR" || t.origin === "RU" || t.origin === "IR";

@@ -9,6 +9,8 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { diffHeatmap } from "@/lib/vigilair/change-diff";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
+import { fetchDroneFrame } from "@/lib/vigilair/drones-api";
+import { dronesSnapshot, hydrateDrones, subscribeDrones } from "@/lib/vigilair/drones";
 import { MINES } from "@/lib/vigilair/mines";
 import { routeHazards } from "@/lib/vigilair/nav";
 import { useVigilair } from "@/lib/vigilair/store";
@@ -36,8 +38,97 @@ export function VigilairRuntime() {
       <NavWatch />
       <ChangeWatch />
       <SensorWatch />
+      <DroneWatch />
     </>
   );
+}
+
+/**
+ * Veille MOUVEMENT sur l'imagerie de NOS drones. Pour chaque drone qui expose une image fixe
+ * (station sol / nacelle), récupère une trame via le proxy serveur, la compare à la précédente
+ * (diff par pixel) et SONNE si une part du cadre a bougé au-delà du seuil. C'est de la détection de
+ * MOUVEMENT / PRÉSENCE — jamais d'identification de personne ni de désignation. L'imagerie est une
+ * SOURCE D'ANALYSE, pas un fond. Un drone par tick ; silencieux si pas d'URL ou station injoignable.
+ */
+function DroneWatch() {
+  const on = useVigilair((s) => s.droneWatch);
+  const threshold = useVigilair((s) => s.droneThreshold);
+  const pushAlert = useVigilair((s) => s.pushAlert);
+  const setDroneMotion = useVigilair((s) => s.setDroneMotion);
+  const drones = useSyncExternalStore(subscribeDrones, dronesSnapshot, dronesSnapshot);
+  const idx = useRef(0);
+  const prevFrame = useRef<Map<string, ImageData>>(new Map());
+  const lastAlert = useRef<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    if (!on) return;
+    const watched = drones.filter((d) => d.snapshotUrl);
+    if (watched.length === 0) return;
+    let dead = false;
+    const PX = 128;
+
+    const analyse = async () => {
+      if (dead) return;
+      const drone = watched[idx.current % watched.length]!;
+      idx.current++;
+      const url = drone.snapshotUrl!;
+      try {
+        const res = await fetchDroneFrame({ data: { url } });
+        if (dead) return;
+        if (!res.ok || !res.dataUrl) {
+          setDroneMotion(drone.id, { pct: null, at: Date.now(), error: res.error ?? "trame indisponible" });
+          return;
+        }
+        const img = await loadImage(res.dataUrl);
+        if (dead) return;
+        const off = document.createElement("canvas");
+        off.width = PX;
+        off.height = PX;
+        const ctx = off.getContext("2d", { willReadFrequently: true });
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0, PX, PX);
+        const cur = ctx.getImageData(0, 0, PX, PX);
+        const prev = prevFrame.current.get(drone.id);
+        prevFrame.current.set(drone.id, cur);
+        if (!prev) {
+          // Première trame : on établit la référence, pas de mesure encore.
+          setDroneMotion(drone.id, { pct: null, at: Date.now() });
+          return;
+        }
+        const diff = diffHeatmap(prev.data, cur.data, PX, PX, { threshold: 34 });
+        const pct = Math.round(diff.changedFrac * 1000) / 10;
+        setDroneMotion(drone.id, { pct, at: Date.now() });
+        if (pct >= threshold) {
+          const last = lastAlert.current.get(drone.id) ?? 0;
+          if (Date.now() - last > 10 * 60 * 1000) {
+            lastAlert.current.set(drone.id, Date.now());
+            pushAlert({
+              id: `drone-motion-${drone.id}-${Date.now()}`,
+              trackId: "",
+              at: Date.now(),
+              level: "elevee",
+              title: "Mouvement détecté (imagerie drone)",
+              body: `${drone.name} · ${pct}% du cadre a bougé · ${drone.site || "site"} · présence/mouvement, pas d'identification`,
+              acked: false,
+            });
+            navBeep();
+          }
+        }
+      } catch {
+        if (!dead) setDroneMotion(drone.id, { pct: null, at: Date.now(), error: "analyse impossible" });
+      }
+    };
+
+    const first = window.setTimeout(() => void analyse(), 4000);
+    const timer = window.setInterval(() => void analyse(), 15_000); // un drone toutes les 15 s
+    return () => {
+      dead = true;
+      window.clearTimeout(first);
+      window.clearInterval(timer);
+    };
+  }, [on, threshold, drones, pushAlert, setDroneMotion]);
+
+  return null;
 }
 
 /** Capteurs sol : alerte quand un capteur passe en « alarme » (manuel aujourd'hui, matériel demain). */
@@ -253,6 +344,7 @@ function WatchSitesHydrate() {
       void hydrateFromServer();
       void hydrateRoutes();
       void hydrateSensors();
+      void hydrateDrones();
     };
     sync();
     window.addEventListener("focus", sync);

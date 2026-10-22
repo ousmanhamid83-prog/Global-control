@@ -83,21 +83,35 @@ let asecnaSeq = 0;
  * trafic civil hors zone ASECNA, qui n'est pas « ami » pour autant (voir isAlly).
  */
 export function isFriend(t: { friendKind?: FriendKind | null }): boolean {
-  return t.friendKind === "fatl" || t.friendKind === "asecna" || t.friendKind === "civil";
+  return (
+    t.friendKind === "fatl" ||
+    t.friendKind === "asecna" ||
+    t.friendKind === "civil" ||
+    t.friendKind === "drone"
+  );
 }
 
-/** Affiliation amie au sens strict : FATL ou trafic ASECNA du théâtre. */
+/** Affiliation amie au sens strict : FATL, trafic ASECNA du théâtre, ou un de nos drones. */
 export function isAlly(t: { friendKind?: FriendKind | null }): boolean {
-  return t.friendKind === "fatl" || t.friendKind === "asecna";
+  return t.friendKind === "fatl" || t.friendKind === "asecna" || t.friendKind === "drone";
 }
 
 export function friendLabel(kind: FriendKind): string {
-  return kind === "fatl" ? "FATL" : kind === "civil" ? "Civil" : "ASECNA";
+  return kind === "fatl"
+    ? "FATL"
+    : kind === "civil"
+      ? "Civil"
+      : kind === "drone"
+        ? "Drone"
+        : "ASECNA";
 }
 
 export function friendBlurb(kind: FriendKind): string {
   if (kind === "civil") {
     return "Trafic civil 1090ES hors zone ASECNA — coopératif, affiliation neutre. Pas une piste C-UAS.";
+  }
+  if (kind === "drone") {
+    return "Un de NOS drones (registre du poste). Suivi comme ami : pas une intrusion. AfriControl le suit et analyse son imagerie, il ne le pilote pas.";
   }
   return kind === "fatl"
     ? "Force aérienne tchadienne — IFF Mode 4 (crypto clé du jour). Affiliation amie, pas une piste C-UAS."

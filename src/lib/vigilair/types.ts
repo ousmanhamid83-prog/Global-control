@@ -1,7 +1,7 @@
 export type Origin = "CN" | "TR" | "RU" | "IR" | "XX";
 
-/** fatl / asecna : affiliation amie ; civil : trafic 1090ES coopératif hors zone ASECNA (neutre). */
-export type FriendKind = "fatl" | "asecna" | "civil";
+/** fatl / asecna : affiliation amie ; civil : trafic 1090ES coopératif hors zone ASECNA (neutre) ; drone : un de NOS drones inscrits. */
+export type FriendKind = "fatl" | "asecna" | "civil" | "drone";
 
 export type IffMode = "3/A" | "S" | "ADS-B" | "4";
 
@@ -272,6 +272,8 @@ export type Track = {
   injected?: boolean;
   /** FATL / ASECNA — affiliation amie, distincte de l'origine constructeur. */
   friendKind?: FriendKind;
+  /** Nom de NOTRE drone (registre du poste) quand cette piste a été appariée à un drone inscrit. */
+  ownDrone?: string;
   iff?: IffFix | null;
   /** Origine de la piste : sim COP, 1090ES live, Remote ID, ou rejeu de 1090ES réellement reçu. */
   feed?: "sim" | "adsb" | "rid" | "rejeu";
