@@ -7,6 +7,7 @@ import {
   foregroundDiff,
   frameHeading,
   initBackground,
+  isGlobalChange,
   mergeNearbyBlobs,
   presenceHint,
   updateBackground,
@@ -239,6 +240,23 @@ test("updateBackground sélectif : un objet d'avant-plan persiste plus longtemps
   // après 8 trames, l'objet est encore détecté (n'a pas fondu)
   const fg = foregroundDiff(bg, obj, W, H, { threshold: 30 });
   assert.ok(fg.changedFrac > 0.03);
+});
+
+test("updateBackground(freeze) : un fond gelé sous une piste n'absorbe pas l'objet", () => {
+  const W = 24, H = 24;
+  const bg = initBackground(fill(W, H, 20, 20, 20), W, H);
+  const obj = scene(W, H, 6, 6, 6);
+  const { mask } = diffHeatmap(fill(W, H, 20, 20, 20), obj, W, H, { threshold: 30, mask: true });
+  const freeze = mask; // on gèle exactement la zone de l'objet
+  for (let k = 0; k < 200; k++) updateBackground(bg, obj, 0.2, undefined, 0.1, freeze);
+  // même après 200 trames, l'objet reste de l'avant-plan (le fond n'a pas appris l'objet)
+  assert.ok(foregroundDiff(bg, obj, W, H, { threshold: 30 }).changedFrac > 0.03);
+});
+
+test("isGlobalChange distingue un basculement d'éclairage d'une intrusion locale", () => {
+  assert.equal(isGlobalChange(0.6), true); // 60 % du cadre a changé → éclairage
+  assert.equal(isGlobalChange(0.05), false); // 5 % → présence locale
+  assert.equal(isGlobalChange(0.5, 0.45), true);
 });
 
 test("frameHeading : sens écran sur 8 secteurs, dy vers le bas", () => {

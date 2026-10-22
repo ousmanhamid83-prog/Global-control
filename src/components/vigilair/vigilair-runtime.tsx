@@ -7,8 +7,8 @@ import { IdleLock } from "@/components/vigilair/idle-lock";
 import { ChefSealHost } from "@/components/vigilair/chef-seal";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { allBlobs, blobStats, diffHeatmap, foregroundDiff, frameHeading, initBackground, mergeNearbyBlobs, presenceHint, updateBackground } from "@/lib/vigilair/change-diff";
-import { confirmedTracks, stepTracker, type Track2D } from "@/lib/vigilair/track2d";
+import { allBlobs, blobStats, diffHeatmap, foregroundDiff, frameHeading, initBackground, isGlobalChange, mergeNearbyBlobs, presenceHint, updateBackground } from "@/lib/vigilair/change-diff";
+import { confirmedTracks, detectOcclusions, isStationary, stepTracker, type Track2D } from "@/lib/vigilair/track2d";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { fetchDroneFrame } from "@/lib/vigilair/drones-api";
 import { dronesSnapshot, hydrateDrones, subscribeDrones } from "@/lib/vigilair/drones";
@@ -126,33 +126,56 @@ function DroneWatch() {
           return;
         }
         const pct = Math.round(diff.changedFrac * 1000) / 10;
-        const stats = diff.mask ? blobStats(diff.mask, PX, PX, 6) : { count: 0, totalChanged: 0, largest: null };
-        const hint = presenceHint(stats.largest, PX, PX);
-
-        // Pistage MULTI-CIBLES (sans identité) : chaque zone de mouvement (après recollage des bandes
-        // départ/arrivée) devient une détection ; on les associe aux pistes d'une trame à l'autre →
-        // plusieurs pistes suivies en parallèle, chacune avec son cap et son allure. « Où va chaque
-        // présence », jamais « qui c'est ».
         const now2 = Date.now();
         const prevAt = lastAt.current.get(drone.id) ?? now2 - (Math.max(2, cadence || 15) * 1000);
         const dt = Math.max(0.2, (now2 - prevAt) / 1000);
         lastAt.current.set(drone.id, now2);
-        // Soustraction de fond : un objet = une zone à sa position → recollage minime (fragments).
+        const TRK = { gate: PX * 0.4, maxMisses: 2, maxTrail: 8, stillEps: 1.2, stationaryGrace: 8 };
+
+        // PARADE ÉCLAIRAGE : un basculement GLOBAL (exposition, voile, nuage, phare) fait virer une
+        // énorme part du cadre d'un coup — ce n'est pas une intrusion. On ré-étalonne vite le fond,
+        // on fait vieillir les pistes sans en créer, et on N'ALERTE PAS.
+        if (isGlobalChange(diff.changedFrac)) {
+          updateBackground(bg, cur.data, 0.5);
+          const coast = stepTracker(tracksRef.current.get(drone.id) ?? [], [], seedRef.current.get(drone.id) ?? 1, TRK);
+          tracksRef.current.set(drone.id, coast.tracks);
+          seedRef.current.set(drone.id, coast.nextId);
+          setDroneMotion(drone.id, { pct, at: now2, note: "variation d'éclairage — ré-étalonnage" });
+          return;
+        }
+
+        const stats = diff.mask ? blobStats(diff.mask, PX, PX, 6) : { count: 0, totalChanged: 0, largest: null };
+        const hint = presenceHint(stats.largest, PX, PX);
+
+        // Pistage MULTI-CIBLES par soustraction de fond (sans identité) : un objet = une zone à sa
+        // position → recollage minime. « Où va chaque présence », jamais « qui c'est ».
         const detections = diff.mask
           ? mergeNearbyBlobs(allBlobs(diff.mask, PX, PX, 6), 3).map((b) => ({ cx: b.cx, cy: b.cy }))
           : [];
-        // Entretien du fond : moyenne glissante lente, plus lente encore sur l'avant-plan (objet
-        // lent ou arrêté reste détecté un moment avant de « fondre » dans la scène).
-        updateBackground(bg, cur.data, 0.06, diff.mask, 0.1);
-        const stepped = stepTracker(
-          tracksRef.current.get(drone.id) ?? [],
-          detections,
-          seedRef.current.get(drone.id) ?? 1,
-          { gate: PX * 0.4, maxMisses: 2, maxTrail: 8 },
-        );
+        const prevTracks = tracksRef.current.get(drone.id) ?? [];
+        const occ = detectOcclusions(prevTracks, detections, TRK.gate);
+        const stepped = stepTracker(prevTracks, detections, seedRef.current.get(drone.id) ?? 1, TRK);
         tracksRef.current.set(drone.id, stepped.tracks);
         seedRef.current.set(drone.id, stepped.nextId);
-        const confirmed = confirmedTracks(stepped.tracks, 2);
+        const confirmed = confirmedTracks(stepped.tracks, 2, TRK.stationaryGrace);
+
+        // GEL du fond sous les présences IMMOBILES : on protège leur zone pour que le fond n'« apprenne »
+        // pas l'objet arrêté — ainsi un intrus qui se fige reste détecté et re-verrouillé au moindre geste.
+        let freeze: Uint8Array | undefined;
+        const still = confirmed.filter((t) => isStationary(t));
+        if (still.length > 0) {
+          freeze = new Uint8Array(PX * PX);
+          const r = 10;
+          for (const t of still) {
+            const x0 = Math.max(0, Math.round(t.cx) - r);
+            const x1 = Math.min(PX - 1, Math.round(t.cx) + r);
+            const y0 = Math.max(0, Math.round(t.cy) - r);
+            const y1 = Math.min(PX - 1, Math.round(t.cy) + r);
+            for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) freeze[y * PX + x] = 1;
+          }
+        }
+        updateBackground(bg, cur.data, 0.06, diff.mask, 0.1, freeze);
+
         const whereOf = (cx: number, cy: number) => {
           const hx = cx / PX < 0.34 ? "gauche" : cx / PX > 0.66 ? "droite" : "centre";
           const hy = cy / PX < 0.34 ? "haut" : cy / PX > 0.66 ? "bas" : "milieu";
@@ -164,6 +187,7 @@ function DroneWatch() {
             heading: frameHeading(t.vx, t.vy),
             speed: Math.round(((Math.hypot(t.vx, t.vy) / PX) * 100 / dt) * 10) / 10,
             where: whereOf(t.cx, t.cy),
+            stationary: isStationary(t),
           }))
           .sort((a, b) => a.id - b.id);
         // Piste principale (la plus établie) pour l'affichage compact.
@@ -172,6 +196,7 @@ function DroneWatch() {
         const speed = primary
           ? Math.round(((Math.hypot(primary.vx, primary.vy) / PX) * 100 / dt) * 10) / 10
           : undefined;
+        const note = occ > 0 ? "croisement de pistes (un id peut s'échanger)" : undefined;
 
         // Capture de preuve : trame figée + surcouche mouvement + boîte de la plus grande zone + trace.
         let frame: string | undefined;
@@ -227,6 +252,7 @@ function DroneWatch() {
 
         const armed = pct >= threshold && isArmedPerimeter(drone.site);
         const level: "elevee" | "critique" = armed ? "critique" : "elevee";
+        const armedShown = pct >= threshold || confirmed.length > 0; // une présence immobile peut tenir sans % de mouvement
         setDroneMotion(drone.id, {
           pct,
           at: Date.now(),
@@ -237,11 +263,12 @@ function DroneWatch() {
           where: hint.where,
           heading,
           speed,
+          note,
           frame,
-          level: pct >= threshold ? level : undefined,
+          level: armedShown ? level : undefined,
         });
 
-        if (pct >= threshold) {
+        if (pct >= threshold || confirmed.length > 0) {
           const last = lastAlert.current.get(drone.id) ?? 0;
           if (Date.now() - last > 10 * 60 * 1000) {
             lastAlert.current.set(drone.id, Date.now());
@@ -249,8 +276,9 @@ function DroneWatch() {
             const pistesTxt = nT > 0 ? `${nT} piste${nT > 1 ? "s" : ""} · ` : `${hint.hint} · `;
             const detail = tracksOut
               .slice(0, 3)
-              .map((t) => `T${t.id} → ${t.heading}${t.speed ? ` ${t.speed}%/s` : ""}`)
+              .map((t) => `T${t.id} ${t.stationary ? "immobile" : `→ ${t.heading}${t.speed ? ` ${t.speed}%/s` : ""}`}`)
               .join(" · ");
+            const occTxt = note ? ` · ${note}` : "";
             const patrol = armed ? " · périmètre armé : vérifier la capture, envoyer une patrouille" : "";
             pushAlert({
               id: `drone-motion-${drone.id}-${Date.now()}`,
@@ -258,7 +286,7 @@ function DroneWatch() {
               at: Date.now(),
               level,
               title: armed ? "Présence sur périmètre armé (drone)" : "Mouvement détecté (imagerie drone)",
-              body: `${drone.name} · ${pct}% du cadre · ${pistesTxt}${detail || hint.where} · ${drone.site || "site"}${patrol} · suivi/présence, identification à l'œil sur la capture`,
+              body: `${drone.name} · ${pct}% du cadre · ${pistesTxt}${detail || hint.where}${occTxt} · ${drone.site || "site"}${patrol} · suivi/présence, identification à l'œil sur la capture`,
               acked: false,
             });
             navBeep();

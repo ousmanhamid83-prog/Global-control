@@ -391,6 +391,7 @@ function SiteManager() {
                         {m.heading && m.heading !== "immobile" ? ` · → ${m.heading}${m.speed ? ` ${m.speed}%/s` : ""}` : ""}
                       </span>
                     ) : null}
+                    {m?.note ? <span className="text-warn">⚠ {m.note}</span> : null}
                     <div className="ml-auto flex items-center gap-1">
                       {m?.frame ? (
                         <Button
@@ -423,11 +424,12 @@ function SiteManager() {
                           <ul className="font-mono text-[10.5px]">
                             {m.tracks.map((t) => (
                               <li key={t.id}>
-                                T{t.id} · {t.where} · {t.heading === "immobile" ? "immobile" : <>→ {t.heading} {t.speed}%/s</>}
+                                T{t.id} · {t.where} · {t.stationary || t.heading === "immobile" ? "immobile" : <>→ {t.heading} {t.speed}%/s</>}
                               </li>
                             ))}
                           </ul>
                         ) : null}
+                        {m.note ? <p className="text-warn">⚠ {m.note}</p> : null}
                         <p>
                           Zones de mouvement surlignées en orange, plus grande zone encadrée, <strong>une trace
                           de suivi par piste</strong> (bleu, label T1/T2…). Pistage multi-cibles : chaque présence

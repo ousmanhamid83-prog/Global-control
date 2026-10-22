@@ -251,11 +251,21 @@ export function updateBackground(
   alpha: number,
   mask?: Uint8Array,
   fgFactor = 0.1,
+  freeze?: Uint8Array,
 ): void {
   for (let i = 0; i < bg.length; i++) {
+    if (freeze && freeze[i]) continue; // GELÉ : sous une piste (ex. présence arrêtée) → ne pas absorber
     const a = mask && mask[i] ? alpha * fgFactor : alpha;
     bg[i] += a * (lumAt(cur, i * 4) - bg[i]);
   }
+}
+
+/**
+ * Changement GLOBAL d'image (éclairage, exposition, voile) : une part énorme du cadre bascule d'un
+ * coup. À distinguer d'une intrusion (locale) pour ne pas sonner une fausse alerte et ré-étalonner.
+ */
+export function isGlobalChange(changedFrac: number, thr = 0.45): boolean {
+  return changedFrac >= thr;
 }
 
 /**

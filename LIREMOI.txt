@@ -280,6 +280,16 @@ Nos drones — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs > Changemen
 - ALERTE ZONE RENFORCÉE : si le SITE du drone est un périmètre armé (mine, ou site surveillé armé),
   l'alerte passe en CRITIQUE « Présence sur périmètre armé » avec « envoyer une patrouille ». Sinon
   elle reste « Mouvement détecté » (élevée). Bandeau + bip dans les deux cas.
+- PRÉSENCE IMMOBILE : une piste qui ne bouge plus est étiquetée « immobile » et MAINTENUE — on gèle
+  le fond sous elle pour qu'il n'« apprenne » pas l'objet arrêté, si bien qu'un intrus qui se fige
+  reste suivi et se re-verrouille au moindre geste. (Un objet parfaitement immobile très longtemps
+  finit quand même par se fondre : c'est une veille du MOUVEMENT, pas un détecteur d'objets.)
+- OCCLUSION / CROISEMENT : quand deux pistes se recouvrent, la piste « perdue » est maintenue (coast)
+  le temps du croisement, et le poste note « croisement de pistes (un id peut s'échanger) » pour que
+  l'opérateur sache qu'un numéro de piste a pu permuter.
+- PARADE ÉCLAIRAGE : un basculement GLOBAL d'image (exposition, voile, nuage, phare) fait virer une
+  énorme part du cadre d'un coup — ce n'est pas une intrusion. Le poste le reconnaît, ré-étalonne vite
+  le fond, note « variation d'éclairage » et N'ALERTE PAS.
 - FLUX / CADENCE : la cadence est réglable (Normale 15 s · Rapprochée 5 s · Continue 3 s) — plus serré
   = suivi quasi continu. L'URL accepte une IMAGE FIXE (snapshot JPEG) ou un FLUX MJPEG (le proxy en
   extrait la première trame). Le RTSP n'est PAS pris en charge directement (navigateur incapable de le
@@ -293,11 +303,13 @@ Nos drones — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs > Changemen
   indicatif qui matche (un drone muet reste au registre et à l'analyse d'image, sans piste air) ; la
   veille/suivi suppose une URL d'image ou de flux jointe — sinon le drone est juste suivi/inscrit ;
   l'indice piéton/véhicule est une aide, pas une certitude — l'œil tranche. La détection reste fondée
-  sur le MOUVEMENT (soustraction de fond), pas sur un détecteur d'objets entraîné : un objet vraiment
-  immobile finit par se fondre dans le fond (c'est voulu : on veille le mouvement) ; deux cibles qui se
-  recouvrent à l'écran (occlusion) fusionnent le temps du croisement ; un changement brutal de lumière
-  se résorbe en quelques trames. Pour un pistage encore plus fin et fluide, il faut un FLUX vidéo
-  continu (MJPEG en place ; RTSP via passerelle).
+  sur le MOUVEMENT (soustraction de fond), pas sur un détecteur d'objets entraîné — avec les parades
+  ci-dessus (présence immobile maintenue, occlusion signalée, éclairage neutralisé). Résidus honnêtes :
+  un objet parfaitement immobile très longtemps finit par se fondre ; deux cibles qui se recouvrent
+  physiquement partagent une piste le temps du croisement (sans segmentation d'instances, aucun
+  pisteur ne l'évite). Pour aller encore plus loin, il faut un FLUX vidéo continu (MJPEG en place ;
+  RTSP via passerelle) et, le jour venu, un détecteur embarqué sur VOS caméras — AfriControl reste
+  côté réception/analyse, sans identité.
 
 Comparateur avant/après — Capteurs > onglet « Changement »
 - Pas de direct : un satellite ne repasse que tous les quelques jours. On ne traque pas une voiture

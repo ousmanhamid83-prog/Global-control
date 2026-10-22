@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { confirmedTracks, stepTracker, type Track2D } from "./track2d.ts";
+import { confirmedTracks, detectOcclusions, isStationary, stepTracker, type Track2D } from "./track2d.ts";
 
 const OPTS = { gate: 50, maxMisses: 2, maxTrail: 8 };
 
@@ -64,7 +64,43 @@ test("confirmedTracks ne garde que les pistes établies et actives", () => {
   const tracks: Track2D[] = [
     { id: 1, cx: 0, cy: 0, vx: 0, vy: 0, trail: [], hits: 1, misses: 0 }, // trop jeune
     { id: 2, cx: 0, cy: 0, vx: 0, vy: 0, trail: [], hits: 3, misses: 0 }, // OK
-    { id: 3, cx: 0, cy: 0, vx: 0, vy: 0, trail: [], hits: 4, misses: 1 }, // en coast
+    { id: 3, cx: 0, cy: 0, vx: 0, vy: 0, trail: [], hits: 4, misses: 1 }, // en coast mobile
   ];
   assert.deepEqual(confirmedTracks(tracks, 2).map((t) => t.id), [2]);
+  // une présence immobile (still≥3) en coast court reste affichée si on l'autorise
+  const stat: Track2D = { id: 9, cx: 0, cy: 0, vx: 0, vy: 0, trail: [], hits: 5, misses: 2, still: 6 };
+  assert.deepEqual(confirmedTracks([stat], 2, 8).map((t) => t.id), [9]);
+  assert.deepEqual(confirmedTracks([stat], 2, 0).map((t) => t.id), []); // sans tolérance, non
+});
+
+test("une présence qui s'arrête survit plus longtemps qu'une piste mobile perdue", () => {
+  const OPTS_S = { gate: 50, maxMisses: 2, maxTrail: 8, stillEps: 1.2, stationaryGrace: 8 };
+  let seed = 1;
+  let tracks: Track2D[] = [];
+  // 5 trames sur place (immobile) → still grimpe
+  for (let k = 0; k < 5; k++) {
+    const r = stepTracker(tracks, [{ cx: 40, cy: 40 }], seed, OPTS_S);
+    tracks = r.tracks;
+    seed = r.nextId;
+  }
+  assert.ok(isStationary(tracks[0]!)); // reconnue immobile
+  // puis l'objet immobile ne produit plus de détection : il tient grâce à stationaryGrace (8 > 2)
+  for (let k = 0; k < 4; k++) tracks = stepTracker(tracks, [], seed, OPTS_S).tracks;
+  assert.equal(tracks.length, 1); // toujours là après 4 trames sans détection
+  assert.equal(tracks[0]!.id, 1);
+});
+
+test("detectOcclusions compte les détections revendiquées par deux pistes (croisement)", () => {
+  const prev: Track2D[] = [
+    { id: 1, cx: 48, cy: 50, vx: 2, vy: 0, trail: [], hits: 5, misses: 0 },
+    { id: 2, cx: 52, cy: 50, vx: -2, vy: 0, trail: [], hits: 5, misses: 0 },
+  ];
+  // les deux pistes convergent vers un seul point : occlusion
+  assert.equal(detectOcclusions(prev, [{ cx: 50, cy: 50 }], 50), 1);
+  // deux pistes BIEN séparées avec chacune sa détection : pas d'occlusion
+  const apart: Track2D[] = [
+    { id: 1, cx: 20, cy: 50, vx: 0, vy: 0, trail: [], hits: 5, misses: 0 },
+    { id: 2, cx: 80, cy: 50, vx: 0, vy: 0, trail: [], hits: 5, misses: 0 },
+  ];
+  assert.equal(detectOcclusions(apart, [{ cx: 20, cy: 50 }, { cx: 80, cy: 50 }], 30), 0);
 });
