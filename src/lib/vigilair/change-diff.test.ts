@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { allBlobs, blobStats, diffHeatmap, frameHeading, mergeNearbyBlobs, presenceHint } from "./change-diff.ts";
+import {
+  allBlobs,
+  blobStats,
+  diffHeatmap,
+  foregroundDiff,
+  frameHeading,
+  initBackground,
+  mergeNearbyBlobs,
+  presenceHint,
+  updateBackground,
+} from "./change-diff.ts";
 
 /** Fabrique une image RGBA pleine d'une couleur. */
 function fill(w: number, h: number, r: number, g: number, b: number): Uint8ClampedArray {
@@ -184,6 +194,51 @@ test("mergeNearbyBlobs recolle deux bandes proches en une cible", () => {
     { area: 30, x0: 90, y0: 90, x1: 95, y1: 95, cx: 92, cy: 92 },
   ];
   assert.equal(mergeNearbyBlobs(far, 6).length, 2);
+});
+
+/** Scène sombre avec un carré clair à (sx,sy) de taille sz. */
+function scene(w: number, h: number, sx: number, sy: number, sz: number): Uint8ClampedArray {
+  const a = fill(w, h, 20, 20, 20);
+  for (let y = sy; y < sy + sz; y++)
+    for (let x = sx; x < sx + sz; x++) {
+      const p = (y * w + x) * 4;
+      a[p] = 235; a[p + 1] = 235; a[p + 2] = 235;
+    }
+  return a;
+}
+
+test("foregroundDiff : un objet absent du fond = UNE seule zone à sa position (pas deux bandes)", () => {
+  const W = 40, H = 40;
+  const empty = fill(W, H, 20, 20, 20);
+  const bg = initBackground(empty, W, H); // fond = scène vide
+  const cur = scene(W, H, 10, 10, 8); // objet apparu
+  const fg = foregroundDiff(bg, cur, W, H, { threshold: 30, mask: true });
+  const st = blobStats(fg.mask!, W, H, 1);
+  assert.equal(st.count, 1); // une seule zone, pas un départ + une arrivée
+  assert.equal(st.largest!.area, 64); // 8×8, l'objet entier (pas une bande)
+});
+
+test("updateBackground : une scène statique fond dans le fond (plus de détection)", () => {
+  const W = 24, H = 24;
+  const bg = initBackground(fill(W, H, 20, 20, 20), W, H);
+  const newScene = scene(W, H, 6, 6, 6);
+  // on « montre » la même scène longtemps : le fond doit converger vers elle
+  for (let k = 0; k < 120; k++) updateBackground(bg, newScene, 0.1);
+  const fg = foregroundDiff(bg, newScene, W, H, { threshold: 30 });
+  assert.ok(fg.changedFrac < 0.01); // quasi plus rien d'« avant-plan »
+});
+
+test("updateBackground sélectif : un objet d'avant-plan persiste plus longtemps", () => {
+  const W = 24, H = 24;
+  const bg = initBackground(fill(W, H, 20, 20, 20), W, H);
+  const obj = scene(W, H, 6, 6, 6);
+  for (let k = 0; k < 8; k++) {
+    const fg = foregroundDiff(bg, obj, W, H, { threshold: 30, mask: true });
+    updateBackground(bg, obj, 0.1, fg.mask, 0.1); // fgFactor 0.1 : objet mis à jour 10× plus lentement
+  }
+  // après 8 trames, l'objet est encore détecté (n'a pas fondu)
+  const fg = foregroundDiff(bg, obj, W, H, { threshold: 30 });
+  assert.ok(fg.changedFrac > 0.03);
 });
 
 test("frameHeading : sens écran sur 8 secteurs, dy vers le bas", () => {

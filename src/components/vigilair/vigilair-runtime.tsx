@@ -7,7 +7,7 @@ import { IdleLock } from "@/components/vigilair/idle-lock";
 import { ChefSealHost } from "@/components/vigilair/chef-seal";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { allBlobs, blobStats, diffHeatmap, frameHeading, mergeNearbyBlobs, presenceHint } from "@/lib/vigilair/change-diff";
+import { allBlobs, blobStats, diffHeatmap, foregroundDiff, frameHeading, initBackground, mergeNearbyBlobs, presenceHint, updateBackground } from "@/lib/vigilair/change-diff";
 import { confirmedTracks, stepTracker, type Track2D } from "@/lib/vigilair/track2d";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { fetchDroneFrame } from "@/lib/vigilair/drones-api";
@@ -59,7 +59,9 @@ function DroneWatch() {
   const setDroneMotion = useVigilair((s) => s.setDroneMotion);
   const drones = useSyncExternalStore(subscribeDrones, dronesSnapshot, dronesSnapshot);
   const idx = useRef(0);
-  const prevFrame = useRef<Map<string, ImageData>>(new Map());
+  /** Modèle de FOND par drone (soustraction de fond) + nombre de trames vues (warmup). */
+  const bgRef = useRef<Map<string, Float32Array>>(new Map());
+  const warmRef = useRef<Map<string, number>>(new Map());
   const lastAlert = useRef<Map<string, number>>(new Map());
   /** Pistage multi-cibles, par drone (sans identité) : pistes en cours, prochain id, heure du relevé. */
   const tracksRef = useRef<Map<string, Track2D[]>>(new Map());
@@ -103,14 +105,26 @@ function DroneWatch() {
         if (!ctx) return;
         ctx.drawImage(img, 0, 0, PX, PX);
         const cur = ctx.getImageData(0, 0, PX, PX);
-        const prev = prevFrame.current.get(drone.id);
-        prevFrame.current.set(drone.id, cur);
-        if (!prev) {
-          // Première trame : on établit la référence, pas de mesure encore.
+        // Soustraction de FOND : on compare la trame au modèle de fond (pas à la trame d'avant) →
+        // chaque objet apparaît à sa position courante, une seule zone, sans bandes départ/arrivée.
+        let bg = bgRef.current.get(drone.id);
+        if (!bg) {
+          bg = initBackground(cur.data, PX, PX);
+          bgRef.current.set(drone.id, bg);
+          warmRef.current.set(drone.id, 0);
           setDroneMotion(drone.id, { pct: null, at: Date.now() });
           return;
         }
-        const diff = diffHeatmap(prev.data, cur.data, PX, PX, { threshold: 34, mask: true });
+        const WARMUP = 3;
+        const warm = (warmRef.current.get(drone.id) ?? 0) + 1;
+        warmRef.current.set(drone.id, warm);
+        const diff = foregroundDiff(bg, cur.data, PX, PX, { threshold: 34, mask: true });
+        if (warm <= WARMUP) {
+          // Le fond se cale (adaptation rapide), on ne mesure pas encore : évite les fantômes d'init.
+          updateBackground(bg, cur.data, 0.35);
+          setDroneMotion(drone.id, { pct: null, at: Date.now() });
+          return;
+        }
         const pct = Math.round(diff.changedFrac * 1000) / 10;
         const stats = diff.mask ? blobStats(diff.mask, PX, PX, 6) : { count: 0, totalChanged: 0, largest: null };
         const hint = presenceHint(stats.largest, PX, PX);
@@ -123,9 +137,13 @@ function DroneWatch() {
         const prevAt = lastAt.current.get(drone.id) ?? now2 - (Math.max(2, cadence || 15) * 1000);
         const dt = Math.max(0.2, (now2 - prevAt) / 1000);
         lastAt.current.set(drone.id, now2);
+        // Soustraction de fond : un objet = une zone à sa position → recollage minime (fragments).
         const detections = diff.mask
-          ? mergeNearbyBlobs(allBlobs(diff.mask, PX, PX, 6), 8).map((b) => ({ cx: b.cx, cy: b.cy }))
+          ? mergeNearbyBlobs(allBlobs(diff.mask, PX, PX, 6), 3).map((b) => ({ cx: b.cx, cy: b.cy }))
           : [];
+        // Entretien du fond : moyenne glissante lente, plus lente encore sur l'avant-plan (objet
+        // lent ou arrêté reste détecté un moment avant de « fondre » dans la scène).
+        updateBackground(bg, cur.data, 0.06, diff.mask, 0.1);
         const stepped = stepTracker(
           tracksRef.current.get(drone.id) ?? [],
           detections,

@@ -262,12 +262,17 @@ Nos drones — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs > Changemen
   et lit leur géométrie — nombre de zones, taille, où dans le cadre — pour en tirer un INDICE prudent
   (« silhouette compacte / piéton possible », « masse large / véhicule possible », « indéterminée »).
   C'est une CLASSE, jamais un NOM : un indice à confirmer à l'œil, pas une reconnaissance d'objet.
-- PISTAGE MULTI-CIBLES (sans identité) : chaque zone de mouvement (après recollage des bandes départ/
-  arrivée) devient une détection, associée d'une trame à l'autre par plus-proche-voisin. PLUSIEURS
-  pistes sont suivies en parallèle, chacune avec son id stable (T1, T2…), son SENS de déplacement à
-  l'écran (droite, haut-gauche…) et sa VITESSE estimée ; une piste perdue est maintenue (coast) quelques
-  trames avant d'être abandonnée. Sur la capture : une trace bleue + un label par piste. C'est le
-  « follow » des drones grand public, version sûreté : on suit OÙ VA CHAQUE présence, jamais QUI elle est.
+- DÉTECTION PAR SOUSTRACTION DE FOND : le poste tient un MODÈLE DE FOND (moyenne glissante de la scène)
+  et compare la trame courante AU FOND, pas à la trame d'avant. Chaque objet apparaît donc UNE fois, à
+  sa POSITION COURANTE (une zone pleine) — plus de double bande départ/arrivée, et deux cibles proches
+  se séparent mieux. Mise à jour sélective : un objet lent/arrêté ne « fond » pas tout de suite. Court
+  warmup au démarrage pour caler le fond (évite les fantômes d'init).
+- PISTAGE MULTI-CIBLES (sans identité) : chaque zone d'avant-plan devient une détection, associée d'une
+  trame à l'autre par plus-proche-voisin. PLUSIEURS pistes sont suivies en parallèle, chacune avec son
+  id stable (T1, T2…), son SENS de déplacement à l'écran (droite, haut-gauche…) et sa VITESSE estimée ;
+  une piste perdue est maintenue (coast) quelques trames avant d'être abandonnée. Sur la capture : une
+  trace bleue + un label par piste. C'est le « follow » des drones grand public, version sûreté : on
+  suit OÙ VA CHAQUE présence, jamais QUI elle est.
 - CAPTURE DE PREUVE POUR L'OPÉRATEUR : à la détection, la trame est FIGÉE avec la zone de mouvement
   surlignée (orange), la plus grande zone encadrée et la trace de suivi ; bouton « Capture » dans la
   liste. L'opérateur OUVRE la capture, REGARDE, et IDENTIFIE à l'œil. C'est lui qui reconnaît qui c'est
@@ -287,10 +292,12 @@ Nos drones — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs > Changemen
 - LIMITES ASSUMÉES : le marquage ami sur la carte suppose que le drone ÉMET l'ADS-B avec un hex/
   indicatif qui matche (un drone muet reste au registre et à l'analyse d'image, sans piste air) ; la
   veille/suivi suppose une URL d'image ou de flux jointe — sinon le drone est juste suivi/inscrit ;
-  l'indice piéton/véhicule est une aide, pas une certitude — l'œil tranche. Le pistage travaille sur
-  la DIFFÉRENCE d'image (pas un détecteur d'objets) : une cible rapide entre deux relevés laisse deux
-  bandes (départ + arrivée) qu'on recolle ; très serrées, deux cibles proches peuvent se confondre.
-  Pour un pistage fin et fluide, il faut un FLUX vidéo continu (MJPEG en place ; RTSP via passerelle).
+  l'indice piéton/véhicule est une aide, pas une certitude — l'œil tranche. La détection reste fondée
+  sur le MOUVEMENT (soustraction de fond), pas sur un détecteur d'objets entraîné : un objet vraiment
+  immobile finit par se fondre dans le fond (c'est voulu : on veille le mouvement) ; deux cibles qui se
+  recouvrent à l'écran (occlusion) fusionnent le temps du croisement ; un changement brutal de lumière
+  se résorbe en quelques trames. Pour un pistage encore plus fin et fluide, il faut un FLUX vidéo
+  continu (MJPEG en place ; RTSP via passerelle).
 
 Comparateur avant/après — Capteurs > onglet « Changement »
 - Pas de direct : un satellite ne repasse que tous les quelques jours. On ne traque pas une voiture

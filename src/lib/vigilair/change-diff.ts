@@ -223,6 +223,76 @@ export function presenceHint(largest: MoveBlob | null, width: number, height: nu
   return { sizePct, aspect, where, hint };
 }
 
+/** Luminance perçue (Rec. 601) d'un pixel RGBA à l'offset p. */
+function lumAt(px: Uint8ClampedArray | Uint8Array, p: number): number {
+  return 0.299 * px[p]! + 0.587 * px[p + 1]! + 0.114 * px[p + 2]!;
+}
+
+/**
+ * Modèle de FOND initial : la luminance de la trame (un float par pixel). La soustraction de fond
+ * détecte un objet à sa POSITION COURANTE (une seule zone par objet), au lieu des deux bandes
+ * départ/arrivée d'une différence trame-à-trame — plus net, et deux cibles proches se séparent mieux.
+ */
+export function initBackground(cur: Uint8ClampedArray | Uint8Array, width: number, height: number): Float32Array {
+  const n = width * height;
+  const bg = new Float32Array(n);
+  for (let i = 0; i < n; i++) bg[i] = lumAt(cur, i * 4);
+  return bg;
+}
+
+/**
+ * Met à jour le fond par moyenne glissante : bg += alpha·(courant − bg). Mise à jour SÉLECTIVE : aux
+ * pixels d'avant-plan (mask=1), on applique alpha·fgFactor (plus lent) pour qu'un objet, même lent,
+ * ne « fonde » pas trop vite dans le fond. Mutation en place.
+ */
+export function updateBackground(
+  bg: Float32Array,
+  cur: Uint8ClampedArray | Uint8Array,
+  alpha: number,
+  mask?: Uint8Array,
+  fgFactor = 0.1,
+): void {
+  for (let i = 0; i < bg.length; i++) {
+    const a = mask && mask[i] ? alpha * fgFactor : alpha;
+    bg[i] += a * (lumAt(cur, i * 4) - bg[i]);
+  }
+}
+
+/**
+ * Avant-plan = pixels dont la luminance s'écarte du fond au-delà du seuil. Renvoie le même objet que
+ * diffHeatmap (overlay + masque + fraction), mais contre le MODÈLE DE FOND, pas la trame précédente.
+ */
+export function foregroundDiff(
+  bg: Float32Array,
+  cur: Uint8ClampedArray | Uint8Array,
+  width: number,
+  height: number,
+  opts: DiffOptions = {},
+): DiffResult {
+  const threshold = opts.threshold ?? 30;
+  const [tr, tg, tb, ta] = opts.tint ?? [255, 64, 0, 150];
+  const noData = opts.noData ?? 24;
+  const n = width * height;
+  const overlay = new Uint8ClampedArray(n * 4);
+  const mask = opts.mask ? new Uint8Array(n) : undefined;
+  let changed = 0;
+  let compared = 0;
+  for (let i = 0; i < n; i++) {
+    const p = i * 4;
+    if (cur[p]! + cur[p + 1]! + cur[p + 2]! < noData) continue; // sans donnée
+    compared++;
+    if (Math.abs(lumAt(cur, p) - bg[i]!) >= threshold) {
+      overlay[p] = tr;
+      overlay[p + 1] = tg;
+      overlay[p + 2] = tb;
+      overlay[p + 3] = ta;
+      if (mask) mask[i] = 1;
+      changed++;
+    }
+  }
+  return { overlay, changedFrac: compared ? changed / compared : 0, compared, mask, width, height };
+}
+
 /**
  * Direction ÉCRAN d'un déplacement (dx vers la droite, dy vers le bas dans le repère image).
  * Renvoie un libellé 8 secteurs, ou « immobile ». C'est le SENS de la piste à l'écran, pas un cap
