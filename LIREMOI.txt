@@ -262,21 +262,32 @@ Nos drones — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs > Changemen
   et lit leur géométrie — nombre de zones, taille, où dans le cadre — pour en tirer un INDICE prudent
   (« silhouette compacte / piéton possible », « masse large / véhicule possible », « indéterminée »).
   C'est une CLASSE, jamais un NOM : un indice à confirmer à l'œil, pas une reconnaissance d'objet.
+- SUIVI DE PISTE (sans identité) : le poste suit le CENTRE de la zone en mouvement d'une trame à
+  l'autre — trace dessinée (ligne bleue) sur la capture, SENS de déplacement à l'écran (droite, haut-
+  gauche…) et VITESSE estimée (% du cadre / s). C'est le « follow » des drones grand public, version
+  sûreté : on suit OÙ VA la cible, jamais QUI elle est.
 - CAPTURE DE PREUVE POUR L'OPÉRATEUR : à la détection, la trame est FIGÉE avec la zone de mouvement
-  surlignée (orange) et la plus grande zone encadrée ; bouton « Capture » dans la liste. L'opérateur
-  OUVRE la capture, REGARDE, et IDENTIFIE à l'œil. C'est lui qui reconnaît qui c'est — jamais une IA.
+  surlignée (orange), la plus grande zone encadrée et la trace de suivi ; bouton « Capture » dans la
+  liste. L'opérateur OUVRE la capture, REGARDE, et IDENTIFIE à l'œil. C'est lui qui reconnaît qui c'est
+  — jamais une IA.
 - ALERTE ZONE RENFORCÉE : si le SITE du drone est un périmètre armé (mine, ou site surveillé armé),
   l'alerte passe en CRITIQUE « Présence sur périmètre armé » avec « envoyer une patrouille ». Sinon
   elle reste « Mouvement détecté » (élevée). Bandeau + bip dans les deux cas.
+- FLUX / CADENCE : la cadence est réglable (Normale 15 s · Rapprochée 5 s · Continue 3 s) — plus serré
+  = suivi quasi continu. L'URL accepte une IMAGE FIXE (snapshot JPEG) ou un FLUX MJPEG (le proxy en
+  extrait la première trame). Le RTSP n'est PAS pris en charge directement (navigateur incapable de le
+  lire) : il faut une passerelle qui le transforme en MJPEG / snapshot.
 - CE QU'ON NE FAIT PAS : AfriControl SUIT et ANALYSE ; il ne PILOTE pas le drone, ne lui commande rien,
-  n'est pas une arme. Il dit « ça a bougé là, plutôt tel gabarit » — jamais « c'est untel ». PAS de
-  reconnaissance de VISAGE, PAS de lecture de PLAQUE, PAS de ciblage : l'identité reste à l'œil humain
-  sur la capture. Le proxy n'accepte qu'une URL déjà inscrite au registre (pas un proxy ouvert), et
-  seulement une image.
+  n'est pas une arme. Il dit « ça a bougé là, ça va vers la droite, plutôt tel gabarit » — jamais
+  « c'est untel ». PAS de reconnaissance de VISAGE, PAS de lecture de PLAQUE, PAS de ciblage :
+  l'identité reste à l'œil humain sur la capture. Le proxy n'accepte qu'une URL déjà inscrite au
+  registre (pas un proxy ouvert), et seulement une image ou un flux d'images.
 - LIMITES ASSUMÉES : le marquage ami sur la carte suppose que le drone ÉMET l'ADS-B avec un hex/
   indicatif qui matche (un drone muet reste au registre et à l'analyse d'image, sans piste air) ; la
-  veille mouvement suppose une URL d'image fixe jointe — sinon le drone est juste suivi/inscrit ;
-  l'indice piéton/véhicule est une aide, pas une certitude — l'œil tranche.
+  veille/suivi suppose une URL d'image ou de flux jointe — sinon le drone est juste suivi/inscrit ;
+  l'indice piéton/véhicule est une aide, pas une certitude — l'œil tranche ; le suivi est image-à-
+  image (pas un pistage multi-cibles), honnête pour « où va la présence », pas pour verrouiller une
+  cible parmi plusieurs.
 
 Comparateur avant/après — Capteurs > onglet « Changement »
 - Pas de direct : un satellite ne repasse que tous les quelques jours. On ne traque pas une voiture

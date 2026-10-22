@@ -63,6 +63,8 @@ function SiteManager() {
   const setDroneWatch = useVigilair((s) => s.setDroneWatch);
   const droneThreshold = useVigilair((s) => s.droneThreshold);
   const setDroneThreshold = useVigilair((s) => s.setDroneThreshold);
+  const droneCadence = useVigilair((s) => s.droneCadence);
+  const setDroneCadence = useVigilair((s) => s.setDroneCadence);
   const droneMotion = useVigilair((s) => s.droneMotion);
   const [drName, setDrName] = useState("");
   const [drIdent, setDrIdent] = useState("");
@@ -313,16 +315,18 @@ function SiteManager() {
         </div>
         <p className="text-[11px] text-muted-foreground">
           Un drone inscrit est reconnu <strong>ami</strong> : sa piste 1090ES (s'il émet) n'est plus
-          comptée comme intrusion. Son <strong>image fixe</strong> (station sol / nacelle) devient une
-          source d'analyse : la veille compare deux trames et signale un <strong>mouvement/présence</strong>
-          — jamais une identification de personne. AfriControl <strong>suit et analyse</strong>, il ne
-          pilote pas, n'arme rien. <strong>Identifiant</strong> = hex ICAO (ex. 3C6DD2) ou indicatif.
+          comptée comme intrusion. Son <strong>image</strong> (station sol / nacelle) devient une source
+          d'analyse : la veille compare deux trames, signale un <strong>mouvement/présence</strong> et
+          <strong> suit la piste</strong> (sens + vitesse à l'écran) — jamais une identification de
+          personne. AfriControl <strong>suit et analyse</strong>, il ne pilote pas, n'arme rien.
+          <strong> Identifiant</strong> = hex ICAO (ex. 3C6DD2) ou indicatif. L'URL accepte une image
+          fixe (snapshot JPEG) ou un flux <strong>MJPEG</strong> ; le RTSP demande une passerelle.
         </p>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <Input data-drone="name" placeholder="Nom (ex. Aile-01)" value={drName} onChange={(e) => setDrName(e.target.value)} />
           <Input data-drone="ident" placeholder="Identifiant (hex ICAO / indicatif)" value={drIdent} onChange={(e) => setDrIdent(e.target.value)} />
           <Input data-drone="site" placeholder="Site rattaché" value={drSite} onChange={(e) => setDrSite(e.target.value)} />
-          <Input data-drone="url" placeholder="URL image fixe (http/https, option.)" value={drUrl} onChange={(e) => setDrUrl(e.target.value)} />
+          <Input data-drone="url" placeholder="URL image fixe ou flux MJPEG (http/https, option.)" value={drUrl} onChange={(e) => setDrUrl(e.target.value)} />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button data-drone="add" size="sm" variant="outline" onClick={() => void addDr()}>
@@ -345,6 +349,17 @@ function SiteManager() {
             className="w-16 rounded-sm border border-border bg-bg px-2 py-1 text-xs text-fg"
           />
           <span className="text-muted-foreground">% du cadre</span>
+          <span className="text-muted-foreground">· cadence</span>
+          <select
+            data-drone="cadence"
+            value={droneCadence}
+            onChange={(e) => setDroneCadence(Number(e.target.value) || 15)}
+            className="rounded-sm border border-border bg-bg px-2 py-1 text-xs text-fg"
+          >
+            <option value={15}>Normale (15 s)</option>
+            <option value={5}>Rapprochée (5 s)</option>
+            <option value={3}>Continue (3 s)</option>
+          </select>
         </label>
         {drones.length > 0 ? (
           <ul className="divide-y divide-border rounded-sm border border-border">
@@ -372,6 +387,7 @@ function SiteManager() {
                         {m.zones ? `${m.zones} zone${m.zones > 1 ? "s" : ""} · ` : ""}
                         {m.hint}
                         {m.where && m.where !== "—" ? ` · ${m.where}` : ""}
+                        {m.heading && m.heading !== "immobile" ? ` · → ${m.heading}${m.speed ? ` ${m.speed}%/s` : ""}` : ""}
                       </span>
                     ) : null}
                     <div className="ml-auto flex items-center gap-1">
@@ -401,11 +417,15 @@ function SiteManager() {
                       <div className="min-w-0 flex-1 space-y-1 text-[11px] text-muted-foreground">
                         <p className="text-fg">
                           Mouvement <strong>{m.pct}%</strong> · {m.zones ?? 0} zone{(m.zones ?? 0) > 1 ? "s" : ""} · {m.hint} · {m.where}
+                          {m.heading && m.heading !== "immobile" ? (
+                            <> · suit vers <strong>{m.heading}</strong>{m.speed ? ` ~${m.speed}%/s` : ""}</>
+                          ) : null}
                         </p>
                         <p>
-                          Zone de mouvement surlignée en orange, plus grande zone encadrée. C'est une
-                          <strong> aide à la décision</strong> : l'opérateur regarde et <strong>identifie à l'œil</strong>.
-                          AfriControl ne reconnaît ni visage ni plaque, ne cible pas.
+                          Zone de mouvement surlignée en orange, plus grande zone encadrée, <strong>trace de
+                          suivi</strong> en bleu. C'est une <strong>aide à la décision</strong> : l'opérateur
+                          regarde et <strong>identifie à l'œil</strong>. AfriControl ne reconnaît ni visage ni
+                          plaque, ne cible pas.
                         </p>
                         {m.level === "critique" ? (
                           <p className="text-crit">Périmètre armé : envoyer une patrouille.</p>

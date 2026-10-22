@@ -18,6 +18,28 @@ export function normIdent(s: string): string {
 }
 
 /**
+ * Extrait la PREMIÈRE trame JPEG d'un flux (ex. MJPEG multipart/x-mixed-replace) : cherche le marqueur
+ * de début d'image (FF D8) puis la fin (FF D9) et renvoie la tranche, ou null si incomplète. Pur :
+ * c'est de la découpe d'octets, pas du décodage. Permet d'accepter un flux vidéo via le proxy.
+ */
+export function extractFirstJpeg(bytes: Uint8Array): Uint8Array | null {
+  let start = -1;
+  for (let i = 0; i + 1 < bytes.length; i++) {
+    if (bytes[i] === 0xff && bytes[i + 1] === 0xd8) {
+      start = i;
+      break;
+    }
+  }
+  if (start < 0) return null;
+  for (let j = start + 2; j + 1 < bytes.length; j++) {
+    if (bytes[j] === 0xff && bytes[j + 1] === 0xd9) {
+      return bytes.subarray(start, j + 2);
+    }
+  }
+  return null;
+}
+
+/**
  * Apparie une piste live (hex ICAO et/ou indicatif) à un drone inscrit. Renvoie le drone ami ou null.
  */
 export function matchOwnDrone(

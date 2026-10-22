@@ -7,7 +7,7 @@ import { IdleLock } from "@/components/vigilair/idle-lock";
 import { ChefSealHost } from "@/components/vigilair/chef-seal";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { blobStats, diffHeatmap, presenceHint } from "@/lib/vigilair/change-diff";
+import { blobStats, diffHeatmap, frameHeading, presenceHint } from "@/lib/vigilair/change-diff";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { fetchDroneFrame } from "@/lib/vigilair/drones-api";
 import { dronesSnapshot, hydrateDrones, subscribeDrones } from "@/lib/vigilair/drones";
@@ -53,12 +53,15 @@ export function VigilairRuntime() {
 function DroneWatch() {
   const on = useVigilair((s) => s.droneWatch);
   const threshold = useVigilair((s) => s.droneThreshold);
+  const cadence = useVigilair((s) => s.droneCadence);
   const pushAlert = useVigilair((s) => s.pushAlert);
   const setDroneMotion = useVigilair((s) => s.setDroneMotion);
   const drones = useSyncExternalStore(subscribeDrones, dronesSnapshot, dronesSnapshot);
   const idx = useRef(0);
   const prevFrame = useRef<Map<string, ImageData>>(new Map());
   const lastAlert = useRef<Map<string, number>>(new Map());
+  /** Trace de suivi : derniers centres de la zone en mouvement, par drone (sans identité). */
+  const trail = useRef<Map<string, { x: number; y: number; t: number }[]>>(new Map());
 
   useEffect(() => {
     if (!on) return;
@@ -109,7 +112,29 @@ function DroneWatch() {
         const stats = diff.mask ? blobStats(diff.mask, PX, PX, 6) : { count: 0, totalChanged: 0, largest: null };
         const hint = presenceHint(stats.largest, PX, PX);
 
-        // Capture de preuve : trame figée + surcouche mouvement + boîte de la plus grande zone.
+        // Suivi de piste (sans identité) : on suit le CENTRE de la zone en mouvement d'une trame à
+        // l'autre → trace, sens de déplacement à l'écran, vitesse estimée. Ce n'est pas « qui », c'est « où ça va ».
+        let heading: string | undefined;
+        let speed: number | undefined;
+        let trailPts: { x: number; y: number }[] | undefined;
+        if (stats.largest) {
+          const arr = trail.current.get(drone.id) ?? [];
+          arr.push({ x: stats.largest.cx, y: stats.largest.cy, t: Date.now() });
+          while (arr.length > 8) arr.shift();
+          trail.current.set(drone.id, arr);
+          if (arr.length >= 2) {
+            const a = arr[arr.length - 2]!;
+            const b = arr[arr.length - 1]!;
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const dt = Math.max(0.001, (b.t - a.t) / 1000);
+            heading = frameHeading(dx, dy);
+            speed = Math.round(((Math.hypot(dx, dy) / PX) * 100 / dt) * 10) / 10;
+          }
+          trailPts = arr.map((p) => ({ x: p.x, y: p.y }));
+        }
+
+        // Capture de preuve : trame figée + surcouche mouvement + boîte de la plus grande zone + trace.
         let frame: string | undefined;
         try {
           const comp = document.createElement("canvas");
@@ -138,6 +163,20 @@ function DroneWatch() {
                 stats.largest.y1 - stats.largest.y0 + 1,
               );
             }
+            // Trace de suivi : ligne bleue reliant les derniers centres, point sur la position courante.
+            if (trailPts && trailPts.length >= 2) {
+              cctx.strokeStyle = "rgba(120,200,255,0.9)";
+              cctx.lineWidth = 1.5;
+              cctx.beginPath();
+              cctx.moveTo(trailPts[0]!.x, trailPts[0]!.y);
+              for (let i = 1; i < trailPts.length; i++) cctx.lineTo(trailPts[i]!.x, trailPts[i]!.y);
+              cctx.stroke();
+              const head = trailPts[trailPts.length - 1]!;
+              cctx.fillStyle = "rgba(120,200,255,0.95)";
+              cctx.beginPath();
+              cctx.arc(head.x, head.y, 2.5, 0, Math.PI * 2);
+              cctx.fill();
+            }
             frame = comp.toDataURL("image/png");
           }
         } catch {
@@ -152,6 +191,8 @@ function DroneWatch() {
           zones: stats.count,
           hint: hint.hint,
           where: hint.where,
+          heading,
+          speed,
           frame,
           level: pct >= threshold ? level : undefined,
         });
@@ -161,6 +202,7 @@ function DroneWatch() {
           if (Date.now() - last > 10 * 60 * 1000) {
             lastAlert.current.set(drone.id, Date.now());
             const zonesTxt = stats.count > 0 ? `${stats.count} zone${stats.count > 1 ? "s" : ""} · ` : "";
+            const track = heading && heading !== "immobile" ? ` · se déplace vers ${heading}${speed ? ` ~${speed}%/s` : ""}` : "";
             const patrol = armed ? " · périmètre armé : vérifier la capture, envoyer une patrouille" : "";
             pushAlert({
               id: `drone-motion-${drone.id}-${Date.now()}`,
@@ -168,7 +210,7 @@ function DroneWatch() {
               at: Date.now(),
               level,
               title: armed ? "Présence sur périmètre armé (drone)" : "Mouvement détecté (imagerie drone)",
-              body: `${drone.name} · ${pct}% du cadre · ${zonesTxt}${hint.hint} · ${hint.where} · ${drone.site || "site"}${patrol} · présence/mouvement, identification à l'œil sur la capture`,
+              body: `${drone.name} · ${pct}% du cadre · ${zonesTxt}${hint.hint} · ${hint.where}${track} · ${drone.site || "site"}${patrol} · suivi/présence, identification à l'œil sur la capture`,
               acked: false,
             });
             navBeep();
@@ -179,14 +221,15 @@ function DroneWatch() {
       }
     };
 
+    const everyMs = Math.max(2, cadence || 15) * 1000; // cadence réglable (rapproché = suivi quasi continu)
     const first = window.setTimeout(() => void analyse(), 4000);
-    const timer = window.setInterval(() => void analyse(), 15_000); // un drone toutes les 15 s
+    const timer = window.setInterval(() => void analyse(), everyMs);
     return () => {
       dead = true;
       window.clearTimeout(first);
       window.clearInterval(timer);
     };
-  }, [on, threshold, drones, pushAlert, setDroneMotion]);
+  }, [on, threshold, cadence, drones, pushAlert, setDroneMotion]);
 
   return null;
 }

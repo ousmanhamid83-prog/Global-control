@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { matchOwnDrone, normIdent, type OwnDrone } from "./drones-core.ts";
+import { extractFirstJpeg, matchOwnDrone, normIdent, type OwnDrone } from "./drones-core.ts";
 
 const drone = (ident: string, name = "Aile-01"): OwnDrone => ({
   id: `drone:${name}`,
@@ -37,4 +37,23 @@ test("matchOwnDrone ignore une entrée à identifiant vide", () => {
   const list = [drone("", "Sans-id"), drone("3C6DD2", "Bon")];
   assert.equal(matchOwnDrone(list, "", "")?.name ?? null, null);
   assert.equal(matchOwnDrone(list, "3C6DD2", "")?.name, "Bon");
+});
+
+test("extractFirstJpeg récupère la première image d'un flux multipart", () => {
+  // en-tête multipart bidon + une « image » FFD8..FFD9 + reste du flux
+  const header = new TextEncoder().encode("--boundary\r\nContent-Type: image/jpeg\r\n\r\n");
+  const jpeg = Uint8Array.from([0xff, 0xd8, 0x01, 0x02, 0x03, 0xff, 0xd9]);
+  const tail = new TextEncoder().encode("\r\n--boundary\r\n");
+  const buf = new Uint8Array(header.length + jpeg.length + tail.length);
+  buf.set(header, 0);
+  buf.set(jpeg, header.length);
+  buf.set(tail, header.length + jpeg.length);
+  const out = extractFirstJpeg(buf);
+  assert.ok(out);
+  assert.deepEqual(Array.from(out!), Array.from(jpeg));
+});
+
+test("extractFirstJpeg : null si l'image n'est pas complète", () => {
+  assert.equal(extractFirstJpeg(Uint8Array.from([0xff, 0xd8, 0x01, 0x02])), null); // pas de FFD9
+  assert.equal(extractFirstJpeg(Uint8Array.from([0x00, 0x01, 0x02])), null); // pas de FFD8
 });

@@ -11,7 +11,7 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { normIdent, type OwnDrone } from "./drones-core";
+import { extractFirstJpeg, normIdent, type OwnDrone } from "./drones-core";
 
 export type { OwnDrone } from "./drones-core";
 
@@ -108,20 +108,52 @@ export async function fetchDroneFrameServer(
   if (!list.some((d) => d.snapshotUrl && d.snapshotUrl === want)) {
     return { ok: false, error: "URL non inscrite (doit être le flux d'un drone du registre)" };
   }
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), 8000);
+  const CAP = 8 * 1024 * 1024;
   try {
-    const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 8000);
     const res = await fetch(want, { signal: ctrl.signal, redirect: "follow" });
-    clearTimeout(to);
     if (!res.ok) return { ok: false, error: `station sol : HTTP ${res.status}` };
     const ct = res.headers.get("content-type") ?? "";
-    if (!ct.startsWith("image/")) return { ok: false, error: "le flux ne renvoie pas une image" };
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > 6 * 1024 * 1024) return { ok: false, error: "image trop lourde (>6 Mo)" };
-    const dataUrl = `data:${ct};base64,${buf.toString("base64")}`;
-    return { ok: true, dataUrl, at: Date.now() };
+
+    // Image fixe (caméra snapshot, drone still) : le cas courant.
+    if (ct.startsWith("image/")) {
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length > 6 * 1024 * 1024) return { ok: false, error: "image trop lourde (>6 Mo)" };
+      return { ok: true, dataUrl: `data:${ct};base64,${buf.toString("base64")}`, at: Date.now() };
+    }
+
+    // Flux vidéo MJPEG (multipart/x-mixed-replace) : on lit jusqu'à la PREMIÈRE trame JPEG complète.
+    if (ct.includes("multipart/") && res.body) {
+      const reader = res.body.getReader();
+      let acc = new Uint8Array(0);
+      try {
+        while (acc.length < CAP) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value && value.length) {
+            const next = new Uint8Array(acc.length + value.length);
+            next.set(acc, 0);
+            next.set(value, acc.length);
+            acc = next;
+            const jpeg = extractFirstJpeg(acc);
+            if (jpeg) {
+              const b64 = Buffer.from(jpeg).toString("base64");
+              return { ok: true, dataUrl: `data:image/jpeg;base64,${b64}`, at: Date.now() };
+            }
+          }
+        }
+      } finally {
+        await reader.cancel().catch(() => undefined);
+      }
+      return { ok: false, error: "flux MJPEG : aucune trame JPEG complète reçue" };
+    }
+
+    return { ok: false, error: "le flux ne renvoie ni image fixe ni MJPEG (RTSP non pris en charge)" };
   } catch (e) {
     const msg = e instanceof Error && e.name === "AbortError" ? "délai station sol dépassé" : "station sol injoignable";
     return { ok: false, error: msg };
+  } finally {
+    clearTimeout(to);
   }
 }

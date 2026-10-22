@@ -180,3 +180,27 @@ export function presenceHint(largest: MoveBlob | null, width: number, height: nu
   else hint = "présence indéterminée";
   return { sizePct, aspect, where, hint };
 }
+
+/**
+ * Direction ÉCRAN d'un déplacement (dx vers la droite, dy vers le bas dans le repère image).
+ * Renvoie un libellé 8 secteurs, ou « immobile ». C'est le SENS de la piste à l'écran, pas un cap
+ * géographique : le suivi reste une aide, jamais une identité.
+ */
+export function frameHeading(dx: number, dy: number): string {
+  if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return "immobile";
+  // atan2 avec -dy : l'axe Y image pointe vers le bas, on le retourne pour que « haut » = +90°.
+  let a = (Math.atan2(-dy, dx) * 180) / Math.PI; // (-180, 180], 0 = droite, 90 = haut
+  if (a < 0) a += 360; // [0, 360)
+  const sectors = [
+    "droite",
+    "haut-droite",
+    "haut",
+    "haut-gauche",
+    "gauche",
+    "bas-gauche",
+    "bas",
+    "bas-droite",
+  ];
+  const i = Math.round(a / 45) % 8;
+  return sectors[i]!;
+}

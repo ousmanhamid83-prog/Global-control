@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { blobStats, diffHeatmap, presenceHint } from "./change-diff.ts";
+import { blobStats, diffHeatmap, frameHeading, presenceHint } from "./change-diff.ts";
 
 /** Fabrique une image RGBA pleine d'une couleur. */
 function fill(w: number, h: number, r: number, g: number, b: number): Uint8ClampedArray {
@@ -150,4 +150,14 @@ test("presenceHint : géométrie vers indice prudent, jamais une identité", () 
   assert.equal(presenceHint({ area: 20, x0: 0, y0: 0, x1: 4, y1: 4, cx: 2, cy: 2 }, 100, 100).hint, "mouvement ténu");
   // rien
   assert.equal(presenceHint(null, 100, 100).hint, "aucune zone nette");
+});
+
+test("frameHeading : sens écran sur 8 secteurs, dy vers le bas", () => {
+  assert.equal(frameHeading(0, 0), "immobile");
+  assert.equal(frameHeading(5, 0), "droite"); // +x
+  assert.equal(frameHeading(-5, 0), "gauche"); // -x
+  assert.equal(frameHeading(0, -5), "haut"); // -y (image : vers le haut)
+  assert.equal(frameHeading(0, 5), "bas"); // +y (vers le bas)
+  assert.equal(frameHeading(5, -5), "haut-droite");
+  assert.equal(frameHeading(-5, 5), "bas-gauche");
 });

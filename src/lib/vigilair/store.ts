@@ -82,7 +82,11 @@ export type DroneMotion = {
   hint?: string;
   /** Localisation grossière de la plus grande zone dans le cadre (ex. « bas-gauche »). */
   where?: string;
-  /** Capture : trame figée + surcouche mouvement (data URL), pour revue humaine. */
+  /** Suivi de piste : sens de déplacement à l'écran de la zone en mouvement (ex. « droite »). */
+  heading?: string;
+  /** Suivi de piste : vitesse estimée de la zone (% du cadre / s). */
+  speed?: number;
+  /** Capture : trame figée + surcouche mouvement + trace (data URL), pour revue humaine. */
   frame?: string;
   /** Niveau de la dernière alerte liée (elevee / critique si périmètre armé). */
   level?: "elevee" | "critique";
@@ -186,6 +190,8 @@ type VigilairState = {
   droneWatch: boolean;
   /** Seuil (% du cadre en mouvement) au-delà duquel la veille drone alerte. */
   droneThreshold: number;
+  /** Cadence de la veille drone (secondes entre deux trames). Rapproché = suivi quasi continu. */
+  droneCadence: number;
   /** Dernier résultat d'analyse par drone (mouvement %, zones, indice de présence, capture), pour l'UI. */
   droneMotion: Record<string, DroneMotion>;
   ewArmed: boolean;
@@ -254,6 +260,7 @@ type VigilairState = {
   setChangeThreshold: (v: number) => void;
   setDroneWatch: (v: boolean) => void;
   setDroneThreshold: (v: number) => void;
+  setDroneCadence: (v: number) => void;
   setDroneMotion: (id: string, res: DroneMotion) => void;
   pushAlert: (a: AlertItem) => void;
   setAxisId: (id: string | null) => void;
@@ -526,6 +533,7 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   changeThreshold: 8,
   droneWatch: false,
   droneThreshold: 6,
+  droneCadence: 15,
   droneMotion: {},
   ewArmed: false,
   ppi: DEFAULT_PPI,
@@ -646,6 +654,7 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   setChangeThreshold: (changeThreshold) => set({ changeThreshold }),
   setDroneWatch: (droneWatch) => set({ droneWatch }),
   setDroneThreshold: (droneThreshold) => set({ droneThreshold }),
+  setDroneCadence: (droneCadence) => set({ droneCadence }),
   setDroneMotion: (id, res) => set({ droneMotion: { ...get().droneMotion, [id]: res } }),
   pushAlert: (a) => set({ alerts: [a, ...get().alerts].slice(0, 48) }),
   setAxisId: (axisId) => set({ axisId }),
