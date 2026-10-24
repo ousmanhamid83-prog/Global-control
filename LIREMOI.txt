@@ -304,6 +304,25 @@ Nos drones ET CAMÉRAS — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs
   = suivi quasi continu. L'URL accepte une IMAGE FIXE (snapshot JPEG) ou un FLUX MJPEG (le proxy en
   extrait la première trame). Le RTSP n'est PAS pris en charge directement (navigateur incapable de le
   lire) : il faut une passerelle qui le transforme en MJPEG / snapshot.
+- CAPTURE PLEINE RÉSOLUTION + ZOOM : la capture de preuve n'est plus réduite — elle est dessinée à la
+  taille native de la trame (plafonnée à 960 px de côté pour rester légère), en JPEG net, SANS voile
+  orange qui masquerait les détails. Un clic sur l'image la passe en grand (zoom) : l'opérateur lit
+  LUI-MÊME la scène — la plaque, le visage, l'inscription — à l'œil, sur une image fidèle. Le poste, lui,
+  ne lit toujours que du mouvement ; la lecture d'identité est et reste humaine.
+- ZONE D'INTÉRÊT PAR POLYGONE (n'armer que le périmètre) : « Définir zone » laisse tracer un polygone
+  (clics sur l'image) qui délimite la partie à surveiller. Une fois la zone fermée, SEUL ce qui bouge
+  DEDANS compte — la route au bord, un arbre qui remue, un passage public hors emprise sont ignorés. Le
+  polygone est mémorisé par source (data/drones.json), affiché en surcouche, et se vide d'un clic. Moins
+  de fausses alertes, l'attention sur VOTRE emprise.
+- ARMEMENT DE NUIT SEULEMENT : une case « N'alerter que sur une fenêtre horaire » (ex. de 19 h à 6 h,
+  minuit traversé géré) restreint les ALERTES à cette plage. Hors fenêtre, le poste continue de suivre
+  et de journaliser — mais SANS faire sonner le bandeau. De quoi laisser le va-et-vient normal de jour
+  tranquille et ne réveiller la garde que la nuit, quand une présence sur le site est anormale.
+- EXPORT PDF DU DOSSIER DE PREUVE : « Export PDF » génère, côté navigateur (aucun envoi externe), un PDF
+  d'une page : la capture pleine résolution + l'horodatage, la source, le site, l'état de mouvement et
+  le descriptif des pistes (cap, vitesse, immobile/croisement). C'est une pièce transmissible à une
+  autorité ou à la hiérarchie. Elle décrit CE QUI A ÉTÉ VU (mouvement, gabarit, heure), pas QUI — l'œil
+  humain qui recevra le PDF fait l'identification, comme pour une photo de vidéosurveillance.
 - CE QU'ON NE FAIT PAS : AfriControl SUIT et ANALYSE ; il ne PILOTE pas le drone, ne lui commande rien,
   n'est pas une arme. Il dit « ça a bougé là, ça va vers la droite, plutôt tel gabarit » — jamais
   « c'est untel ». PAS de reconnaissance de VISAGE, PAS de lecture de PLAQUE, PAS de ciblage :

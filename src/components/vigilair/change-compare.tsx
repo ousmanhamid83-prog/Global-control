@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { diffHeatmap } from "@/lib/vigilair/change-diff";
 import { addSensor, removeSensor, sensorsSnapshot, setSensorState, subscribeSensors, type SensorType } from "@/lib/vigilair/ground-sensors";
-import { addDrone, dronesSnapshot, removeDrone, subscribeDrones } from "@/lib/vigilair/drones";
+import { addDrone, dronesSnapshot, removeDrone, setDroneRoi, subscribeDrones } from "@/lib/vigilair/drones";
+import { buildCapturePdf } from "@/lib/vigilair/capture-pdf";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { MINE_REGION_LABEL, MINES } from "@/lib/vigilair/mines";
 import { searchPlaces, type Place } from "@/lib/vigilair/places";
@@ -65,8 +66,45 @@ function SiteManager() {
   const setDroneThreshold = useVigilair((s) => s.setDroneThreshold);
   const droneCadence = useVigilair((s) => s.droneCadence);
   const setDroneCadence = useVigilair((s) => s.setDroneCadence);
+  const droneNightOnly = useVigilair((s) => s.droneNightOnly);
+  const setDroneNightOnly = useVigilair((s) => s.setDroneNightOnly);
+  const droneArmFrom = useVigilair((s) => s.droneArmFrom);
+  const droneArmTo = useVigilair((s) => s.droneArmTo);
+  const setDroneArmWindow = useVigilair((s) => s.setDroneArmWindow);
   const droneMotion = useVigilair((s) => s.droneMotion);
   const droneLog = useVigilair((s) => s.droneLog);
+  const [zoomCap, setZoomCap] = useState<string | null>(null);
+  const [roiEdit, setRoiEdit] = useState<string | null>(null);
+  const [roiPts, setRoiPts] = useState<{ x: number; y: number }[]>([]);
+  const exportPdf = async (d: { id: string; name: string; site: string }, m: { frame?: string; pct?: number | null; targets?: number; hint?: string; note?: string }) => {
+    if (!m.frame) return;
+    try {
+      const img = await loadImage(m.frame);
+      const b64 = m.frame.split(",")[1] ?? "";
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const lines = [
+        "AfriControl — dossier de preuve (veille imagerie)",
+        `Source : ${d.name}  ·  Site : ${d.site || "—"}`,
+        `Date : ${new Date().toLocaleString("fr-FR")}`,
+        `Mouvement : ${m.pct ?? 0}%  ·  Pistes : ${m.targets ?? 0}  ·  ${m.hint ?? ""}`,
+        m.note ? `Note : ${m.note}` : "",
+        "Détection de mouvement/présence, sans identité. L'identité reste à l'œil de l'opérateur.",
+        "AfriControl : réception + analyse. Ne pilote pas, n'arme rien.",
+      ].filter(Boolean);
+      const pdf = buildCapturePdf(bytes, img.naturalWidth, img.naturalHeight, lines);
+      const blob = new Blob([pdf as unknown as BlobPart], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `AfriControl-${d.name.replace(/\s+/g, "-")}-${Date.now()}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      /* export impossible */
+    }
+  };
   const [drKind, setDrKind] = useState("drone");
   const [drName, setDrName] = useState("");
   const [drIdent, setDrIdent] = useState("");
@@ -383,6 +421,31 @@ function SiteManager() {
             <option value={3}>Continue (3 s)</option>
           </select>
         </label>
+        <label className="flex flex-wrap items-center gap-2 text-xs text-fg">
+          <input data-drone="nightonly" type="checkbox" checked={droneNightOnly} onChange={(e) => setDroneNightOnly(e.target.checked)} />
+          N'alerter que sur une fenêtre horaire (ex. nuit)
+          <span className="text-muted-foreground">de</span>
+          <input
+            data-drone="armfrom"
+            type="number"
+            min={0}
+            max={23}
+            value={droneArmFrom}
+            onChange={(e) => setDroneArmWindow(Math.max(0, Math.min(23, Number(e.target.value) || 0)), droneArmTo)}
+            className="w-14 rounded-sm border border-border bg-bg px-2 py-1 text-xs text-fg"
+          />
+          <span className="text-muted-foreground">h à</span>
+          <input
+            data-drone="armto"
+            type="number"
+            min={0}
+            max={23}
+            value={droneArmTo}
+            onChange={(e) => setDroneArmWindow(droneArmFrom, Math.max(0, Math.min(23, Number(e.target.value) || 0)))}
+            className="w-14 rounded-sm border border-border bg-bg px-2 py-1 text-xs text-fg"
+          />
+          <span className="text-muted-foreground">h · hors fenêtre : suivi + journal, sans alerte</span>
+        </label>
         {drones.length > 0 ? (
           <ul className="divide-y divide-border rounded-sm border border-border">
             {drones.map((d) => {
@@ -452,37 +515,84 @@ function SiteManager() {
                     </ul>
                   ) : null}
                   {open && m?.frame ? (
-                    <div className="flex flex-wrap items-start gap-3 rounded-sm border border-border bg-bg/60 p-2">
-                      <img
-                        data-drone-frame={d.id}
-                        src={m.frame}
-                        alt={`capture ${d.name}`}
-                        className="h-40 w-40 rounded-sm border border-border object-cover [image-rendering:pixelated]"
-                      />
-                      <div className="min-w-0 flex-1 space-y-1 text-[11px] text-muted-foreground">
-                        <p className="text-fg">
-                          Mouvement <strong>{m.pct}%</strong> · {m.targets ?? 0} piste{(m.targets ?? 0) > 1 ? "s" : ""} · {m.hint} · {m.where}
-                        </p>
-                        {m.tracks && m.tracks.length > 0 ? (
-                          <ul className="font-mono text-[10.5px]">
-                            {m.tracks.map((t) => (
-                              <li key={t.id}>
-                                T{t.id} · {t.where} · {t.stationary || t.heading === "immobile" ? `immobile${t.dwell ? ` ${t.dwell}s` : ""}` : <>→ {t.heading} {t.speed}%/s</>}
-                              </li>
-                            ))}
-                          </ul>
+                    <div className="space-y-2 rounded-sm border border-border bg-bg/60 p-2 text-[11px] text-muted-foreground">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Button size="sm" variant="ghost" onClick={() => setZoomCap(zoomCap === d.id ? null : d.id)}>
+                          {zoomCap === d.id ? "Réduire" : "Zoom"}
+                        </Button>
+                        <Button data-drone-pdf={d.id} size="sm" variant="ghost" onClick={() => void exportPdf(d, m)}>
+                          Export PDF
+                        </Button>
+                        <Button
+                          data-drone-roi={d.id}
+                          size="sm"
+                          variant={roiEdit === d.id ? "outline" : "ghost"}
+                          onClick={() => {
+                            if (roiEdit === d.id) { setRoiEdit(null); setRoiPts([]); }
+                            else { setRoiEdit(d.id); setRoiPts(d.roi ?? []); }
+                          }}
+                        >
+                          {roiEdit === d.id ? "Annuler" : d.roi ? "Modifier zone" : "Définir zone"}
+                        </Button>
+                        {roiEdit === d.id ? (
+                          <>
+                            <Button size="sm" variant="outline" disabled={roiPts.length < 3} onClick={() => { void setDroneRoi(d.id, roiPts); setRoiEdit(null); }}>
+                              Fermer la zone ({roiPts.length})
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setRoiPts([])}>Vider</Button>
+                          </>
+                        ) : d.roi ? (
+                          <Button size="sm" variant="ghost" onClick={() => void setDroneRoi(d.id, [])}>Effacer zone</Button>
                         ) : null}
-                        {m.note ? <p className="text-warn">⚠ {m.note}</p> : null}
-                        <p>
-                          Zones de mouvement surlignées en orange, plus grande zone encadrée, <strong>une trace
-                          de suivi par piste</strong> (bleu, label T1/T2…). Pistage multi-cibles : chaque présence
-                          garde sa piste d'une trame à l'autre. C'est une <strong>aide à la décision</strong> :
-                          l'opérateur regarde et <strong>identifie à l'œil</strong>. AfriControl ne reconnaît ni
-                          visage ni plaque, ne cible pas.
-                        </p>
-                        {m.level === "critique" ? (
-                          <p className="text-crit">Périmètre armé : envoyer une patrouille.</p>
-                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap items-start gap-3">
+                        <div className={`relative ${zoomCap === d.id ? "w-full" : "w-72 shrink-0"}`}>
+                          <img
+                            data-drone-frame={d.id}
+                            src={m.frame}
+                            alt={`capture ${d.name}`}
+                            onClick={(e) => {
+                              if (roiEdit === d.id) {
+                                const r = e.currentTarget.getBoundingClientRect();
+                                const x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+                                const y = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
+                                setRoiPts((pts) => [...pts, { x, y }]);
+                              } else setZoomCap(zoomCap === d.id ? null : d.id);
+                            }}
+                            className={`block h-auto w-full rounded-sm border border-border ${roiEdit === d.id ? "cursor-crosshair" : "cursor-zoom-in"}`}
+                          />
+                          {(() => {
+                            const poly = roiEdit === d.id ? roiPts : d.roi ?? [];
+                            return poly.length >= 2 ? (
+                              <svg data-drone-roisvg={d.id} className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 1 1" preserveAspectRatio="none">
+                                <polygon points={poly.map((p) => `${p.x},${p.y}`).join(" ")} fill="rgba(120,200,255,0.15)" stroke="rgba(120,200,255,0.95)" strokeWidth={0.005} />
+                              </svg>
+                            ) : null;
+                          })()}
+                        </div>
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <p className="text-fg">
+                            Mouvement <strong>{m.pct}%</strong> · {m.targets ?? 0} piste{(m.targets ?? 0) > 1 ? "s" : ""} · {m.hint} · {m.where}
+                          </p>
+                          {m.tracks && m.tracks.length > 0 ? (
+                            <ul className="font-mono text-[10.5px]">
+                              {m.tracks.map((t) => (
+                                <li key={t.id}>
+                                  T{t.id} · {t.where} · {t.stationary || t.heading === "immobile" ? `immobile${t.dwell ? ` ${t.dwell}s` : ""}` : <>→ {t.heading} {t.speed}%/s</>}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                          {m.note ? <p className="text-warn">⚠ {m.note}</p> : null}
+                          <p>
+                            Image <strong>pleine résolution</strong> : clique pour <strong>zoomer</strong> et lire la
+                            scène. « Définir zone » = trace un périmètre (clics) pour <strong>n'armer que dedans</strong>
+                            (ignorer la route). « Export PDF » = dossier de preuve transmissible. C'est une
+                            <strong> aide à la décision</strong> : l'opérateur regarde et <strong>identifie à l'œil</strong>.
+                            AfriControl ne reconnaît ni visage ni plaque, ne cible pas.
+                          </p>
+                          {m.level === "critique" ? <p className="text-crit">Périmètre armé : envoyer une patrouille.</p> : null}
+                        </div>
                       </div>
                     </div>
                   ) : null}

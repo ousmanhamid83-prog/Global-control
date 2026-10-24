@@ -20,6 +20,8 @@ export type OwnDrone = {
   host?: string;
   port?: number;
   path?: string;
+  /** Zone d'intérêt (polygone, coords NORMALISÉES 0..1) : on n'arme que DEDANS (ignore la route). */
+  roi?: { x: number; y: number }[];
   at: number;
 };
 

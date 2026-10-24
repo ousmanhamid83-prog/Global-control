@@ -112,6 +112,19 @@ export async function removeDroneServer(id: string): Promise<OwnDrone[]> {
   return next;
 }
 
+/** Définit (ou efface) la zone d'intérêt polygonale d'une source. Points normalisés 0..1, max 24. */
+export async function setDroneRoiServer(id: string, roi: unknown): Promise<OwnDrone[]> {
+  const pts = Array.isArray(roi)
+    ? roi
+        .filter((p): p is { x: number; y: number } => !!p && Number.isFinite((p as { x?: number }).x) && Number.isFinite((p as { y?: number }).y))
+        .slice(0, 24)
+        .map((p) => ({ x: Math.max(0, Math.min(1, p.x)), y: Math.max(0, Math.min(1, p.y)) }))
+    : [];
+  const next = (await load()).map((d) => (d.id === id ? { ...d, roi: pts.length >= 3 ? pts : undefined } : d));
+  await persist(next);
+  return next;
+}
+
 /**
  * Récupère une image fixe d'un drone inscrit, côté serveur, et la renvoie en data URL (le canvas
  * client peut alors lire ses pixels sans être « taché »). Gardes anti-abus : l'URL doit être CELLE

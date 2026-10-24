@@ -4,7 +4,7 @@
  * drone inscrit, sans attendre le réseau. AfriControl suit et analyse ; il ne pilote pas.
  */
 
-import { droneAdd, droneRemove, dronesList } from "./drones-api";
+import { droneAdd, droneRemove, droneSetRoi, dronesList } from "./drones-api";
 import type { OwnDrone } from "./drones-core";
 
 export type { OwnDrone, SourceKind } from "./drones-core";
@@ -81,6 +81,14 @@ export async function addDrone(input: {
 export async function removeDrone(id: string): Promise<void> {
   try {
     const res = await droneRemove({ data: { id } });
+    if (res?.drones) set(res.drones);
+  } catch {
+    /* réessayable */
+  }
+}
+export async function setDroneRoi(id: string, roi: { x: number; y: number }[]): Promise<void> {
+  try {
+    const res = await droneSetRoi({ data: { id, roi } });
     if (res?.drones) set(res.drones);
   } catch {
     /* réessayable */

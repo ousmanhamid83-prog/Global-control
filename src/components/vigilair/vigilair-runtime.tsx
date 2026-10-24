@@ -10,6 +10,7 @@ import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { allBlobs, blobStats, diffHeatmap, foregroundDiff, frameHeading, isGlobalChange, mergeNearbyBlobs, presenceHint } from "@/lib/vigilair/change-diff";
 import { createRing, medianBackground, pushLuma, type FrameRing } from "@/lib/vigilair/motion-bg";
 import { confirmedTracks, detectOcclusions, isStationary, stepTracker, type Track2D } from "@/lib/vigilair/track2d";
+import { inArmWindow, pointInPolygon } from "@/lib/vigilair/zones2d";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { fetchDroneFrame } from "@/lib/vigilair/drones-api";
 import { dronesSnapshot, effectiveUrl, hydrateDrones, subscribeDrones } from "@/lib/vigilair/drones";
@@ -56,6 +57,9 @@ function DroneWatch() {
   const on = useVigilair((s) => s.droneWatch);
   const threshold = useVigilair((s) => s.droneThreshold);
   const cadence = useVigilair((s) => s.droneCadence);
+  const nightOnly = useVigilair((s) => s.droneNightOnly);
+  const armFrom = useVigilair((s) => s.droneArmFrom);
+  const armTo = useVigilair((s) => s.droneArmTo);
   const pushAlert = useVigilair((s) => s.pushAlert);
   const setDroneMotion = useVigilair((s) => s.setDroneMotion);
   const pushDroneLog = useVigilair((s) => s.pushDroneLog);
@@ -170,9 +174,11 @@ function DroneWatch() {
             }
           return n ? s / n : 0;
         };
-        const detections = diff.mask
-          ? mergeNearbyBlobs(allBlobs(diff.mask, PX, PX, 6), 3).map((b) => ({ cx: b.cx, cy: b.cy, lum: meanLum(b), area: b.area }))
-          : [];
+        const roi = drone.roi && drone.roi.length >= 3 ? drone.roi : null;
+        const detections = (diff.mask ? mergeNearbyBlobs(allBlobs(diff.mask, PX, PX, 6), 3) : [])
+          // Zone d'intérêt : ne garder que les présences DANS le périmètre tracé (ignore la route).
+          .filter((b) => !roi || pointInPolygon({ x: b.cx / PX, y: b.cy / PX }, roi))
+          .map((b) => ({ cx: b.cx, cy: b.cy, lum: meanLum(b), area: b.area }));
         const prevTracks = tracksRef.current.get(drone.id) ?? [];
         const occ = detectOcclusions(prevTracks, detections, TRK.gate);
         const stepped = stepTracker(prevTracks, detections, seedRef.current.get(drone.id) ?? 1, { ...TRK, appearanceWeight: 0.15 });
@@ -246,53 +252,46 @@ function DroneWatch() {
           : undefined;
         const note = occ > 0 ? "croisement de pistes (un id peut s'échanger)" : undefined;
 
-        // Capture de preuve : trame figée + surcouche mouvement + boîte de la plus grande zone + trace.
+        // Capture de preuve en PLEINE RÉSOLUTION (plafonnée) : l'image NETTE de la caméra, pour que
+        // l'agent la lise/zoome lui-même, avec de fines annotations (boîtes + trace + labels). Pas de
+        // voile orange qui masquerait la scène. L'œil humain lit — aucune reconnaissance.
         let frame: string | undefined;
         try {
+          const natW = img.naturalWidth || PX;
+          const natH = img.naturalHeight || PX;
+          const capScale = Math.min(1, 960 / Math.max(natW, natH));
+          const capW = Math.max(1, Math.round(natW * capScale));
+          const capH = Math.max(1, Math.round(natH * capScale));
+          const sx = capW / PX; // la grille d'analyse (128²) → résolution capture (indépendant X/Y)
+          const sy = capH / PX;
           const comp = document.createElement("canvas");
-          comp.width = PX;
-          comp.height = PX;
+          comp.width = capW;
+          comp.height = capH;
           const cctx = comp.getContext("2d");
           if (cctx) {
-            cctx.drawImage(img, 0, 0, PX, PX);
-            const tmp = document.createElement("canvas");
-            tmp.width = PX;
-            tmp.height = PX;
-            const tctx = tmp.getContext("2d");
-            if (tctx) {
-              const ov = tctx.createImageData(PX, PX);
-              ov.data.set(diff.overlay);
-              tctx.putImageData(ov, 0, 0);
-              cctx.drawImage(tmp, 0, 0);
-            }
+            cctx.drawImage(img, 0, 0, capW, capH);
             if (stats.largest) {
               cctx.strokeStyle = "rgba(120,230,160,0.95)";
               cctx.lineWidth = 2;
-              cctx.strokeRect(
-                stats.largest.x0,
-                stats.largest.y0,
-                stats.largest.x1 - stats.largest.x0 + 1,
-                stats.largest.y1 - stats.largest.y0 + 1,
-              );
+              cctx.strokeRect(stats.largest.x0 * sx, stats.largest.y0 * sy, (stats.largest.x1 - stats.largest.x0 + 1) * sx, (stats.largest.y1 - stats.largest.y0 + 1) * sy);
             }
-            // Pistage multi-cibles : une trace + un point + un label « T{id} » par piste établie.
-            cctx.font = "9px monospace";
+            cctx.font = `${Math.max(10, Math.round(11 * sy))}px monospace`;
             for (const t of confirmed) {
               if (t.trail.length >= 2) {
                 cctx.strokeStyle = "rgba(120,200,255,0.9)";
                 cctx.lineWidth = 1.5;
                 cctx.beginPath();
-                cctx.moveTo(t.trail[0]!.x, t.trail[0]!.y);
-                for (let i = 1; i < t.trail.length; i++) cctx.lineTo(t.trail[i]!.x, t.trail[i]!.y);
+                cctx.moveTo(t.trail[0]!.x * sx, t.trail[0]!.y * sy);
+                for (let i = 1; i < t.trail.length; i++) cctx.lineTo(t.trail[i]!.x * sx, t.trail[i]!.y * sy);
                 cctx.stroke();
               }
               cctx.fillStyle = "rgba(120,200,255,0.95)";
               cctx.beginPath();
-              cctx.arc(t.cx, t.cy, 2.5, 0, Math.PI * 2);
+              cctx.arc(t.cx * sx, t.cy * sy, 3, 0, Math.PI * 2);
               cctx.fill();
-              cctx.fillText(`T${t.id}`, Math.min(PX - 14, t.cx + 4), Math.max(9, t.cy - 4));
+              cctx.fillText(`T${t.id}`, Math.min(capW - 16, t.cx * sx + 5), Math.max(11, t.cy * sy - 5));
             }
-            frame = comp.toDataURL("image/png");
+            frame = comp.toDataURL("image/jpeg", 0.85);
           }
         } catch {
           /* capture indisponible : l'alerte et les chiffres suffisent */
@@ -321,7 +320,11 @@ function DroneWatch() {
           msg: `${pct}% · ${confirmed.length} piste${confirmed.length > 1 ? "s" : ""}${note ? ` · ${note}` : ""}`,
         });
 
-        if (pct >= threshold || confirmed.length > 0) {
+        // ARMEMENT DE NUIT : hors de la fenêtre horaire, on continue à suivre et journaliser, mais on
+        // N'ALERTE PAS (le poste n'est pas « armé » le jour si l'opérateur a choisi « nuit seulement »).
+        const nowD = new Date();
+        const armedTime = !nightOnly || inArmWindow(nowD.getHours() + nowD.getMinutes() / 60, armFrom, armTo);
+        if (armedTime && (pct >= threshold || confirmed.length > 0)) {
           const last = lastAlert.current.get(drone.id) ?? 0;
           if (Date.now() - last > 10 * 60 * 1000) {
             lastAlert.current.set(drone.id, Date.now());
@@ -358,7 +361,7 @@ function DroneWatch() {
       window.clearTimeout(first);
       window.clearInterval(timer);
     };
-  }, [on, threshold, cadence, drones, pushAlert, setDroneMotion, pushDroneLog]);
+  }, [on, threshold, cadence, nightOnly, armFrom, armTo, drones, pushAlert, setDroneMotion, pushDroneLog]);
 
   return null;
 }

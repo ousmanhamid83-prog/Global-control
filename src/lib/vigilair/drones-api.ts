@@ -39,6 +39,17 @@ export const droneRemove = createServerFn({ method: "POST" })
     return { drones: await m.removeDroneServer(data.id) };
   });
 
+export const droneSetRoi = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { id?: string; roi?: { x: number; y: number }[] }) => ({
+    id: String(raw?.id ?? ""),
+    roi: Array.isArray(raw?.roi) ? raw.roi : [],
+  }))
+  .handler(async ({ data }): Promise<{ drones: OwnDrone[] }> => {
+    const m = await import("./drones.server");
+    return { drones: await m.setDroneRoiServer(data.id, data.roi) };
+  });
+
 /** Proxy image : récupère une trame fixe d'un drone inscrit et la renvoie en data URL (voir serveur). */
 export const fetchDroneFrame = createServerFn({ method: "POST" })
   .middleware([authMiddleware])

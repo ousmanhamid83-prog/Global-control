@@ -198,6 +198,11 @@ type VigilairState = {
   droneThreshold: number;
   /** Cadence de la veille drone (secondes entre deux trames). Rapproché = suivi quasi continu. */
   droneCadence: number;
+  /** N'alerter que sur une fenêtre horaire (ex. la nuit). Hors fenêtre : on suit/journalise, sans alerte. */
+  droneNightOnly: boolean;
+  /** Fenêtre d'armement : heure de début et de fin (0..23). 19→6 = la nuit. */
+  droneArmFrom: number;
+  droneArmTo: number;
   /** Dernier résultat d'analyse par drone (mouvement %, zones, indice de présence, capture), pour l'UI. */
   droneMotion: Record<string, DroneMotion>;
   /** Journal de connexion par source (drone/caméra) : derniers relevés (ok/erreur + heure). */
@@ -269,6 +274,8 @@ type VigilairState = {
   setDroneWatch: (v: boolean) => void;
   setDroneThreshold: (v: number) => void;
   setDroneCadence: (v: number) => void;
+  setDroneNightOnly: (v: boolean) => void;
+  setDroneArmWindow: (from: number, to: number) => void;
   setDroneMotion: (id: string, res: DroneMotion) => void;
   pushDroneLog: (id: string, entry: { at: number; ok: boolean; msg: string }) => void;
   pushAlert: (a: AlertItem) => void;
@@ -543,6 +550,9 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   droneWatch: false,
   droneThreshold: 6,
   droneCadence: 15,
+  droneNightOnly: false,
+  droneArmFrom: 19,
+  droneArmTo: 6,
   droneMotion: {},
   droneLog: {},
   ewArmed: false,
@@ -665,6 +675,8 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   setDroneWatch: (droneWatch) => set({ droneWatch }),
   setDroneThreshold: (droneThreshold) => set({ droneThreshold }),
   setDroneCadence: (droneCadence) => set({ droneCadence }),
+  setDroneNightOnly: (droneNightOnly) => set({ droneNightOnly }),
+  setDroneArmWindow: (droneArmFrom, droneArmTo) => set({ droneArmFrom, droneArmTo }),
   setDroneMotion: (id, res) => set({ droneMotion: { ...get().droneMotion, [id]: res } }),
   pushDroneLog: (id, entry) =>
     set({ droneLog: { ...get().droneLog, [id]: [entry, ...(get().droneLog[id] ?? [])].slice(0, 12) } }),
