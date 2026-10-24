@@ -7,7 +7,8 @@ import { IdleLock } from "@/components/vigilair/idle-lock";
 import { ChefSealHost } from "@/components/vigilair/chef-seal";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import { allBlobs, blobStats, diffHeatmap, foregroundDiff, frameHeading, initBackground, isGlobalChange, mergeNearbyBlobs, presenceHint, updateBackground } from "@/lib/vigilair/change-diff";
+import { allBlobs, blobStats, diffHeatmap, foregroundDiff, frameHeading, isGlobalChange, mergeNearbyBlobs, presenceHint } from "@/lib/vigilair/change-diff";
+import { createRing, medianBackground, pushLuma, type FrameRing } from "@/lib/vigilair/motion-bg";
 import { confirmedTracks, detectOcclusions, isStationary, stepTracker, type Track2D } from "@/lib/vigilair/track2d";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { fetchDroneFrame } from "@/lib/vigilair/drones-api";
@@ -59,10 +60,12 @@ function DroneWatch() {
   const setDroneMotion = useVigilair((s) => s.setDroneMotion);
   const drones = useSyncExternalStore(subscribeDrones, dronesSnapshot, dronesSnapshot);
   const idx = useRef(0);
-  /** Modèle de FOND par drone (soustraction de fond) + nombre de trames vues (warmup). */
-  const bgRef = useRef<Map<string, Float32Array>>(new Map());
+  /** Fond MULTI-TRAMES par drone (anneau de N trames → médiane) + nombre de trames vues (warmup). */
+  const ringRef = useRef<Map<string, FrameRing>>(new Map());
   const warmRef = useRef<Map<string, number>>(new Map());
   const lastAlert = useRef<Map<string, number>>(new Map());
+  /** Trames consécutives où la zone d'une présence immobile est VIDE (→ elle est partie, on libère). */
+  const emptyStreak = useRef<Map<string, number>>(new Map());
   /** Pistage multi-cibles, par drone (sans identité) : pistes en cours, prochain id, heure du relevé. */
   const tracksRef = useRef<Map<string, Track2D[]>>(new Map());
   const seedRef = useRef<Map<string, number>>(new Map());
@@ -105,23 +108,25 @@ function DroneWatch() {
         if (!ctx) return;
         ctx.drawImage(img, 0, 0, PX, PX);
         const cur = ctx.getImageData(0, 0, PX, PX);
-        // Soustraction de FOND : on compare la trame au modèle de fond (pas à la trame d'avant) →
-        // chaque objet apparaît à sa position courante, une seule zone, sans bandes départ/arrivée.
-        let bg = bgRef.current.get(drone.id);
-        if (!bg) {
-          bg = initBackground(cur.data, PX, PX);
-          bgRef.current.set(drone.id, bg);
+        // Fond MULTI-TRAMES : la médiane des N dernières trames. Un objet qui traverse ne décale pas
+        // la médiane, un éclair d'une trame est rejeté → détection plus stable, sans bandes.
+        let ring = ringRef.current.get(drone.id);
+        if (!ring) {
+          ring = createRing(PX * PX, 5);
+          pushLuma(ring, cur.data);
+          ringRef.current.set(drone.id, ring);
           warmRef.current.set(drone.id, 0);
           setDroneMotion(drone.id, { pct: null, at: Date.now() });
           return;
         }
+        const bg = medianBackground(ring);
         const WARMUP = 3;
         const warm = (warmRef.current.get(drone.id) ?? 0) + 1;
         warmRef.current.set(drone.id, warm);
         const diff = foregroundDiff(bg, cur.data, PX, PX, { threshold: 34, mask: true });
         if (warm <= WARMUP) {
-          // Le fond se cale (adaptation rapide), on ne mesure pas encore : évite les fantômes d'init.
-          updateBackground(bg, cur.data, 0.35);
+          // La fenêtre se remplit : on ne mesure pas encore, on nourrit juste le fond.
+          pushLuma(ring, cur.data);
           setDroneMotion(drone.id, { pct: null, at: Date.now() });
           return;
         }
@@ -130,13 +135,15 @@ function DroneWatch() {
         const prevAt = lastAt.current.get(drone.id) ?? now2 - (Math.max(2, cadence || 15) * 1000);
         const dt = Math.max(0.2, (now2 - prevAt) / 1000);
         lastAt.current.set(drone.id, now2);
-        const TRK = { gate: PX * 0.4, maxMisses: 2, maxTrail: 8, stillEps: 1.2, stationaryGrace: 8 };
+        // maxMisses 4 : une piste survit à un croisement court ; stationaryGrace énorme : une présence
+        // immobile est tenue indéfiniment (on la libère nous-mêmes quand sa zone redevient vide).
+        const TRK = { gate: PX * 0.4, maxMisses: 4, maxTrail: 8, stillEps: 3, stationaryGrace: 100000 };
 
         // PARADE ÉCLAIRAGE : un basculement GLOBAL (exposition, voile, nuage, phare) fait virer une
-        // énorme part du cadre d'un coup — ce n'est pas une intrusion. On ré-étalonne vite le fond,
-        // on fait vieillir les pistes sans en créer, et on N'ALERTE PAS.
+        // énorme part du cadre d'un coup. La médiane rejette déjà un flash bref ; ici on n'alerte pas
+        // et on laisse la fenêtre absorber un vrai changement durable.
         if (isGlobalChange(diff.changedFrac)) {
-          updateBackground(bg, cur.data, 0.5);
+          pushLuma(ring, cur.data);
           const coast = stepTracker(tracksRef.current.get(drone.id) ?? [], [], seedRef.current.get(drone.id) ?? 1, TRK);
           tracksRef.current.set(drone.id, coast.tracks);
           seedRef.current.set(drone.id, coast.nextId);
@@ -155,14 +162,40 @@ function DroneWatch() {
         const prevTracks = tracksRef.current.get(drone.id) ?? [];
         const occ = detectOcclusions(prevTracks, detections, TRK.gate);
         const stepped = stepTracker(prevTracks, detections, seedRef.current.get(drone.id) ?? 1, TRK);
-        tracksRef.current.set(drone.id, stepped.tracks);
-        seedRef.current.set(drone.id, stepped.nextId);
-        const confirmed = confirmedTracks(stepped.tracks, 2, TRK.stationaryGrace);
+        let confirmed = confirmedTracks(stepped.tracks, 2, TRK.stationaryGrace);
 
-        // GEL du fond sous les présences IMMOBILES : on protège leur zone pour que le fond n'« apprenne »
-        // pas l'objet arrêté — ainsi un intrus qui se fige reste détecté et re-verrouillé au moindre geste.
+        // LIBÉRATION d'une présence immobile : tant que sa zone montre de l'avant-plan, on la tient ;
+        // dès qu'elle est VIDE plusieurs trames (l'objet est vraiment parti), on l'abandonne.
+        const regionDensity = (m: Uint8Array, cx: number, cy: number, r: number) => {
+          let on = 0;
+          let tot = 0;
+          const x0 = Math.max(0, Math.round(cx) - r);
+          const x1 = Math.min(PX - 1, Math.round(cx) + r);
+          const y0 = Math.max(0, Math.round(cy) - r);
+          const y1 = Math.min(PX - 1, Math.round(cy) + r);
+          for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { tot++; on += m[y * PX + x] ? 1 : 0; }
+          return tot ? on / tot : 0;
+        };
+        const released = new Set<number>();
+        const RELEASE = 4;
+        for (const t of confirmed) {
+          const key = `${drone.id}:${t.id}`;
+          if (!isStationary(t)) { emptyStreak.current.delete(key); continue; }
+          const empty = !diff.mask || regionDensity(diff.mask, t.cx, t.cy, 8) < 0.03;
+          const s = empty ? (emptyStreak.current.get(key) ?? 0) + 1 : 0;
+          emptyStreak.current.set(key, s);
+          if (s >= RELEASE) { released.add(t.id); emptyStreak.current.delete(key); }
+        }
+        const keptTracks = released.size > 0 ? stepped.tracks.filter((t) => !released.has(t.id)) : stepped.tracks;
+        tracksRef.current.set(drone.id, keptTracks);
+        seedRef.current.set(drone.id, stepped.nextId);
+        if (released.size > 0) confirmed = confirmed.filter((t) => !released.has(t.id));
+
+        // GEL du fond sous TOUTE piste confirmée : sa zone ne nourrit jamais la médiane. Un objet en
+        // mouvement ne pollue donc pas le fond sur son passage, et surtout un intrus qui se FIGE reste
+        // de l'avant-plan — donc TENU indéfiniment — jusqu'à ce qu'il reparte (zone vide → libérée).
         let freeze: Uint8Array | undefined;
-        const still = confirmed.filter((t) => isStationary(t));
+        const still = confirmed;
         if (still.length > 0) {
           freeze = new Uint8Array(PX * PX);
           const r = 10;
@@ -174,7 +207,7 @@ function DroneWatch() {
             for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) freeze[y * PX + x] = 1;
           }
         }
-        updateBackground(bg, cur.data, 0.06, diff.mask, 0.1, freeze);
+        pushLuma(ring, cur.data, bg, freeze);
 
         const whereOf = (cx: number, cy: number) => {
           const hx = cx / PX < 0.34 ? "gauche" : cx / PX > 0.66 ? "droite" : "centre";
@@ -188,6 +221,7 @@ function DroneWatch() {
             speed: Math.round(((Math.hypot(t.vx, t.vy) / PX) * 100 / dt) * 10) / 10,
             where: whereOf(t.cx, t.cy),
             stationary: isStationary(t),
+            dwell: isStationary(t) ? Math.round((t.still ?? 0) * dt) : undefined,
           }))
           .sort((a, b) => a.id - b.id);
         // Piste principale (la plus établie) pour l'affichage compact.
@@ -276,7 +310,7 @@ function DroneWatch() {
             const pistesTxt = nT > 0 ? `${nT} piste${nT > 1 ? "s" : ""} · ` : `${hint.hint} · `;
             const detail = tracksOut
               .slice(0, 3)
-              .map((t) => `T${t.id} ${t.stationary ? "immobile" : `→ ${t.heading}${t.speed ? ` ${t.speed}%/s` : ""}`}`)
+              .map((t) => `T${t.id} ${t.stationary ? `immobile${t.dwell ? ` ${t.dwell}s` : ""}` : `→ ${t.heading}${t.speed ? ` ${t.speed}%/s` : ""}`}`)
               .join(" · ");
             const occTxt = note ? ` · ${note}` : "";
             const patrol = armed ? " · périmètre armé : vérifier la capture, envoyer une patrouille" : "";

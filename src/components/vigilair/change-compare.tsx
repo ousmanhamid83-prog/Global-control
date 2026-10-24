@@ -424,7 +424,7 @@ function SiteManager() {
                           <ul className="font-mono text-[10.5px]">
                             {m.tracks.map((t) => (
                               <li key={t.id}>
-                                T{t.id} · {t.where} · {t.stationary || t.heading === "immobile" ? "immobile" : <>→ {t.heading} {t.speed}%/s</>}
+                                T{t.id} · {t.where} · {t.stationary || t.heading === "immobile" ? `immobile${t.dwell ? ` ${t.dwell}s` : ""}` : <>→ {t.heading} {t.speed}%/s</>}
                               </li>
                             ))}
                           </ul>

@@ -88,8 +88,8 @@ export type DroneMotion = {
   speed?: number;
   /** Pistage multi-cibles : nombre de pistes établies simultanément. */
   targets?: number;
-  /** Pistage multi-cibles : une entrée par piste (id stable, cap écran, vitesse, position, immobile). */
-  tracks?: { id: number; heading: string; speed: number; where: string; stationary?: boolean }[];
+  /** Pistage multi-cibles : une entrée par piste (id stable, cap écran, vitesse, position, immobile, durée). */
+  tracks?: { id: number; heading: string; speed: number; where: string; stationary?: boolean; dwell?: number }[];
   /** Note de contexte non-alarmante (ex. « variation d'éclairage », « croisement de pistes »). */
   note?: string;
   /** Capture : trame figée + surcouche mouvement + trace (data URL), pour revue humaine. */

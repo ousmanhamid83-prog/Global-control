@@ -262,11 +262,12 @@ Nos drones — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs > Changemen
   et lit leur géométrie — nombre de zones, taille, où dans le cadre — pour en tirer un INDICE prudent
   (« silhouette compacte / piéton possible », « masse large / véhicule possible », « indéterminée »).
   C'est une CLASSE, jamais un NOM : un indice à confirmer à l'œil, pas une reconnaissance d'objet.
-- DÉTECTION PAR SOUSTRACTION DE FOND : le poste tient un MODÈLE DE FOND (moyenne glissante de la scène)
-  et compare la trame courante AU FOND, pas à la trame d'avant. Chaque objet apparaît donc UNE fois, à
-  sa POSITION COURANTE (une zone pleine) — plus de double bande départ/arrivée, et deux cibles proches
-  se séparent mieux. Mise à jour sélective : un objet lent/arrêté ne « fond » pas tout de suite. Court
-  warmup au démarrage pour caler le fond (évite les fantômes d'init).
+- DÉTECTION PAR SOUSTRACTION DE FOND MULTI-TRAMES : le poste tient un MODÈLE DE FOND = la MÉDIANE des N
+  dernières trames (pas une seule moyenne), et compare la trame courante au fond. Un objet qui traverse
+  ne décale pas la médiane, un éclair d'une trame est rejeté → détection plus stable. Chaque objet
+  apparaît UNE fois, à sa POSITION COURANTE (une zone pleine) — plus de double bande, et deux cibles
+  proches se séparent mieux. Le fond est GELÉ sous les pistes confirmées pour ne jamais absorber un
+  objet suivi. Court warmup au démarrage pour remplir la fenêtre.
 - PISTAGE MULTI-CIBLES (sans identité) : chaque zone d'avant-plan devient une détection, associée d'une
   trame à l'autre par plus-proche-voisin. PLUSIEURS pistes sont suivies en parallèle, chacune avec son
   id stable (T1, T2…), son SENS de déplacement à l'écran (droite, haut-gauche…) et sa VITESSE estimée ;
@@ -280,10 +281,10 @@ Nos drones — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs > Changemen
 - ALERTE ZONE RENFORCÉE : si le SITE du drone est un périmètre armé (mine, ou site surveillé armé),
   l'alerte passe en CRITIQUE « Présence sur périmètre armé » avec « envoyer une patrouille ». Sinon
   elle reste « Mouvement détecté » (élevée). Bandeau + bip dans les deux cas.
-- PRÉSENCE IMMOBILE : une piste qui ne bouge plus est étiquetée « immobile » et MAINTENUE — on gèle
-  le fond sous elle pour qu'il n'« apprenne » pas l'objet arrêté, si bien qu'un intrus qui se fige
-  reste suivi et se re-verrouille au moindre geste. (Un objet parfaitement immobile très longtemps
-  finit quand même par se fondre : c'est une veille du MOUVEMENT, pas un détecteur d'objets.)
+- PRÉSENCE IMMOBILE TENUE INDÉFINIMENT : une piste qui ne bouge plus est étiquetée « immobile Xs »
+  (durée d'arrêt) et MAINTENUE sans limite — le fond gelé sous elle l'empêche de se fondre, si bien
+  qu'un intrus qui se fige reste suivi (et se re-verrouille au moindre geste). Elle n'est libérée que
+  lorsque sa zone redevient VIDE plusieurs trames (l'objet est vraiment parti).
 - OCCLUSION / CROISEMENT : quand deux pistes se recouvrent, la piste « perdue » est maintenue (coast)
   le temps du croisement, et le poste note « croisement de pistes (un id peut s'échanger) » pour que
   l'opérateur sache qu'un numéro de piste a pu permuter.
@@ -303,13 +304,14 @@ Nos drones — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs > Changemen
   indicatif qui matche (un drone muet reste au registre et à l'analyse d'image, sans piste air) ; la
   veille/suivi suppose une URL d'image ou de flux jointe — sinon le drone est juste suivi/inscrit ;
   l'indice piéton/véhicule est une aide, pas une certitude — l'œil tranche. La détection reste fondée
-  sur le MOUVEMENT (soustraction de fond), pas sur un détecteur d'objets entraîné — avec les parades
-  ci-dessus (présence immobile maintenue, occlusion signalée, éclairage neutralisé). Résidus honnêtes :
-  un objet parfaitement immobile très longtemps finit par se fondre ; deux cibles qui se recouvrent
-  physiquement partagent une piste le temps du croisement (sans segmentation d'instances, aucun
-  pisteur ne l'évite). Pour aller encore plus loin, il faut un FLUX vidéo continu (MJPEG en place ;
-  RTSP via passerelle) et, le jour venu, un détecteur embarqué sur VOS caméras — AfriControl reste
-  côté réception/analyse, sans identité.
+  sur le MOUVEMENT (fond médiane multi-trames), pas sur un détecteur d'objets entraîné — mais avec les
+  parades ci-dessus : présence immobile TENUE indéfiniment (plus de fonte), occlusion traversée par
+  prédiction et signalée, éclairage neutralisé, bruit/éclair rejeté par la médiane. Résidu honnête
+  restant : deux cibles qui se RECOUVRENT physiquement à l'écran partagent une piste le temps du
+  croisement (sans segmentation d'instances, aucun pisteur ne l'évite) — on le signale, les id se
+  récupèrent à la séparation si chacune garde son cap. Pour aller encore plus loin, un FLUX vidéo
+  continu (MJPEG en place ; RTSP via passerelle) et, le jour venu, un détecteur embarqué sur VOS
+  caméras — AfriControl reste côté réception/analyse, sans identité.
 
 Comparateur avant/après — Capteurs > onglet « Changement »
 - Pas de direct : un satellite ne repasse que tous les quelques jours. On ne traque pas une voiture
