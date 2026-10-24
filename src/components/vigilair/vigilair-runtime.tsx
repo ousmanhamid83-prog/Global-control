@@ -12,7 +12,7 @@ import { createRing, medianBackground, pushLuma, type FrameRing } from "@/lib/vi
 import { confirmedTracks, detectOcclusions, isStationary, stepTracker, type Track2D } from "@/lib/vigilair/track2d";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { fetchDroneFrame } from "@/lib/vigilair/drones-api";
-import { dronesSnapshot, hydrateDrones, subscribeDrones } from "@/lib/vigilair/drones";
+import { dronesSnapshot, effectiveUrl, hydrateDrones, subscribeDrones } from "@/lib/vigilair/drones";
 import { MINES } from "@/lib/vigilair/mines";
 import { routeHazards } from "@/lib/vigilair/nav";
 import { useVigilair } from "@/lib/vigilair/store";
@@ -58,6 +58,7 @@ function DroneWatch() {
   const cadence = useVigilair((s) => s.droneCadence);
   const pushAlert = useVigilair((s) => s.pushAlert);
   const setDroneMotion = useVigilair((s) => s.setDroneMotion);
+  const pushDroneLog = useVigilair((s) => s.pushDroneLog);
   const drones = useSyncExternalStore(subscribeDrones, dronesSnapshot, dronesSnapshot);
   const idx = useRef(0);
   /** Fond MULTI-TRAMES par drone (anneau de N trames → médiane) + nombre de trames vues (warmup). */
@@ -73,7 +74,7 @@ function DroneWatch() {
 
   useEffect(() => {
     if (!on) return;
-    const watched = drones.filter((d) => d.snapshotUrl);
+    const watched = drones.filter((d) => effectiveUrl(d));
     if (watched.length === 0) return;
     let dead = false;
     const PX = 128;
@@ -91,12 +92,13 @@ function DroneWatch() {
       if (dead) return;
       const drone = watched[idx.current % watched.length]!;
       idx.current++;
-      const url = drone.snapshotUrl!;
+      const url = effectiveUrl(drone)!;
       try {
         const res = await fetchDroneFrame({ data: { url } });
         if (dead) return;
         if (!res.ok || !res.dataUrl) {
           setDroneMotion(drone.id, { pct: null, at: Date.now(), error: res.error ?? "trame indisponible" });
+          pushDroneLog(drone.id, { at: Date.now(), ok: false, msg: res.error ?? "trame indisponible" });
           return;
         }
         const img = await loadImage(res.dataUrl);
@@ -155,13 +157,25 @@ function DroneWatch() {
         const hint = presenceHint(stats.largest, PX, PX);
 
         // Pistage MULTI-CIBLES par soustraction de fond (sans identité) : un objet = une zone à sa
-        // position → recollage minime. « Où va chaque présence », jamais « qui c'est ».
+        // position → recollage minime. On attache une SIGNATURE D'APPARENCE (luminance moyenne + aire)
+        // à chaque zone, pour désambiguïser au croisement — « le plus clair/grand », jamais « qui ».
+        const meanLum = (b: { x0: number; y0: number; x1: number; y1: number }) => {
+          let s = 0;
+          let n = 0;
+          for (let y = b.y0; y <= b.y1; y++)
+            for (let x = b.x0; x <= b.x1; x++) {
+              const p = (y * PX + x) * 4;
+              s += 0.299 * cur.data[p]! + 0.587 * cur.data[p + 1]! + 0.114 * cur.data[p + 2]!;
+              n++;
+            }
+          return n ? s / n : 0;
+        };
         const detections = diff.mask
-          ? mergeNearbyBlobs(allBlobs(diff.mask, PX, PX, 6), 3).map((b) => ({ cx: b.cx, cy: b.cy }))
+          ? mergeNearbyBlobs(allBlobs(diff.mask, PX, PX, 6), 3).map((b) => ({ cx: b.cx, cy: b.cy, lum: meanLum(b), area: b.area }))
           : [];
         const prevTracks = tracksRef.current.get(drone.id) ?? [];
         const occ = detectOcclusions(prevTracks, detections, TRK.gate);
-        const stepped = stepTracker(prevTracks, detections, seedRef.current.get(drone.id) ?? 1, TRK);
+        const stepped = stepTracker(prevTracks, detections, seedRef.current.get(drone.id) ?? 1, { ...TRK, appearanceWeight: 0.15 });
         let confirmed = confirmedTracks(stepped.tracks, 2, TRK.stationaryGrace);
 
         // LIBÉRATION d'une présence immobile : tant que sa zone montre de l'avant-plan, on la tient ;
@@ -301,6 +315,11 @@ function DroneWatch() {
           frame,
           level: armedShown ? level : undefined,
         });
+        pushDroneLog(drone.id, {
+          at: now2,
+          ok: true,
+          msg: `${pct}% · ${confirmed.length} piste${confirmed.length > 1 ? "s" : ""}${note ? ` · ${note}` : ""}`,
+        });
 
         if (pct >= threshold || confirmed.length > 0) {
           const last = lastAlert.current.get(drone.id) ?? 0;
@@ -339,7 +358,7 @@ function DroneWatch() {
       window.clearTimeout(first);
       window.clearInterval(timer);
     };
-  }, [on, threshold, cadence, drones, pushAlert, setDroneMotion]);
+  }, [on, threshold, cadence, drones, pushAlert, setDroneMotion, pushDroneLog]);
 
   return null;
 }

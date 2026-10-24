@@ -7,7 +7,12 @@
  * Fonction pure (aucune dépendance), donc testable sous `node --test`.
  */
 
-export type Detection = { cx: number; cy: number };
+/**
+ * Détection d'une trame : son centre, et une SIGNATURE D'APPARENCE non-biométrique (luminance moyenne
+ * et taille de la zone). « Le plus clair / le plus grand » — jamais « qui c'est » : sert UNIQUEMENT à
+ * garder deux pistes distinctes après un croisement, pas à identifier une personne.
+ */
+export type Detection = { cx: number; cy: number; lum?: number; area?: number };
 
 export type Track2D = {
   id: number;
@@ -23,6 +28,10 @@ export type Track2D = {
   misses: number;
   /** Trames consécutives où la piste est quasi IMMOBILE (vitesse < stillEps) : une présence arrêtée. */
   still?: number;
+  /** Apparence lissée (luminance moyenne) — pour désambiguïser au croisement, pas une identité. */
+  lum?: number;
+  /** Taille lissée (aire de la zone) — idem. */
+  area?: number;
 };
 
 export type TrackerOpts = {
@@ -36,6 +45,8 @@ export type TrackerOpts = {
   stillEps?: number;
   /** Coast prolongé pour une présence devenue immobile (ne pas la perdre si elle ne bouge plus). Défaut = maxMisses. */
   stationaryGrace?: number;
+  /** Poids de l'écart d'apparence (luminance) dans le coût d'association. Défaut 0.15. 0 = position seule. */
+  appearanceWeight?: number;
 };
 
 /**
@@ -51,6 +62,7 @@ export function stepTracker(
   const { gate, maxMisses, maxTrail } = opts;
   const stillEps = opts.stillEps ?? 1.2;
   const stationaryGrace = opts.stationaryGrace ?? maxMisses;
+  const appW = opts.appearanceWeight ?? 0.15;
   const used = new Set<number>();
   const out: Track2D[] = [];
   let nextId = seedId;
@@ -60,12 +72,19 @@ export function stepTracker(
     const px = t.cx + t.vx;
     const py = t.cy + t.vy;
     let best = -1;
-    let bestD = gate;
+    let bestCost = Infinity;
     for (let i = 0; i < dets.length; i++) {
       if (used.has(i)) continue;
-      const d = Math.hypot(dets[i]!.cx - px, dets[i]!.cy - py);
-      if (d <= bestD) {
-        bestD = d;
+      const dist = Math.hypot(dets[i]!.cx - px, dets[i]!.cy - py);
+      if (dist > gate) continue; // la position reste la garde (gate)
+      // Coût = distance + désaccord d'APPARENCE (luminance) : au croisement, chaque piste retrouve
+      // SA cible (la plus claire reste avec la plus claire), sans jamais identifier qui que ce soit.
+      const la = t.lum;
+      const lb = dets[i]!.lum;
+      const app = la != null && lb != null ? appW * Math.abs(la - lb) : 0;
+      const cost = dist + app;
+      if (cost < bestCost) {
+        bestCost = cost;
         best = i;
       }
     }
@@ -85,6 +104,8 @@ export function stepTracker(
         hits: t.hits + 1,
         misses: 0,
         still,
+        lum: d.lum != null ? (t.lum != null ? 0.7 * t.lum + 0.3 * d.lum : d.lum) : t.lum,
+        area: d.area != null ? (t.area != null ? 0.7 * t.area + 0.3 * d.area : d.area) : t.area,
       });
     } else {
       const misses = t.misses + 1;

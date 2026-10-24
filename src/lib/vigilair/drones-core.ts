@@ -3,18 +3,47 @@
  * server fn) pour rester testable sous `node --test`. Le client et le serveur s'appuient dessus.
  */
 
+/** Une SOURCE du poste : un de nos drones, ou une de nos caméras fixes de site. Mêmes paramètres. */
+export type SourceKind = "drone" | "camera";
+
 export type OwnDrone = {
   id: string;
+  /** drone (par défaut) ou caméra fixe. */
+  kind?: SourceKind;
   name: string;
+  /** hex ICAO / indicatif (drone) ; pour une caméra, un repère libre (sert à l'affichage). */
   ident: string;
   site: string;
+  /** Flux direct (snapshot JPEG ou MJPEG). Prioritaire sur hôte/port si fourni. */
   snapshotUrl?: string;
+  /** Paramètres de liaison de la caméra/station : hôte, port, chemin du flux. */
+  host?: string;
+  port?: number;
+  path?: string;
   at: number;
 };
 
 /** MAJUSCULES, sans séparateurs : apparie hex ICAO 24 bits ou indicatif de façon tolérante. */
 export function normIdent(s: string): string {
   return (s ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/**
+ * URL EFFECTIVE d'une source : le flux direct s'il est donné, sinon reconstruit depuis hôte + port
+ * (+ chemin). Renvoie undefined si on ne peut rien construire. Pur : testable, et unique source de
+ * vérité partagée par le client, le serveur (garde du proxy) et la veille.
+ */
+export function effectiveUrl(d: { snapshotUrl?: string; host?: string; port?: number; path?: string }): string | undefined {
+  const direct = (d.snapshotUrl ?? "").trim();
+  if (direct) return direct;
+  const host = (d.host ?? "").trim();
+  if (!host) return undefined;
+  const scheme = host.startsWith("http://") || host.startsWith("https://") ? "" : "http://";
+  const base = `${scheme}${host}`.replace(/\/+$/, "");
+  const port = d.port && d.port > 0 && d.port <= 65535 ? `:${d.port}` : "";
+  let path = (d.path ?? "").trim();
+  if (path && !path.startsWith("/")) path = `/${path}`;
+  return `${base}${port}${path}`;
 }
 
 /**
@@ -50,6 +79,7 @@ export function matchOwnDrone(
   const h = normIdent(hex ?? "");
   const c = normIdent(callsign ?? "");
   for (const d of drones) {
+    if (d.kind === "camera") continue; // une caméra fixe ne s'apparie pas à une piste aérienne
     const id = normIdent(d.ident);
     if (!id) continue;
     if ((h && id === h) || (c && id === c)) return d;

@@ -16,11 +16,15 @@ export const dronesList = createServerFn({ method: "GET" })
 
 export const droneAdd = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((raw: { name?: string; ident?: string; site?: string; snapshotUrl?: string }) => ({
+  .validator((raw: { kind?: string; name?: string; ident?: string; site?: string; snapshotUrl?: string; host?: string; port?: number | string; path?: string }) => ({
+    kind: String(raw?.kind ?? "drone"),
     name: String(raw?.name ?? ""),
     ident: String(raw?.ident ?? ""),
     site: String(raw?.site ?? ""),
     snapshotUrl: String(raw?.snapshotUrl ?? ""),
+    host: String(raw?.host ?? ""),
+    port: raw?.port == null || raw.port === "" ? 0 : Number(raw.port),
+    path: String(raw?.path ?? ""),
   }))
   .handler(async ({ data }): Promise<{ ok: boolean; error?: string; drones?: OwnDrone[] }> => {
     const m = await import("./drones.server");

@@ -7,8 +7,8 @@
 import { droneAdd, droneRemove, dronesList } from "./drones-api";
 import type { OwnDrone } from "./drones-core";
 
-export type { OwnDrone } from "./drones-core";
-export { matchOwnDrone, normIdent } from "./drones-core";
+export type { OwnDrone, SourceKind } from "./drones-core";
+export { effectiveUrl, matchOwnDrone, normIdent } from "./drones-core";
 
 const MIRROR_KEY = "africontrol.drones.mirror.v1";
 
@@ -61,10 +61,14 @@ export async function hydrateDrones(): Promise<void> {
   }
 }
 export async function addDrone(input: {
+  kind?: string;
   name: string;
   ident: string;
   site: string;
   snapshotUrl?: string;
+  host?: string;
+  port?: number | string;
+  path?: string;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const res = await droneAdd({ data: input });

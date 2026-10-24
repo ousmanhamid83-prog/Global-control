@@ -90,6 +90,30 @@ test("une présence qui s'arrête survit plus longtemps qu'une piste mobile perd
   assert.equal(tracks[0]!.id, 1);
 });
 
+test("apparence : au croisement, chaque piste retrouve SA cible (la plus claire reste claire)", () => {
+  // deux pistes au même endroit, l'une claire (lum 210) l'autre sombre (lum 60) ; deux détections
+  // équidistantes mais d'apparences opposées → chacune doit récupérer sa cible, pas permuter.
+  const prev: Track2D[] = [
+    { id: 1, cx: 50, cy: 50, vx: 0, vy: 0, trail: [], hits: 5, misses: 0, lum: 210 },
+    { id: 2, cx: 50, cy: 50, vx: 0, vy: 0, trail: [], hits: 5, misses: 0, lum: 60 },
+  ];
+  const dets = [
+    { cx: 46, cy: 50, lum: 60 }, // sombre, un peu à gauche
+    { cx: 54, cy: 50, lum: 210 }, // claire, un peu à droite
+  ];
+  const { tracks } = stepTracker(prev, dets, 3, { gate: 50, maxMisses: 2, maxTrail: 8, appearanceWeight: 0.15 });
+  const t1 = tracks.find((t) => t.id === 1)!;
+  const t2 = tracks.find((t) => t.id === 2)!;
+  assert.equal(t1.cx, 54); // la piste claire a suivi la détection claire
+  assert.equal(t2.cx, 46); // la piste sombre a suivi la détection sombre
+});
+
+test("sans apparence (poids 0) l'association reste positionnelle", () => {
+  const prev: Track2D[] = [{ id: 1, cx: 50, cy: 50, vx: 0, vy: 0, trail: [], hits: 5, misses: 0, lum: 210 }];
+  const { tracks } = stepTracker(prev, [{ cx: 52, cy: 50, lum: 10 }], 2, { gate: 50, maxMisses: 2, maxTrail: 8, appearanceWeight: 0 });
+  assert.equal(tracks[0]!.cx, 52); // le plus proche, l'apparence n'entre pas en jeu
+});
+
 test("detectOcclusions compte les détections revendiquées par deux pistes (croisement)", () => {
   const prev: Track2D[] = [
     { id: 1, cx: 48, cy: 50, vx: 2, vy: 0, trail: [], hits: 5, misses: 0 },

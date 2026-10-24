@@ -66,19 +66,28 @@ function SiteManager() {
   const droneCadence = useVigilair((s) => s.droneCadence);
   const setDroneCadence = useVigilair((s) => s.setDroneCadence);
   const droneMotion = useVigilair((s) => s.droneMotion);
+  const droneLog = useVigilair((s) => s.droneLog);
+  const [drKind, setDrKind] = useState("drone");
   const [drName, setDrName] = useState("");
   const [drIdent, setDrIdent] = useState("");
   const [drSite, setDrSite] = useState("");
   const [drUrl, setDrUrl] = useState("");
+  const [drHost, setDrHost] = useState("");
+  const [drPort, setDrPort] = useState("");
+  const [drPath, setDrPath] = useState("");
   const [drErr, setDrErr] = useState<string | null>(null);
   const [openCapture, setOpenCapture] = useState<string | null>(null);
+  const [openLog, setOpenLog] = useState<string | null>(null);
   const addDr = async () => {
     setDrErr(null);
-    const r = await addDrone({ name: drName, ident: drIdent, site: drSite, snapshotUrl: drUrl });
+    const r = await addDrone({ kind: drKind, name: drName, ident: drIdent, site: drSite, snapshotUrl: drUrl, host: drHost, port: drPort, path: drPath });
     if (r.ok) {
       setDrName("");
       setDrIdent("");
       setDrUrl("");
+      setDrHost("");
+      setDrPort("");
+      setDrPath("");
     } else {
       setDrErr(r.error ?? "échec");
     }
@@ -310,29 +319,41 @@ function SiteManager() {
       {/* NOS drones — suivi ami + imagerie comme SOURCE D'ANALYSE (mouvement), pas un fond. */}
       <div className="space-y-2 rounded-sm border border-border bg-bg/40 p-3">
         <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-sm font-medium text-fg">Nos drones (suivi + analyse imagerie)</h3>
+          <h3 className="text-sm font-medium text-fg">Nos drones et caméras (suivi + analyse imagerie)</h3>
           <Badge tone="default">{drones.length}</Badge>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Un drone inscrit est reconnu <strong>ami</strong> : sa piste 1090ES (s'il émet) n'est plus
-          comptée comme intrusion. Son <strong>image</strong> (station sol / nacelle) devient une source
-          d'analyse : la veille compare deux trames, signale un <strong>mouvement/présence</strong> et
-          <strong> suit plusieurs pistes</strong> en parallèle (cap + vitesse à l'écran, id par piste) —
-          jamais une identification de personne. AfriControl <strong>suit et analyse</strong>, il ne
-          pilote pas, n'arme rien.
-          <strong> Identifiant</strong> = hex ICAO (ex. 3C6DD2) ou indicatif. L'URL accepte une image
-          fixe (snapshot JPEG) ou un flux <strong>MJPEG</strong> ; le RTSP demande une passerelle.
+          Une source inscrite (drone ou <strong>caméra fixe</strong>) est intégrée à AfriControl avec ses
+          paramètres de liaison : <strong>hôte, port, chemin</strong> (ou une URL directe) — et son
+          <strong> journal de connexion</strong>. Un drone est reconnu <strong>ami</strong> (sa piste 1090ES
+          n'est plus une intrusion). L'image (flux) devient une source d'analyse : la veille signale un
+          <strong> mouvement/présence</strong> et <strong>suit plusieurs pistes</strong> (cap + vitesse,
+          id par piste) — jamais une identification de personne. AfriControl <strong>suit et analyse</strong>,
+          il ne pilote pas, n'arme rien. Flux accepté : image fixe (snapshot JPEG) ou <strong>MJPEG</strong> ;
+          le RTSP demande une passerelle.
         </p>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <Input data-drone="name" placeholder="Nom (ex. Aile-01)" value={drName} onChange={(e) => setDrName(e.target.value)} />
-          <Input data-drone="ident" placeholder="Identifiant (hex ICAO / indicatif)" value={drIdent} onChange={(e) => setDrIdent(e.target.value)} />
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <select
+            data-drone="kind"
+            value={drKind}
+            onChange={(e) => setDrKind(e.target.value)}
+            className="rounded-sm border border-border bg-bg px-2 py-1.5 text-sm text-fg"
+          >
+            <option value="drone">Drone</option>
+            <option value="camera">Caméra</option>
+          </select>
+          <Input data-drone="name" placeholder="Nom (ex. Aile-01 / Cam Portail)" value={drName} onChange={(e) => setDrName(e.target.value)} />
+          <Input data-drone="ident" placeholder={drKind === "camera" ? "Repère (option.)" : "Identifiant (hex ICAO / indicatif)"} value={drIdent} onChange={(e) => setDrIdent(e.target.value)} />
           <Input data-drone="site" placeholder="Site rattaché" value={drSite} onChange={(e) => setDrSite(e.target.value)} />
-          <Input data-drone="url" placeholder="URL image fixe ou flux MJPEG (http/https, option.)" value={drUrl} onChange={(e) => setDrUrl(e.target.value)} />
+          <Input data-drone="host" placeholder="Hôte (ex. 10.0.0.9)" value={drHost} onChange={(e) => setDrHost(e.target.value)} />
+          <Input data-drone="port" placeholder="Port (ex. 8080)" value={drPort} onChange={(e) => setDrPort(e.target.value)} />
+          <Input data-drone="path" placeholder="Chemin (ex. /snapshot.jpg)" value={drPath} onChange={(e) => setDrPath(e.target.value)} />
+          <Input data-drone="url" placeholder="— ou URL directe (http/https)" value={drUrl} onChange={(e) => setDrUrl(e.target.value)} className="sm:col-span-2" />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button data-drone="add" size="sm" variant="outline" onClick={() => void addDr()}>
             <Plus className="mr-1 size-3.5" />
-            Inscrire le drone
+            Inscrire {drKind === "camera" ? "la caméra" : "le drone"}
           </Button>
           {drErr ? <span className="text-xs text-crit">{drErr}</span> : null}
         </div>
@@ -368,16 +389,24 @@ function SiteManager() {
               const m = droneMotion[d.id];
               const alarmed = m?.pct != null && m.pct >= droneThreshold;
               const open = openCapture === d.id;
+              const logOpen = openLog === d.id;
+              const log = droneLog[d.id] ?? [];
+              const last = log[0];
+              const isCam = d.kind === "camera";
+              const hostPort = d.host ? `${d.host}${d.port ? `:${d.port}` : ""}` : null;
               return (
                 <li key={d.id} className="flex flex-col gap-1.5 px-3 py-1.5 text-xs">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge tone="ok">ami</Badge>
+                    <Badge tone={isCam ? "default" : "ok"}>{isCam ? "caméra" : "ami"}</Badge>
                     <span className="text-fg">{d.name}</span>
                     <span className="text-muted-foreground">
                       {d.ident}
                       {d.site ? ` · ${d.site}` : ""}
-                      {d.snapshotUrl ? " · image ✓" : " · pas d'image"}
+                      {hostPort ? ` · ${hostPort}` : d.snapshotUrl ? " · flux ✓" : " · pas de flux"}
                     </span>
+                    {last ? (
+                      <Badge tone={last.ok ? "ok" : "warn"}>{last.ok ? "en ligne" : "injoignable"}</Badge>
+                    ) : null}
                     {m ? (
                       <Badge tone={m.error ? "warn" : alarmed ? "crit" : "default"}>
                         {m.error ? m.error : m.pct == null ? "trame de réf." : `mvt ${m.pct}%`}
@@ -393,6 +422,11 @@ function SiteManager() {
                     ) : null}
                     {m?.note ? <span className="text-warn">⚠ {m.note}</span> : null}
                     <div className="ml-auto flex items-center gap-1">
+                      {log.length > 0 ? (
+                        <Button data-drone-log={d.id} size="sm" variant="ghost" onClick={() => setOpenLog(logOpen ? null : d.id)}>
+                          {logOpen ? "Masquer log" : "Journal"}
+                        </Button>
+                      ) : null}
                       {m?.frame ? (
                         <Button
                           data-drone-capture={d.id}
@@ -408,6 +442,15 @@ function SiteManager() {
                       </Button>
                     </div>
                   </div>
+                  {logOpen && log.length > 0 ? (
+                    <ul data-drone-logbox={d.id} className="rounded-sm border border-border bg-bg/60 p-2 font-mono text-[10.5px]">
+                      {log.map((e, i) => (
+                        <li key={i} className={e.ok ? "text-muted-foreground" : "text-warn"}>
+                          {new Date(e.at).toLocaleTimeString("fr-FR")} · {e.ok ? "OK" : "ERR"} · {e.msg}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                   {open && m?.frame ? (
                     <div className="flex flex-wrap items-start gap-3 rounded-sm border border-border bg-bg/60 p-2">
                       <img

@@ -246,10 +246,16 @@ Détection auto pour les sites (Capteurs > Changement > Sites surveillés)
   Deux raisons : l'imagerie est archivée (pas du direct, donc pas de suivi temps réel), et c'est du
   ciblage, pas de la sûreté de site. Le temps réel au sol passe par des capteurs sol, pas l'image.
 
-Nos drones — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs > Changement > « Nos drones »)
-- REGISTRE PARTAGÉ : l'opérateur inscrit SES drones (Nom, Identifiant = hex ICAO ou indicatif, Site,
-  URL d'image fixe en option). Partagé par tout le poste (data/drones.json, server fns dédiées,
-  hydraté au démarrage et au retour de focus — comme les sites et les capteurs sol).
+Nos drones ET CAMÉRAS — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs > Changement > « Nos drones et caméras »)
+- REGISTRE PARTAGÉ MULTI-SOURCES : l'opérateur inscrit ses DRONES et ses CAMÉRAS FIXES de site, chacun
+  avec TOUS ses paramètres de liaison : Type (drone/caméra), Nom, Identifiant (hex ICAO/indicatif pour
+  un drone ; repère libre pour une caméra), Site, et le FLUX soit par Hôte + Port + Chemin, soit par URL
+  directe. L'URL EFFECTIVE est reconstruite depuis hôte:port/chemin (source unique de vérité, aussi
+  pour la garde du proxy). Partagé par tout le poste (data/drones.json), hydraté au démarrage/focus.
+- JOURNAL DE CONNEXION PAR SOURCE : chaque relevé de la veille est journalisé (OK / ERR + heure + état :
+  mouvement %, nb de pistes, ou la raison de l'échec). L'état de liaison « en ligne / injoignable » est
+  affiché par source, et le journal se déplie d'un clic — le port et la santé de chaque caméra/drone
+  sont ainsi intégrés et visibles dans AfriControl.
 - SUIVI AMI : une piste 1090ES (si le drone émet l'ADS-B) dont le hex/indicatif correspond à un drone
   inscrit devient AMI (affiliation « drone ») : elle n'est PLUS comptée comme intrusion dans les
   bulles, et au lieu d'une alerte « UAS B6 » le poste pose une info « notre drone en vol ». Retirer le
@@ -286,8 +292,11 @@ Nos drones — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs > Changemen
   qu'un intrus qui se fige reste suivi (et se re-verrouille au moindre geste). Elle n'est libérée que
   lorsque sa zone redevient VIDE plusieurs trames (l'objet est vraiment parti).
 - OCCLUSION / CROISEMENT : quand deux pistes se recouvrent, la piste « perdue » est maintenue (coast)
-  le temps du croisement, et le poste note « croisement de pistes (un id peut s'échanger) » pour que
-  l'opérateur sache qu'un numéro de piste a pu permuter.
+  le temps du croisement, le poste note « croisement de pistes », ET chaque piste porte une SIGNATURE
+  D'APPARENCE non-biométrique (luminance moyenne + taille de la zone). À la séparation, chaque piste
+  retrouve SA cible par cette apparence (« le plus clair / le plus grand reste avec le sien »), pas
+  seulement par la position — les id se récupèrent même quand les cibles se croisent de près. C'est de
+  l'apparence (clair/sombre, grand/petit), JAMAIS une identité (ni visage, ni plaque, ni « qui »).
 - PARADE ÉCLAIRAGE : un basculement GLOBAL d'image (exposition, voile, nuage, phare) fait virer une
   énorme part du cadre d'un coup — ce n'est pas une intrusion. Le poste le reconnaît, ré-étalonne vite
   le fond, note « variation d'éclairage » et N'ALERTE PAS.
@@ -306,12 +315,12 @@ Nos drones — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs > Changemen
   l'indice piéton/véhicule est une aide, pas une certitude — l'œil tranche. La détection reste fondée
   sur le MOUVEMENT (fond médiane multi-trames), pas sur un détecteur d'objets entraîné — mais avec les
   parades ci-dessus : présence immobile TENUE indéfiniment (plus de fonte), occlusion traversée par
-  prédiction et signalée, éclairage neutralisé, bruit/éclair rejeté par la médiane. Résidu honnête
-  restant : deux cibles qui se RECOUVRENT physiquement à l'écran partagent une piste le temps du
-  croisement (sans segmentation d'instances, aucun pisteur ne l'évite) — on le signale, les id se
-  récupèrent à la séparation si chacune garde son cap. Pour aller encore plus loin, un FLUX vidéo
-  continu (MJPEG en place ; RTSP via passerelle) et, le jour venu, un détecteur embarqué sur VOS
-  caméras — AfriControl reste côté réception/analyse, sans identité.
+  prédiction + apparence (les id se récupèrent au croisement) et signalée, éclairage neutralisé,
+  bruit/éclair rejeté par la médiane. Résidu honnête restant, minime : deux cibles de MÊME apparence
+  (même clair/sombre, même taille) qui se recouvrent exactement peuvent encore permuter — on le
+  signale. Pour le lever complètement, un FLUX vidéo continu (MJPEG en place ; RTSP via passerelle) et,
+  le jour venu, un détecteur embarqué sur VOS caméras — AfriControl reste côté réception/analyse, sans
+  identité.
 
 Comparateur avant/après — Capteurs > onglet « Changement »
 - Pas de direct : un satellite ne repasse que tous les quelques jours. On ne traque pas une voiture

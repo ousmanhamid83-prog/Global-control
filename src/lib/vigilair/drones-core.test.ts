@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { extractFirstJpeg, matchOwnDrone, normIdent, type OwnDrone } from "./drones-core.ts";
+import { effectiveUrl, extractFirstJpeg, matchOwnDrone, normIdent, type OwnDrone } from "./drones-core.ts";
 
 const drone = (ident: string, name = "Aile-01"): OwnDrone => ({
   id: `drone:${name}`,
@@ -56,4 +56,14 @@ test("extractFirstJpeg récupère la première image d'un flux multipart", () =>
 test("extractFirstJpeg : null si l'image n'est pas complète", () => {
   assert.equal(extractFirstJpeg(Uint8Array.from([0xff, 0xd8, 0x01, 0x02])), null); // pas de FFD9
   assert.equal(extractFirstJpeg(Uint8Array.from([0x00, 0x01, 0x02])), null); // pas de FFD8
+});
+
+test("effectiveUrl : flux direct prioritaire, sinon reconstruit depuis hôte/port/chemin", () => {
+  assert.equal(effectiveUrl({ snapshotUrl: "http://cam/stream" }), "http://cam/stream");
+  assert.equal(effectiveUrl({ host: "10.0.0.9", port: 8080, path: "snapshot.jpg" }), "http://10.0.0.9:8080/snapshot.jpg");
+  assert.equal(effectiveUrl({ host: "cam.local", port: 554 }), "http://cam.local:554");
+  assert.equal(effectiveUrl({ host: "https://cam.site", path: "/live" }), "https://cam.site/live");
+  assert.equal(effectiveUrl({}), undefined);
+  // le flux direct l'emporte sur hôte/port
+  assert.equal(effectiveUrl({ snapshotUrl: "http://x/a", host: "y", port: 1 }), "http://x/a");
 });

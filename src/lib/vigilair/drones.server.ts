@@ -11,7 +11,7 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { extractFirstJpeg, normIdent, type OwnDrone } from "./drones-core";
+import { effectiveUrl, extractFirstJpeg, normIdent, type OwnDrone, type SourceKind } from "./drones-core";
 
 export type { OwnDrone } from "./drones-core";
 
@@ -56,31 +56,49 @@ export async function listDronesServer(): Promise<OwnDrone[]> {
 }
 
 export async function addDroneServer(input: {
+  kind?: string;
   name?: string;
   ident?: string;
   site?: string;
   snapshotUrl?: string;
+  host?: string;
+  port?: number | string;
+  path?: string;
 }): Promise<{ ok: boolean; error?: string; drones?: OwnDrone[] }> {
+  const kind: SourceKind = input?.kind === "camera" ? "camera" : "drone";
   const name = (input?.name ?? "").trim();
-  const ident = normIdent(input?.ident ?? "");
+  let ident = normIdent(input?.ident ?? "");
   const site = (input?.site ?? "").trim();
   const snapshotUrl = cleanUrl(input?.snapshotUrl ?? "");
+  const host = (input?.host ?? "").trim().slice(0, 120);
+  const portNum = Number(input?.port);
+  const port = Number.isFinite(portNum) && portNum > 0 && portNum <= 65535 ? Math.round(portNum) : undefined;
+  const pathStr = (input?.path ?? "").trim().slice(0, 200);
   if (!name) return { ok: false, error: "nom requis" };
-  if (!ident) return { ok: false, error: "identifiant requis (hex ICAO ou indicatif)" };
+  // Drone : identifiant requis (apparie la piste 1090ES). Caméra : repère libre, sinon dérivé du nom.
+  if (kind === "drone" && !ident) return { ok: false, error: "identifiant requis (hex ICAO ou indicatif)" };
+  if (!ident) ident = normIdent(name) || `CAM${Date.now().toString(36).toUpperCase()}`;
   if ((input?.snapshotUrl ?? "").trim() && !snapshotUrl) {
-    return { ok: false, error: "URL image invalide (http/https attendu)" };
+    return { ok: false, error: "URL flux invalide (http/https attendu)" };
   }
+  const eff = effectiveUrl({ snapshotUrl, host, port, path: pathStr });
+  if (eff && !cleanUrl(eff)) return { ok: false, error: "hôte/port invalides" };
+  if (kind === "camera" && !eff) return { ok: false, error: "caméra : flux requis (URL, ou hôte:port)" };
   const list = await load();
-  if (list.length >= MAX) return { ok: false, error: `maximum ${MAX} drones` };
+  if (list.length >= MAX) return { ok: false, error: `maximum ${MAX} sources` };
   if (list.some((d) => normIdent(d.ident) === ident)) {
     return { ok: false, error: "identifiant déjà inscrit" };
   }
   const drone: OwnDrone = {
-    id: `drone:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    id: `${kind}:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    kind,
     name: name.slice(0, 60),
     ident: ident.slice(0, 24),
     site: site.slice(0, 60),
     snapshotUrl,
+    host: host || undefined,
+    port,
+    path: pathStr || undefined,
     at: Date.now(),
   };
   const next = [drone, ...list];
@@ -105,8 +123,9 @@ export async function fetchDroneFrameServer(
   const want = cleanUrl(url);
   if (!want) return { ok: false, error: "URL invalide" };
   const list = await load();
-  if (!list.some((d) => d.snapshotUrl && d.snapshotUrl === want)) {
-    return { ok: false, error: "URL non inscrite (doit être le flux d'un drone du registre)" };
+  // Garde : l'URL doit être l'URL EFFECTIVE d'une source inscrite (drone ou caméra) — pas un proxy ouvert.
+  if (!list.some((d) => { const e = effectiveUrl(d); return e != null && cleanUrl(e) === want; })) {
+    return { ok: false, error: "URL non inscrite (doit être le flux d'une source du registre)" };
   }
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), 8000);
