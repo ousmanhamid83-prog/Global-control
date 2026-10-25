@@ -90,6 +90,27 @@ export const onvifDiscover = createServerFn({ method: "POST" })
     return m.discoverOnvifServer(data.timeoutMs);
   });
 
+/** Scan de plage : balaie un sous-réseau (site distant au bout de l'antenne) et trouve les caméras. */
+export const scanRange = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { spec?: string }) => ({ spec: String(raw?.spec ?? "") }))
+  .handler(async ({ data }) => {
+    const m = await import("./drones.server");
+    return m.scanRangeServer(data.spec);
+  });
+
+/** Enregistrement en lot : inscrit plusieurs caméras d'un coup (scan optionnel du chemin). */
+export const registerCameras = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { list?: { host?: string; port?: number | string; path?: string; name?: string; site?: string }[]; scan?: boolean }) => ({
+    list: Array.isArray(raw?.list) ? raw.list : [],
+    scan: !!raw?.scan,
+  }))
+  .handler(async ({ data }) => {
+    const m = await import("./drones.server");
+    return m.registerCamerasServer(data.list, data.scan);
+  });
+
 /** Proxy image : récupère une trame fixe d'un drone inscrit et la renvoie en data URL (voir serveur). */
 export const fetchDroneFrame = createServerFn({ method: "POST" })
   .middleware([authMiddleware])

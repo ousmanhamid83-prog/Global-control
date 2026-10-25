@@ -4,7 +4,7 @@
  * drone inscrit, sans attendre le réseau. AfriControl suit et analyse ; il ne pilote pas.
  */
 
-import { droneAdd, droneRemove, droneSetRoi, droneSetRule, droneSetZones, dronesList, onvifDiscover, scanSource } from "./drones-api";
+import { droneAdd, droneRemove, droneSetRoi, droneSetRule, droneSetZones, dronesList, onvifDiscover, registerCameras, scanRange, scanSource } from "./drones-api";
 import type { OwnDrone } from "./drones-core";
 
 export type { OwnDrone, SourceKind, ArmRule } from "./drones-core";
@@ -122,4 +122,17 @@ export async function scanSourceClient(host: string): Promise<Awaited<ReturnType
 /** Découverte ONVIF : liste les caméras du réseau (sans taper d'IP). */
 export async function discoverOnvifClient(timeoutMs = 3000): Promise<Awaited<ReturnType<typeof onvifDiscover>>> {
   return onvifDiscover({ data: { timeoutMs } });
+}
+/** Scan de plage : balaie un sous-réseau distant (au bout de l'antenne) pour trouver les caméras. */
+export async function scanRangeClient(spec: string): Promise<Awaited<ReturnType<typeof scanRange>>> {
+  return scanRange({ data: { spec } });
+}
+/** Enregistrement en lot de caméras (découvertes ONVIF ou par scan de plage). */
+export async function registerCamerasClient(
+  list: { host?: string; port?: number | string; path?: string; name?: string; site?: string }[],
+  scan = false,
+): Promise<Awaited<ReturnType<typeof registerCameras>>> {
+  const res = await registerCameras({ data: { list, scan } });
+  if (res?.drones) set(res.drones);
+  return res;
 }

@@ -19,6 +19,7 @@ import {
   CAMERA_HTTP_PORTS,
   CAMERA_RTSP_PORTS,
   classifyProbe,
+  expandRange,
   isPlausibleHost,
   parseHost,
   probeTargets,
@@ -428,4 +429,158 @@ export async function fetchDroneFrameServer(
   } finally {
     clearTimeout(to);
   }
+}
+
+// ───────────────── Scan « longue distance » : sous-réseau d'un site distant ─────────────────
+//
+// Le multicast ONVIF s'arrête au segment local. Pour atteindre les caméras d'un poste DISTANT, au
+// bout d'une liaison antenne (sous-réseau routé jusqu'ici), on balaie une PLAGE d'adresses : connexion
+// TCP sur quelques ports caméra, puis recherche du flux sur les hôtes vivants, et enrichissement du nom
+// par une sonde ONVIF unicast (qui, elle, traverse les routeurs). Balayage de VOTRE réseau de sites,
+// opérateur-initié, borné (un /24 max) ; jamais d'identité de personnes.
+
+/** Sonde ONVIF UNICAST d'un hôte précis (WS-Discovery envoyé en point à point : traverse les routeurs). */
+function onvifProbeUnicast(host: string, timeoutMs = 1200): Promise<OnvifDevice[]> {
+  return new Promise((resolve) => {
+    const devices = new Map<string, OnvifDevice>();
+    let settled = false;
+    const sock = dgram.createSocket("udp4");
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      try { sock.close(); } catch { /* déjà fermé */ }
+      resolve([...devices.values()]);
+    };
+    sock.on("error", () => finish());
+    sock.on("message", (msg) => {
+      try {
+        for (const d of parseProbeMatches(msg.toString("utf8"))) if (!devices.has(d.xaddr)) devices.set(d.xaddr, d);
+      } catch { /* illisible */ }
+    });
+    sock.bind(() => {
+      try {
+        sock.send(Buffer.from(buildProbe(randomUUID())), WS_DISCOVERY_PORT, host, () => undefined);
+      } catch {
+        finish();
+        return;
+      }
+      setTimeout(finish, Math.max(400, Math.min(4000, timeoutMs)));
+    });
+  });
+}
+
+/** Exécute `fn` sur `items` avec une concurrence bornée (pool simple). */
+async function runPool<T>(items: T[], concurrency: number, fn: (it: T) => Promise<void>): Promise<void> {
+  let i = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (i < items.length) {
+      const idx = i++;
+      await fn(items[idx]!);
+    }
+  });
+  await Promise.all(workers);
+}
+
+export type RangeCamera = { host: string; port: number; path: string; url: string; kind: "image" | "mjpeg"; name?: string };
+export type RangeResult = {
+  ok: boolean;
+  cameras: RangeCamera[];
+  openHosts: string[];
+  hosts: number;
+  scanned: number;
+  error?: string;
+};
+
+export async function scanRangeServer(spec: string): Promise<RangeResult> {
+  const hosts = expandRange(spec ?? "");
+  if (hosts.length === 0) {
+    return { ok: false, cameras: [], openHosts: [], hosts: 0, scanned: 0, error: "plage invalide ou trop large (un /24 max, ex. 10.20.0.0/24)" };
+  }
+  const deadline = Date.now() + 35_000;
+  const SWEEP_PORTS = [80, 8080, 8000, 554]; // ports caméra HTTP les plus courants + rtsp : « un équipement ? »
+  const openHosts: string[] = [];
+  const openHttp = new Map<string, number[]>();
+
+  // 1) balayage de présence : connexion TCP sur quelques ports, concurrence bornée.
+  await runPool(hosts, 32, async (h) => {
+    if (Date.now() > deadline) return;
+    const checks = await Promise.all(SWEEP_PORTS.map(async (p) => ({ p, open: await tcpOpen(h, p, 700) })));
+    const open = checks.filter((c) => c.open);
+    if (open.length) {
+      openHosts.push(h);
+      openHttp.set(h, open.filter((c) => CAMERA_HTTP_PORTS.includes(c.p)).map((c) => c.p));
+    }
+  });
+
+  // 2) sur chaque hôte vivant à port HTTP, chercher le flux puis enrichir le nom (ONVIF unicast).
+  const cameras: RangeCamera[] = [];
+  let scanned = hosts.length * SWEEP_PORTS.length;
+  for (const h of openHosts) {
+    if (Date.now() > deadline) break;
+    let found: RangeCamera | undefined;
+    outer: for (const p of openHttp.get(h) ?? []) {
+      for (const t of probeTargets(h, { port: p })) {
+        if (Date.now() > deadline) break outer;
+        scanned++;
+        const r = await probeHttp(t.url, 1200);
+        if (r && (r.kind === "image" || r.kind === "mjpeg")) {
+          found = { host: h, port: p, path: t.path, url: t.url, kind: r.kind };
+          break outer;
+        }
+      }
+    }
+    if (found) {
+      const devs = await onvifProbeUnicast(h, 1000).catch(() => []);
+      found.name = devs[0]?.name;
+      cameras.push(found);
+    }
+  }
+  return { ok: true, cameras, openHosts, hosts: hosts.length, scanned };
+}
+
+// ───────────────────────── Enregistrement de caméras EN LOT ─────────────────────────
+//
+// Inscrit plusieurs caméras d'un coup (après découverte ONVIF ou scan de plage). `scan: true` →
+// pour une caméra sans chemin connu, on cherche d'abord son flux. Identifiant dérivé de l'hôte pour
+// garder chaque source unique. Toujours type « caméra », sans identité.
+
+export type CameraInput = { host?: string; port?: number | string; path?: string; name?: string; site?: string };
+
+export async function registerCamerasServer(
+  list: CameraInput[],
+  scan = false,
+): Promise<{ added: number; withStream: number; skipped: number; drones: OwnDrone[] }> {
+  const items = Array.isArray(list) ? list.slice(0, 64) : [];
+  let added = 0;
+  let withStream = 0;
+  let skipped = 0;
+  for (const it of items) {
+    const host = (it?.host ?? "").trim();
+    if (!host || !isPlausibleHost(host)) {
+      skipped++;
+      continue;
+    }
+    let port = it?.port != null && it.port !== "" ? Number(it.port) : undefined;
+    let pathStr = (it?.path ?? "").trim() || undefined;
+    if (scan && !pathStr) {
+      const r = await scanSourceServer(host);
+      if (r.suggested) {
+        port = r.suggested.port;
+        pathStr = r.suggested.path;
+      }
+    }
+    if (pathStr) withStream++;
+    const res = await addDroneServer({
+      kind: "camera",
+      name: (it?.name ?? "").trim() || `Cam ${host}`,
+      ident: `${host}${port ? `:${port}` : ""}`,
+      site: it?.site ?? "",
+      host,
+      port,
+      path: pathStr,
+    });
+    if (res.ok) added++;
+    else skipped++;
+  }
+  return { added, withStream, skipped, drones: await listDronesServer() };
 }

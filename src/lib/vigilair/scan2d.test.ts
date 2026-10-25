@@ -4,8 +4,10 @@ import {
   CAMERA_HTTP_PORTS,
   CAMERA_RTSP_PORTS,
   MAX_PROBE_TARGETS,
+  MAX_RANGE_HOSTS,
   SNAPSHOT_PATHS,
   classifyProbe,
+  expandRange,
   isJpegMagic,
   isPngMagic,
   isPlausibleHost,
@@ -95,4 +97,40 @@ test("constantes : ports connus non vides, RTSP distincts du HTTP", () => {
   assert.ok(CAMERA_RTSP_PORTS.includes(554));
   assert.ok(SNAPSHOT_PATHS.includes("/snapshot.jpg"));
   assert.ok(!CAMERA_HTTP_PORTS.some((p) => CAMERA_RTSP_PORTS.includes(p)));
+});
+
+test("expandRange : CIDR /24 → 254 hôtes (réseau + broadcast exclus)", () => {
+  const r = expandRange("10.20.0.0/24");
+  assert.equal(r.length, 254);
+  assert.equal(r[0], "10.20.0.1");
+  assert.equal(r[253], "10.20.0.254");
+  assert.ok(!r.includes("10.20.0.0"));
+  assert.ok(!r.includes("10.20.0.255"));
+});
+
+test("expandRange : CIDR /30 → 2 hôtes utiles ; /32 → 1 ; /31 → 2", () => {
+  assert.deepEqual(expandRange("10.0.0.0/30"), ["10.0.0.1", "10.0.0.2"]);
+  assert.deepEqual(expandRange("192.168.1.5/32"), ["192.168.1.5"]);
+  assert.deepEqual(expandRange("10.0.0.0/31"), ["10.0.0.0", "10.0.0.1"]);
+});
+
+test("expandRange : plage trop large refusée", () => {
+  assert.deepEqual(expandRange("10.0.0.0/23"), []);
+  assert.deepEqual(expandRange("10.0.0.0/8"), []);
+  assert.ok(expandRange("10.0.0.0/24").length <= MAX_RANGE_HOSTS);
+});
+
+test("expandRange : dernier octet a.b.c.x-y", () => {
+  const r = expandRange("10.20.0.10-13");
+  assert.deepEqual(r, ["10.20.0.10", "10.20.0.11", "10.20.0.12", "10.20.0.13"]);
+  assert.deepEqual(expandRange("10.20.0.20-10"), []); // bornes inversées
+});
+
+test("expandRange : préfixe a.b.c. → .1..254 ; IP seule ; invalide", () => {
+  const pfx = expandRange("172.16.5.");
+  assert.equal(pfx.length, 254);
+  assert.equal(pfx[0], "172.16.5.1");
+  assert.deepEqual(expandRange("10.0.0.9"), ["10.0.0.9"]);
+  assert.deepEqual(expandRange("pas une ip"), []);
+  assert.deepEqual(expandRange("10.0.0.300"), []);
 });

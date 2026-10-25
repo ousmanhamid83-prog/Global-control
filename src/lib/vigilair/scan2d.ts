@@ -122,3 +122,80 @@ export function classifyProbe(contentType: string, head: Uint8Array): "image" | 
   if (isJpegMagic(head) || isPngMagic(head)) return "image";
   return "other";
 }
+
+// ───────────────────────── Scan « longue distance » : plage d'adresses ─────────────────────────
+//
+// Le multicast ONVIF ne traverse pas les routeurs / liens radio : pour atteindre les caméras d'un
+// poste DISTANT (au bout de la liaison antenne), on balaie une PLAGE d'adresses (le sous-réseau du
+// site distant, routé jusqu'au poste). Expansion PURE et BORNÉE de la plage ; le balayage réseau est
+// côté serveur. Ce reste un balayage de VOTRE réseau de sites, pas un scanner d'Internet.
+
+/** Plafond dur du nombre d'hôtes d'une plage (un /24). Au-delà → refus : on scanne par tranches. */
+export const MAX_RANGE_HOSTS = 256;
+
+function octetsOk(ip: string): number[] | null {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return null;
+  const nums = parts.map((p) => (/^\d{1,3}$/.test(p) ? Number(p) : -1));
+  return nums.every((n) => n >= 0 && n <= 255) ? nums : null;
+}
+
+const ipToInt = (o: number[]): number => ((o[0]! << 24) | (o[1]! << 16) | (o[2]! << 8) | o[3]!) >>> 0;
+const intToIp = (n: number): string => `${(n >>> 24) & 255}.${(n >>> 16) & 255}.${(n >>> 8) & 255}.${n & 255}`;
+
+/**
+ * Développe une spécification de plage en liste d'hôtes (bornée à MAX_RANGE_HOSTS). Formes acceptées :
+ *  - CIDR : « 10.20.0.0/24 » (préfixe 24..32) — réseau et broadcast exclus pour un bloc ≥ /31.
+ *  - dernier octet : « 10.20.0.10-40 »
+ *  - préfixe : « 10.20.0. »  → .1 à .254
+ *  - IP seule : « 10.20.0.9 »
+ * Renvoie [] si la forme est invalide ou la plage trop large (le serveur traduit ça en message).
+ */
+export function expandRange(spec: string): string[] {
+  const s = (spec ?? "").trim();
+  if (!s) return [];
+
+  // CIDR
+  const cidr = s.match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/);
+  if (cidr) {
+    const base = octetsOk(cidr[1]!);
+    const bits = Number(cidr[2]);
+    if (!base || bits < 24 || bits > 32) return [];
+    const size = 2 ** (32 - bits);
+    if (size > MAX_RANGE_HOSTS) return [];
+    const net = ipToInt(base) & (0xffffffff << (32 - bits)) >>> 0;
+    const out: string[] = [];
+    for (let i = 0; i < size; i++) {
+      // pour un vrai sous-réseau (≥ /31 → ≥ 4 hôtes), on saute réseau et broadcast
+      if (size >= 4 && (i === 0 || i === size - 1)) continue;
+      out.push(intToIp((net + i) >>> 0));
+    }
+    return out;
+  }
+
+  // dernier octet : a.b.c.x-y  (ou a.b.c.x-a.b.c.y)
+  const dash = s.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3})\.(\d{1,3})-(?:(?:\d{1,3}\.\d{1,3}\.\d{1,3}\.)?)(\d{1,3})$/);
+  if (dash) {
+    const prefix = dash[1]!;
+    const a = Number(dash[2]);
+    const b = Number(dash[3]);
+    if (![a, b].every((n) => n >= 0 && n <= 255) || b < a || b - a + 1 > MAX_RANGE_HOSTS) return [];
+    if (!octetsOk(`${prefix}.${a}`)) return [];
+    const out: string[] = [];
+    for (let i = a; i <= b; i++) out.push(`${prefix}.${i}`);
+    return out;
+  }
+
+  // préfixe : a.b.c.  → .1 à .254
+  const pfx = s.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3})\.$/);
+  if (pfx) {
+    if (!octetsOk(`${pfx[1]}.0`)) return [];
+    const out: string[] = [];
+    for (let i = 1; i <= 254; i++) out.push(`${pfx[1]}.${i}`);
+    return out;
+  }
+
+  // IP seule
+  if (octetsOk(s)) return [s];
+  return [];
+}

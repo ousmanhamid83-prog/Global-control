@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { diffHeatmap } from "@/lib/vigilair/change-diff";
 import { addSensor, removeSensor, sensorsSnapshot, setSensorState, subscribeSensors, type SensorType } from "@/lib/vigilair/ground-sensors";
-import { addDrone, discoverOnvifClient, dronesSnapshot, removeDrone, scanSourceClient, setDroneRule, setDroneZones, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
+import { addDrone, discoverOnvifClient, dronesSnapshot, registerCamerasClient, removeDrone, scanRangeClient, scanSourceClient, setDroneRule, setDroneZones, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
 import { buildCapturePdf } from "@/lib/vigilair/capture-pdf";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { MINE_REGION_LABEL, MINES } from "@/lib/vigilair/mines";
@@ -80,6 +80,10 @@ function SiteManager() {
   const [scanRes, setScanRes] = useState<Awaited<ReturnType<typeof scanSourceClient>> | null>(null);
   const [onvifBusy, setOnvifBusy] = useState(false);
   const [onvifRes, setOnvifRes] = useState<Awaited<ReturnType<typeof discoverOnvifClient>> | null>(null);
+  const [drRange, setDrRange] = useState("");
+  const [rangeBusy, setRangeBusy] = useState(false);
+  const [rangeRes, setRangeRes] = useState<Awaited<ReturnType<typeof scanRangeClient>> | null>(null);
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
   const exportPdf = async (d: { id: string; name: string; site: string }, m: { frame?: string; pct?: number | null; targets?: number; hint?: string; note?: string }) => {
     if (!m.frame) return;
     try {
@@ -137,12 +141,7 @@ function SiteManager() {
 
   // SCAN AUTO : à partir de l'hôte de NOTRE caméra/drone, trouve le port + le chemin du flux et
   // pré-remplit la fiche (découverte de liaison, pas d'identité).
-  const runScan = async () => {
-    const host = drHost.trim() || drUrl.trim();
-    if (!host) {
-      setDrErr("renseigne l'hôte (ex. 10.0.0.9) pour lancer le scan");
-      return;
-    }
+  const doScan = async (host: string) => {
     setDrErr(null);
     setScanBusy(true);
     setScanRes(null);
@@ -152,6 +151,55 @@ function SiteManager() {
       setDrErr("scan impossible (poste injoignable)");
     } finally {
       setScanBusy(false);
+    }
+  };
+  const runScan = async () => {
+    const host = drHost.trim() || drUrl.trim();
+    if (!host) {
+      setDrErr("renseigne l'hôte (ex. 10.0.0.9) pour lancer le scan");
+      return;
+    }
+    await doScan(host);
+  };
+
+  // SCAN DE PLAGE : balaie un sous-réseau distant (au bout de l'antenne) pour trouver ses caméras.
+  const runRange = async () => {
+    const spec = drRange.trim();
+    if (!spec) {
+      setDrErr("renseigne une plage (ex. 10.20.0.0/24 ou 10.20.0.10-40)");
+      return;
+    }
+    setDrErr(null);
+    setBulkMsg(null);
+    setRangeBusy(true);
+    setRangeRes(null);
+    try {
+      setRangeRes(await scanRangeClient(spec));
+    } catch {
+      setDrErr("scan de plage impossible (poste injoignable)");
+    } finally {
+      setRangeBusy(false);
+    }
+  };
+  const applyRangeCam = (c: { host: string; port: number; path: string; name?: string }) => {
+    setDrKind("camera");
+    setDrUrl("");
+    setDrHost(c.host);
+    setDrPort(String(c.port));
+    setDrPath(c.path);
+    if (c.name && !drName.trim()) setDrName(c.name);
+    setRangeRes(null);
+  };
+  const registerAll = async (list: { host: string; port?: number; path?: string; name?: string }[], scan: boolean) => {
+    if (list.length === 0) return;
+    setBulkMsg("Inscription en cours…");
+    try {
+      const r = await registerCamerasClient(list.map((c) => ({ host: c.host, port: c.port, path: c.path, name: c.name })), scan);
+      setBulkMsg(`${r.added} caméra(s) inscrite(s)${r.withStream ? ` · ${r.withStream} avec flux` : ""}${r.skipped ? ` · ${r.skipped} ignorée(s)/déjà inscrite(s)` : ""}.`);
+      setOnvifRes(null);
+      setRangeRes(null);
+    } catch {
+      setBulkMsg("inscription en lot impossible (poste injoignable)");
     }
   };
   const applyScan = (s: { host: string; port: number; path: string }) => {
@@ -175,7 +223,7 @@ function SiteManager() {
       setOnvifBusy(false);
     }
   };
-  const applyOnvif = (dev: { host: string; port?: number; name?: string }) => {
+  const applyOnvif = async (dev: { host: string; port?: number; name?: string }) => {
     setDrKind("camera");
     setDrUrl("");
     setDrPath("");
@@ -183,6 +231,8 @@ function SiteManager() {
     setDrPort(dev.port ? String(dev.port) : "");
     if (dev.name && !drName.trim()) setDrName(dev.name);
     setOnvifRes(null);
+    // Enchaînement : on cherche tout de suite le chemin du flux (un seul geste).
+    await doScan(dev.host);
   };
 
   const pick = (pl: Place) => {
@@ -457,11 +507,22 @@ function SiteManager() {
           </Button>
           {drErr ? <span className="text-xs text-crit">{drErr}</span> : null}
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Input data-drone="range" placeholder="Plage d'un site distant (ex. 10.20.0.0/24)" value={drRange} onChange={(e) => setDrRange(e.target.value)} className="sm:w-72" />
+          <Button data-drone="rangescan" size="sm" variant="ghost" disabled={rangeBusy} onClick={() => void runRange()}>
+            {rangeBusy ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
+            {rangeBusy ? "Balayage du site distant…" : "Scan de plage (longue distance)"}
+          </Button>
+          {bulkMsg ? <span data-drone-bulkmsg className="text-xs text-ok">{bulkMsg}</span> : null}
+        </div>
         <p className="text-[10.5px] text-muted-foreground">
           <strong>Scan auto</strong> : renseigne l'<strong>hôte</strong> (ex. 10.0.0.9) puis lance — le poste
           teste les ports et chemins de flux les plus courants de NOS caméras et pré-remplit la fiche.
           <strong> Découverte ONVIF</strong> : trouve les caméras du réseau <strong>sans même taper d'IP</strong>
-          (sonde multicast) puis « Utiliser » → « Scan auto ». Dans les deux cas : découverte de liaison
+          (sonde multicast) ; « Utiliser » enchaîne direct le scan du chemin. <strong>Scan de plage</strong> :
+          pour un site <strong>distant au bout de l'antenne</strong>, balaie son sous-réseau (ex. 10.20.0.0/24) —
+          le multicast ne traverse pas les routeurs, un balayage de plage si. <strong>« Tout inscrire »</strong>
+          enregistre toutes les caméras trouvées d'un coup. Dans tous les cas : découverte de liaison
           (quel équipement, quel port répond une image), jamais d'identité.
         </p>
         {scanRes ? (
@@ -528,15 +589,67 @@ function SiteManager() {
                       {dev.name ? <span className="text-muted-foreground">{dev.name}</span> : null}
                       {dev.hardware ? <span className="text-muted-foreground">· {dev.hardware}</span> : null}
                       {dev.location ? <span className="text-muted-foreground">· {dev.location}</span> : null}
-                      <Button data-onvif-use={dev.address} size="sm" variant="outline" className="ml-auto" onClick={() => applyOnvif(dev)}>
+                      <Button data-onvif-use={dev.address} size="sm" variant="outline" className="ml-auto" onClick={() => void applyOnvif(dev)}>
                         Utiliser
                       </Button>
                     </li>
                   ))}
                 </ul>
+                <Button
+                  data-onvif-all
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void registerAll(onvifRes.devices.map((d) => ({ host: d.host, port: d.port, name: d.name })), true)}
+                >
+                  Tout inscrire ({onvifRes.devices.length})
+                </Button>
                 <p className="text-[10px] text-muted-foreground">
-                  « Utiliser » remplit l'hôte (type caméra) ; lance ensuite « Scan auto » pour trouver le
-                  chemin du flux (snapshot/MJPEG). Métadonnées d'équipement (nom, modèle), jamais d'identité.
+                  « Utiliser » remplit l'hôte (type caméra) et enchaîne le « Scan auto » du chemin.
+                  « Tout inscrire » enregistre toutes les caméras d'un coup (chemin du flux cherché pour
+                  chacune). Métadonnées d'équipement (nom, modèle), jamais d'identité.
+                </p>
+              </>
+            )}
+          </div>
+        ) : null}
+        {rangeRes ? (
+          <div data-drone-rangeres className="space-y-1 rounded-sm border border-border bg-bg/60 p-2 text-[11px]">
+            {rangeRes.error ? (
+              <p className="text-crit">Scan de plage : {rangeRes.error}</p>
+            ) : rangeRes.cameras.length === 0 ? (
+              <p className="text-warn">
+                Aucune caméra trouvée sur la plage ({rangeRes.hosts} hôte(s) balayé(s)
+                {rangeRes.openHosts.length ? `, ${rangeRes.openHosts.length} équipement(s) répondent` : ""}).
+                Vérifie que le sous-réseau du site distant est bien routé jusqu'au poste.
+              </p>
+            ) : (
+              <>
+                <p className="text-fg">
+                  {rangeRes.cameras.length} caméra(s) trouvée(s) sur {rangeRes.hosts} hôte(s) balayé(s) :
+                </p>
+                <ul className="divide-y divide-border">
+                  {rangeRes.cameras.map((c) => (
+                    <li key={c.url} data-range-cam={`${c.host}:${c.port}`} className="flex flex-wrap items-center gap-2 py-1">
+                      <Badge tone="ok">{c.kind === "mjpeg" ? "MJPEG" : "image"}</Badge>
+                      <span className="font-mono text-fg">{c.host}:{c.port}{c.path}</span>
+                      {c.name ? <span className="text-muted-foreground">{c.name}</span> : null}
+                      <Button data-range-use={`${c.host}:${c.port}`} size="sm" variant="outline" className="ml-auto" onClick={() => applyRangeCam(c)}>
+                        Utiliser
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                <Button
+                  data-range-all
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void registerAll(rangeRes.cameras.map((c) => ({ host: c.host, port: c.port, path: c.path, name: c.name })), false)}
+                >
+                  Tout inscrire ({rangeRes.cameras.length})
+                </Button>
+                <p className="text-[10px] text-muted-foreground">
+                  Site <strong>distant</strong> (au bout de l'antenne) : le sous-réseau est balayé, chaque flux
+                  trouvé a déjà son chemin. {rangeRes.scanned} test(s). Nom par ONVIF unicast si dispo. Jamais d'identité.
                 </p>
               </>
             )}

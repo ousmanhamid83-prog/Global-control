@@ -326,6 +326,18 @@ Nos drones ET CAMÉRAS — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs
   seule, JAMAIS de l'identité de personnes (nom DE LA CAMÉRA, pas de qui que ce soit). Si le réseau ne
   route pas le multicast (certains VLAN/conteneurs) ou la caméra n'est pas ONVIF : la liste revient vide
   sans bloquer — on passe alors au « Scan auto » avec l'IP, ou à l'URL directe.
+- SCAN DE PLAGE (LONGUE DISTANCE, de l'antenne à la porte) : le multicast ONVIF s'arrête au segment
+  local ; il ne traverse ni routeur ni liaison radio. Pour atteindre les caméras d'un POSTE DISTANT (au
+  bout de l'antenne, sous-réseau routé jusqu'ici), « Scan de plage » balaie une PLAGE d'adresses — CIDR
+  (10.20.0.0/24), dernier octet (10.20.0.10-40), préfixe (10.20.0.) ou IP seule. Le poste teste la
+  présence d'un équipement (connexion TCP sur les ports caméra), trouve le flux sur les hôtes vivants, et
+  enrichit le nom par une sonde ONVIF UNICAST (qui, elle, traverse les routeurs). Chaque caméra trouvée a
+  déjà son chemin, prête à inscrire. Borné à un /24 (256 hôtes max ; au-delà, on scanne par tranches),
+  opérateur-initié : c'est un balayage de VOTRE réseau de sites, pas d'Internet, et jamais d'identité.
+- ENREGISTREMENT EN LOT + ENCHAÎNEMENT : « Tout inscrire » enregistre d'un coup toutes les caméras
+  trouvées (par ONVIF ou par scan de plage) — pour une caméra sans chemin connu, le flux est cherché
+  automatiquement. Et « Utiliser » (ONVIF ou plage) enchaîne directement le Scan auto du chemin : un seul
+  geste de la découverte à la fiche prête. Toujours type « caméra », sans identité.
 - ZONES PAR POLYGONE — PLUSIEURS PAR SOURCE (n'armer que le périmètre) : « Définir / Ajouter une zone »
   laisse tracer un polygone (clics sur l'image) ; on peut en poser PLUSIEURS par caméra (ex. le portail
   ET le dépôt), chacune retirable (« Zone 1 ✕ »). Seul ce qui bouge DANS L'UNE des zones compte — la
