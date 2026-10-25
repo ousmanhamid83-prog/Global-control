@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { effectiveUrl, extractFirstJpeg, matchOwnDrone, normIdent, type OwnDrone } from "./drones-core.ts";
+import { effectiveUrl, extractFirstJpeg, matchOwnDrone, normIdent, sourceArmRule, sourceZones, type OwnDrone } from "./drones-core.ts";
 
 const drone = (ident: string, name = "Aile-01"): OwnDrone => ({
   id: `drone:${name}`,
@@ -66,4 +66,30 @@ test("effectiveUrl : flux direct prioritaire, sinon reconstruit depuis hôte/por
   assert.equal(effectiveUrl({}), undefined);
   // le flux direct l'emporte sur hôte/port
   assert.equal(effectiveUrl({ snapshotUrl: "http://x/a", host: "y", port: 1 }), "http://x/a");
+});
+
+const poly = (n: number) => Array.from({ length: n }, (_, i) => ({ x: i / n, y: i / n }));
+
+test("sourceZones : zones prioritaires, sinon roi, sinon aucune", () => {
+  assert.equal(sourceZones({}).length, 0); // toute l'image surveillée
+  // roi héritée (une zone) si pas de zones
+  assert.deepEqual(sourceZones({ roi: poly(3) }), [poly(3)]);
+  // zones (plusieurs) l'emportent sur roi
+  const z = [poly(3), poly(4)];
+  assert.deepEqual(sourceZones({ zones: z, roi: poly(3) }), z);
+  // polygones trop petits filtrés
+  assert.deepEqual(sourceZones({ zones: [poly(2)] }), []);
+  assert.equal(sourceZones({ roi: poly(2) }).length, 0); // roi < 3 ignorée
+});
+
+test("sourceArmRule : règle propre si définie, sinon repli global", () => {
+  const global = { nightOnly: true, from: 19, to: 6 };
+  // pas de règle propre → hérite du global
+  assert.deepEqual(sourceArmRule({}, global), global);
+  // règle propre complète
+  assert.deepEqual(sourceArmRule({ nightOnly: true, armFrom: 20, armTo: 5 }, global), { nightOnly: true, from: 20, to: 5 });
+  // nightOnly propre à false l'emporte (cette source alerte 24/24)
+  assert.equal(sourceArmRule({ nightOnly: false }, global).nightOnly, false);
+  // champ horaire propre partiel, le reste hérité
+  assert.deepEqual(sourceArmRule({ armFrom: 22 }, global), { nightOnly: true, from: 22, to: 6 });
 });

@@ -4,11 +4,11 @@
  * drone inscrit, sans attendre le réseau. AfriControl suit et analyse ; il ne pilote pas.
  */
 
-import { droneAdd, droneRemove, droneSetRoi, dronesList } from "./drones-api";
+import { droneAdd, droneRemove, droneSetRoi, droneSetRule, droneSetZones, dronesList, scanSource } from "./drones-api";
 import type { OwnDrone } from "./drones-core";
 
-export type { OwnDrone, SourceKind } from "./drones-core";
-export { effectiveUrl, matchOwnDrone, normIdent } from "./drones-core";
+export type { OwnDrone, SourceKind, ArmRule } from "./drones-core";
+export { effectiveUrl, matchOwnDrone, normIdent, sourceArmRule, sourceZones } from "./drones-core";
 
 const MIRROR_KEY = "africontrol.drones.mirror.v1";
 
@@ -93,4 +93,29 @@ export async function setDroneRoi(id: string, roi: { x: number; y: number }[]): 
   } catch {
     /* réessayable */
   }
+}
+/** Définit plusieurs zones (secteurs) pour une source — polygones normalisés 0..1. */
+export async function setDroneZones(id: string, zones: { x: number; y: number }[][]): Promise<void> {
+  try {
+    const res = await droneSetZones({ data: { id, zones } });
+    if (res?.drones) set(res.drones);
+  } catch {
+    /* réessayable */
+  }
+}
+/** Règle d'armement propre à une source (null = hérite du global). */
+export async function setDroneRule(
+  id: string,
+  rule: { nightOnly: boolean; armFrom: number; armTo: number } | null,
+): Promise<void> {
+  try {
+    const res = await droneSetRule({ data: { id, rule } });
+    if (res?.drones) set(res.drones);
+  } catch {
+    /* réessayable */
+  }
+}
+/** Scan auto : renvoie le flux découvert (port/chemin) pour pré-remplir la fiche. */
+export async function scanSourceClient(host: string): Promise<Awaited<ReturnType<typeof scanSource>>> {
+  return scanSource({ data: { host } });
 }

@@ -309,15 +309,27 @@ Nos drones ET CAMÉRAS — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs
   orange qui masquerait les détails. Un clic sur l'image la passe en grand (zoom) : l'opérateur lit
   LUI-MÊME la scène — la plaque, le visage, l'inscription — à l'œil, sur une image fidèle. Le poste, lui,
   ne lit toujours que du mouvement ; la lecture d'identité est et reste humaine.
-- ZONE D'INTÉRÊT PAR POLYGONE (n'armer que le périmètre) : « Définir zone » laisse tracer un polygone
-  (clics sur l'image) qui délimite la partie à surveiller. Une fois la zone fermée, SEUL ce qui bouge
-  DEDANS compte — la route au bord, un arbre qui remue, un passage public hors emprise sont ignorés. Le
-  polygone est mémorisé par source (data/drones.json), affiché en surcouche, et se vide d'un clic. Moins
-  de fausses alertes, l'attention sur VOTRE emprise.
-- ARMEMENT DE NUIT SEULEMENT : une case « N'alerter que sur une fenêtre horaire » (ex. de 19 h à 6 h,
-  minuit traversé géré) restreint les ALERTES à cette plage. Hors fenêtre, le poste continue de suivre
-  et de journaliser — mais SANS faire sonner le bandeau. De quoi laisser le va-et-vient normal de jour
-  tranquille et ne réveiller la garde que la nuit, quand une présence sur le site est anormale.
+- SCAN AUTO (découverte de liaison, gain de temps) : au lieu de chercher à la main le port et le chemin
+  d'une caméra, on renseigne l'HÔTE (ex. 10.0.0.9) et on lance « Scan auto ». Le poste teste, côté
+  serveur, les ports caméra les plus courants (80, 8080, 8000, 8081…) et, sur ceux qui répondent, les
+  chemins snapshot/MJPEG répandus (Axis, Hikvision, Dahua, Foscam, ONVIF, génériques). Dès qu'un port +
+  chemin renvoie une IMAGE (ou un flux), il est proposé et « Utiliser » pré-remplit la fiche. Un port
+  RTSP ouvert est signalé (passerelle requise, le navigateur ne lit pas le RTSP). C'est de la DÉCOUVERTE
+  DE LIAISON sur VOS propres caméras (quel port répond une image), opérateur-initiée, liste de
+  ports/chemins FIGÉE et nombre de sondes plafonné — un assistant de câblage, PAS un scanner réseau, et
+  surtout PAS de l'identité : on ne vérifie que « ce chemin renvoie-t-il une image ? ».
+- ZONES PAR POLYGONE — PLUSIEURS PAR SOURCE (n'armer que le périmètre) : « Définir / Ajouter une zone »
+  laisse tracer un polygone (clics sur l'image) ; on peut en poser PLUSIEURS par caméra (ex. le portail
+  ET le dépôt), chacune retirable (« Zone 1 ✕ »). Seul ce qui bouge DANS L'UNE des zones compte — la
+  route au bord, un arbre qui remue, un passage public hors emprise sont ignorés. Les zones sont
+  mémorisées par source (data/drones.json), affichées en surcouche, et s'effacent d'un clic. Moins de
+  fausses alertes, l'attention sur VOS secteurs.
+- ARMEMENT DE NUIT — GLOBAL OU PAR EMPLACEMENT : une case « N'alerter que sur une fenêtre horaire »
+  (ex. de 19 h à 6 h, minuit traversé géré) restreint les ALERTES à cette plage pour TOUTES les sources.
+  Et chaque caméra peut avoir SA PROPRE fenêtre (« Fenêtre nuit propre à cette source ») qui l'emporte
+  sur le global — un portail armé 20 h→5 h, un dépôt sensible armé 24/24, une zone de passage de jour
+  laissée tranquille : des RÈGLES PAR EMPLACEMENT. Hors fenêtre, le poste continue de suivre et de
+  journaliser, mais SANS faire sonner le bandeau — on ne réveille la garde que quand c'est anormal.
 - EXPORT PDF DU DOSSIER DE PREUVE : « Export PDF » génère, côté navigateur (aucun envoi externe), un PDF
   d'une page : la capture pleine résolution + l'horodatage, la source, le site, l'état de mouvement et
   le descriptif des pistes (cap, vitesse, immobile/croisement). C'est une pièce transmissible à une

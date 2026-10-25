@@ -9,9 +9,18 @@
  * `snapshotUrl` = URL d'une image fixe rafraîchie à chaque GET (caméra IP / station sol). Réception seule.
  */
 
+import net from "node:net";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { effectiveUrl, extractFirstJpeg, normIdent, type OwnDrone, type SourceKind } from "./drones-core";
+import {
+  CAMERA_HTTP_PORTS,
+  CAMERA_RTSP_PORTS,
+  classifyProbe,
+  isPlausibleHost,
+  parseHost,
+  probeTargets,
+} from "./scan2d";
 
 export type { OwnDrone } from "./drones-core";
 
@@ -123,6 +132,175 @@ export async function setDroneRoiServer(id: string, roi: unknown): Promise<OwnDr
   const next = (await load()).map((d) => (d.id === id ? { ...d, roi: pts.length >= 3 ? pts : undefined } : d));
   await persist(next);
   return next;
+}
+
+/** Nettoie un polygone : points finis, bornés 0..1, max 24 sommets. */
+function cleanPolygon(raw: unknown): { x: number; y: number }[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((p): p is { x: number; y: number } => !!p && Number.isFinite((p as { x?: number }).x) && Number.isFinite((p as { y?: number }).y))
+    .slice(0, 24)
+    .map((p) => ({ x: Math.max(0, Math.min(1, p.x)), y: Math.max(0, Math.min(1, p.y)) }));
+}
+
+/**
+ * Définit (ou efface) les zones d'intérêt d'une source — PLUSIEURS polygones (un secteur par zone).
+ * Chaque zone : ≥ 3 sommets normalisés 0..1 ; max 8 zones. Vide → surveille toute l'image. Efface la
+ * `roi` héritée (remplacée par `zones`) pour ne pas compter deux fois.
+ */
+export async function setDroneZonesServer(id: string, zones: unknown): Promise<OwnDrone[]> {
+  const polys = Array.isArray(zones)
+    ? zones.map(cleanPolygon).filter((p) => p.length >= 3).slice(0, 8)
+    : [];
+  const next = (await load()).map((d) =>
+    d.id === id ? { ...d, zones: polys.length ? polys : undefined, roi: undefined } : d,
+  );
+  await persist(next);
+  return next;
+}
+
+/**
+ * Règle d'armement PROPRE à une source (règle par emplacement). `rule` null/absente → efface la règle
+ * (la source hérite du réglage global). Sinon on stocke nightOnly + fenêtre [armFrom, armTo) bornée 0..23.
+ */
+export async function setDroneRuleServer(
+  id: string,
+  rule: { nightOnly?: unknown; armFrom?: unknown; armTo?: unknown } | null,
+): Promise<OwnDrone[]> {
+  const clampH = (v: unknown, dflt: number): number => {
+    const n = Math.round(Number(v));
+    return Number.isFinite(n) && n >= 0 && n <= 23 ? n : dflt;
+  };
+  const patch =
+    rule && typeof rule === "object"
+      ? { nightOnly: !!rule.nightOnly, armFrom: clampH(rule.armFrom, 19), armTo: clampH(rule.armTo, 6) }
+      : { nightOnly: undefined, armFrom: undefined, armTo: undefined };
+  const next = (await load()).map((d) => (d.id === id ? { ...d, ...patch } : d));
+  await persist(next);
+  return next;
+}
+
+// ───────────────────────── Scan auto d'une source (découverte de liaison) ─────────────────────────
+//
+// Assistant pour NOS propres caméras / stations sol : à partir de l'hôte, retrouver le port + le chemin
+// qui servent l'image (snapshot/MJPEG), pour pré-remplir la fiche sans saisie manuelle. C'est de la
+// DÉCOUVERTE DE LIAISON, opérateur-initiée, sur SON matériel ; la liste de ports/chemins est FIGÉE
+// (scan2d) et le nombre de sondes est plafonné — ce n'est pas un scanner réseau généraliste. Rien ici
+// ne lit un visage ni une plaque : on ne fait que vérifier « ce port/chemin renvoie-t-il une image ? ».
+
+export type ScanFinding = { port: number; path: string; url: string; kind: "image" | "mjpeg"; status: number };
+export type ScanResult = {
+  ok: boolean;
+  host?: string;
+  suggested?: { url: string; host: string; port: number; path: string; kind: "image" | "mjpeg" };
+  found: ScanFinding[];
+  openHttpPorts: number[];
+  rtsp: { port: number; open: boolean }[];
+  scanned: number;
+  error?: string;
+};
+
+/** Test d'ouverture TCP (connexion acceptée ?) avec délai court. Jamais d'exception : true/false. */
+function tcpOpen(host: string, port: number, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = new net.Socket();
+    let done = false;
+    const finish = (v: boolean) => {
+      if (done) return;
+      done = true;
+      sock.destroy();
+      resolve(v);
+    };
+    sock.setTimeout(timeoutMs);
+    sock.once("connect", () => finish(true));
+    sock.once("timeout", () => finish(false));
+    sock.once("error", () => finish(false));
+    try {
+      sock.connect(port, host);
+    } catch {
+      finish(false);
+    }
+  });
+}
+
+/** Sonde HTTP une URL : lit le content-type et quelques octets de tête, classe image/MJPEG/autre. */
+async function probeHttp(
+  url: string,
+  timeoutMs: number,
+): Promise<{ kind: "image" | "mjpeg" | "other"; status: number } | null> {
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal, redirect: "follow" });
+    const ct = res.headers.get("content-type") ?? "";
+    let head = new Uint8Array(0);
+    if (!ct.includes("multipart/") && res.body) {
+      // Lit au plus ~1 Ko pour renifler la magie (JPEG/PNG), puis coupe.
+      const reader = res.body.getReader();
+      try {
+        const { value } = await reader.read();
+        if (value) head = value.subarray(0, 1024);
+      } finally {
+        await reader.cancel().catch(() => undefined);
+      }
+    }
+    return { kind: classifyProbe(ct, head), status: res.status };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(to);
+  }
+}
+
+export async function scanSourceServer(rawHost: string): Promise<ScanResult> {
+  const { host, port } = parseHost(rawHost ?? "");
+  const empty: ScanResult = { ok: false, found: [], openHttpPorts: [], rtsp: [], scanned: 0 };
+  if (!host) return { ...empty, error: "hôte requis (ex. 10.0.0.9 ou cam.local)" };
+  if (!isPlausibleHost(host)) return { ...empty, error: "hôte invalide" };
+
+  // 1) Ports RTSP : simple test d'ouverture (le navigateur ne lit pas le RTSP → passerelle requise).
+  const rtspPorts = port && CAMERA_RTSP_PORTS.includes(port) ? [port] : CAMERA_RTSP_PORTS;
+  const rtsp = await Promise.all(
+    rtspPorts.map(async (p) => ({ port: p, open: await tcpOpen(host, p, 1200) })),
+  );
+
+  // 2) Ports HTTP : on ne sonde les chemins que sur les ports qui ACCEPTENT une connexion TCP.
+  const httpPorts = port && !CAMERA_RTSP_PORTS.includes(port) ? [port] : [...CAMERA_HTTP_PORTS];
+  const openChecks = await Promise.all(
+    httpPorts.map(async (p) => ({ port: p, open: await tcpOpen(host, p, 900) })),
+  );
+  const openHttpPorts = openChecks.filter((c) => c.open).map((c) => c.port);
+
+  // 3) Sur chaque port HTTP ouvert, on cherche le 1er chemin qui renvoie une image/MJPEG (borné).
+  const found: ScanFinding[] = [];
+  let suggested: ScanResult["suggested"];
+  let scanned = httpPorts.length + rtspPorts.length;
+  const deadline = Date.now() + 22_000;
+  const MAX_HTTP = 48;
+  let httpProbes = 0;
+  outer: for (const p of openHttpPorts) {
+    for (const t of probeTargets(host, { port: p })) {
+      if (Date.now() > deadline || httpProbes >= MAX_HTTP) break outer;
+      httpProbes++;
+      scanned++;
+      const r = await probeHttp(t.url, 1500);
+      if (r && (r.kind === "image" || r.kind === "mjpeg")) {
+        found.push({ port: p, path: t.path, url: t.url, kind: r.kind, status: r.status });
+        if (!suggested) suggested = { url: t.url, host, port: p, path: t.path, kind: r.kind };
+        break; // un flux par port suffit — on passe au port suivant
+      }
+    }
+  }
+
+  return {
+    ok: !!suggested || found.length > 0 || rtsp.some((r) => r.open),
+    host,
+    suggested,
+    found,
+    openHttpPorts,
+    rtsp,
+    scanned,
+  };
 }
 
 /**

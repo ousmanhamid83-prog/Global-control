@@ -13,7 +13,7 @@ import { confirmedTracks, detectOcclusions, isStationary, stepTracker, type Trac
 import { inArmWindow, pointInPolygon } from "@/lib/vigilair/zones2d";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { fetchDroneFrame } from "@/lib/vigilair/drones-api";
-import { dronesSnapshot, effectiveUrl, hydrateDrones, subscribeDrones } from "@/lib/vigilair/drones";
+import { dronesSnapshot, effectiveUrl, hydrateDrones, sourceArmRule, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
 import { MINES } from "@/lib/vigilair/mines";
 import { routeHazards } from "@/lib/vigilair/nav";
 import { useVigilair } from "@/lib/vigilair/store";
@@ -174,10 +174,11 @@ function DroneWatch() {
             }
           return n ? s / n : 0;
         };
-        const roi = drone.roi && drone.roi.length >= 3 ? drone.roi : null;
+        // Zones d'intérêt (plusieurs secteurs possibles) : ne garder que les présences DANS L'UNE
+        // d'elles (ignore la route). Aucune zone = toute l'image surveillée.
+        const zones = sourceZones(drone);
         const detections = (diff.mask ? mergeNearbyBlobs(allBlobs(diff.mask, PX, PX, 6), 3) : [])
-          // Zone d'intérêt : ne garder que les présences DANS le périmètre tracé (ignore la route).
-          .filter((b) => !roi || pointInPolygon({ x: b.cx / PX, y: b.cy / PX }, roi))
+          .filter((b) => zones.length === 0 || zones.some((z) => pointInPolygon({ x: b.cx / PX, y: b.cy / PX }, z)))
           .map((b) => ({ cx: b.cx, cy: b.cy, lum: meanLum(b), area: b.area }));
         const prevTracks = tracksRef.current.get(drone.id) ?? [];
         const occ = detectOcclusions(prevTracks, detections, TRK.gate);
@@ -321,9 +322,10 @@ function DroneWatch() {
         });
 
         // ARMEMENT DE NUIT : hors de la fenêtre horaire, on continue à suivre et journaliser, mais on
-        // N'ALERTE PAS (le poste n'est pas « armé » le jour si l'opérateur a choisi « nuit seulement »).
+        // N'ALERTE PAS. La règle PROPRE à la source (par emplacement) l'emporte sur le réglage global.
         const nowD = new Date();
-        const armedTime = !nightOnly || inArmWindow(nowD.getHours() + nowD.getMinutes() / 60, armFrom, armTo);
+        const rule = sourceArmRule(drone, { nightOnly, from: armFrom, to: armTo });
+        const armedTime = !rule.nightOnly || inArmWindow(nowD.getHours() + nowD.getMinutes() / 60, rule.from, rule.to);
         if (armedTime && (pct >= threshold || confirmed.length > 0)) {
           const last = lastAlert.current.get(drone.id) ?? 0;
           if (Date.now() - last > 10 * 60 * 1000) {

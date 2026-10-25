@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { diffHeatmap } from "@/lib/vigilair/change-diff";
 import { addSensor, removeSensor, sensorsSnapshot, setSensorState, subscribeSensors, type SensorType } from "@/lib/vigilair/ground-sensors";
-import { addDrone, dronesSnapshot, removeDrone, setDroneRoi, subscribeDrones } from "@/lib/vigilair/drones";
+import { addDrone, dronesSnapshot, removeDrone, scanSourceClient, setDroneRule, setDroneZones, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
 import { buildCapturePdf } from "@/lib/vigilair/capture-pdf";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { MINE_REGION_LABEL, MINES } from "@/lib/vigilair/mines";
@@ -76,6 +76,8 @@ function SiteManager() {
   const [zoomCap, setZoomCap] = useState<string | null>(null);
   const [roiEdit, setRoiEdit] = useState<string | null>(null);
   const [roiPts, setRoiPts] = useState<{ x: number; y: number }[]>([]);
+  const [scanBusy, setScanBusy] = useState(false);
+  const [scanRes, setScanRes] = useState<Awaited<ReturnType<typeof scanSourceClient>> | null>(null);
   const exportPdf = async (d: { id: string; name: string; site: string }, m: { frame?: string; pct?: number | null; targets?: number; hint?: string; note?: string }) => {
     if (!m.frame) return;
     try {
@@ -129,6 +131,33 @@ function SiteManager() {
     } else {
       setDrErr(r.error ?? "échec");
     }
+  };
+
+  // SCAN AUTO : à partir de l'hôte de NOTRE caméra/drone, trouve le port + le chemin du flux et
+  // pré-remplit la fiche (découverte de liaison, pas d'identité).
+  const runScan = async () => {
+    const host = drHost.trim() || drUrl.trim();
+    if (!host) {
+      setDrErr("renseigne l'hôte (ex. 10.0.0.9) pour lancer le scan");
+      return;
+    }
+    setDrErr(null);
+    setScanBusy(true);
+    setScanRes(null);
+    try {
+      setScanRes(await scanSourceClient(host));
+    } catch {
+      setDrErr("scan impossible (poste injoignable)");
+    } finally {
+      setScanBusy(false);
+    }
+  };
+  const applyScan = (s: { host: string; port: number; path: string }) => {
+    setDrUrl("");
+    setDrHost(s.host);
+    setDrPort(String(s.port));
+    setDrPath(s.path);
+    setScanRes(null);
   };
 
   const pick = (pl: Place) => {
@@ -393,8 +422,61 @@ function SiteManager() {
             <Plus className="mr-1 size-3.5" />
             Inscrire {drKind === "camera" ? "la caméra" : "le drone"}
           </Button>
+          <Button data-drone="scan" size="sm" variant="ghost" disabled={scanBusy} onClick={() => void runScan()}>
+            {scanBusy ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
+            {scanBusy ? "Scan en cours…" : "Scan auto (port/chemin)"}
+          </Button>
           {drErr ? <span className="text-xs text-crit">{drErr}</span> : null}
         </div>
+        <p className="text-[10.5px] text-muted-foreground">
+          <strong>Scan auto</strong> : renseigne l'<strong>hôte</strong> (ex. 10.0.0.9) puis lance — le poste
+          teste les ports et chemins de flux les plus courants de NOS caméras et pré-remplit la fiche.
+          Découverte de liaison (quel port répond une image), jamais d'identité.
+        </p>
+        {scanRes ? (
+          <div data-drone-scanres className="space-y-1 rounded-sm border border-border bg-bg/60 p-2 text-[11px]">
+            {scanRes.error ? (
+              <p className="text-crit">Scan : {scanRes.error}</p>
+            ) : scanRes.suggested ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone="ok">flux trouvé</Badge>
+                <span className="font-mono text-fg">
+                  {scanRes.suggested.host}:{scanRes.suggested.port}{scanRes.suggested.path}
+                </span>
+                <span className="text-muted-foreground">({scanRes.suggested.kind === "mjpeg" ? "MJPEG" : "image"})</span>
+                <Button
+                  data-drone-scanuse
+                  size="sm"
+                  variant="outline"
+                  onClick={() => applyScan(scanRes.suggested!)}
+                >
+                  Utiliser
+                </Button>
+              </div>
+            ) : (
+              <p className="text-warn">
+                Aucun flux image trouvé automatiquement
+                {scanRes.openHttpPorts.length ? ` (ports ouverts : ${scanRes.openHttpPorts.join(", ")} — identifiants peut-être requis)` : ""}.
+              </p>
+            )}
+            {scanRes.found.length > 1 ? (
+              <ul className="font-mono text-[10px] text-muted-foreground">
+                {scanRes.found.slice(1).map((f) => (
+                  <li key={f.url}>
+                    autre : {scanRes.host}:{f.port}{f.path} ({f.kind === "mjpeg" ? "MJPEG" : "image"})
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {scanRes.rtsp.some((r) => r.open) ? (
+              <p className="text-muted-foreground">
+                RTSP détecté sur {scanRes.rtsp.filter((r) => r.open).map((r) => r.port).join(", ")} — non lisible
+                par le navigateur : une <strong>passerelle</strong> (RTSP → MJPEG) est requise.
+              </p>
+            ) : null}
+            <p className="text-[10px] text-muted-foreground">{scanRes.scanned} test(s) effectué(s).</p>
+          </div>
+        ) : null}
         <label className="flex flex-wrap items-center gap-2 text-xs text-fg">
           <input data-drone="watch" type="checkbox" checked={droneWatch} onChange={(e) => setDroneWatch(e.target.checked)} />
           Veille mouvement (imagerie drone)
@@ -523,27 +605,42 @@ function SiteManager() {
                         <Button data-drone-pdf={d.id} size="sm" variant="ghost" onClick={() => void exportPdf(d, m)}>
                           Export PDF
                         </Button>
-                        <Button
-                          data-drone-roi={d.id}
-                          size="sm"
-                          variant={roiEdit === d.id ? "outline" : "ghost"}
-                          onClick={() => {
-                            if (roiEdit === d.id) { setRoiEdit(null); setRoiPts([]); }
-                            else { setRoiEdit(d.id); setRoiPts(d.roi ?? []); }
-                          }}
-                        >
-                          {roiEdit === d.id ? "Annuler" : d.roi ? "Modifier zone" : "Définir zone"}
-                        </Button>
-                        {roiEdit === d.id ? (
-                          <>
-                            <Button size="sm" variant="outline" disabled={roiPts.length < 3} onClick={() => { void setDroneRoi(d.id, roiPts); setRoiEdit(null); }}>
-                              Fermer la zone ({roiPts.length})
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => setRoiPts([])}>Vider</Button>
-                          </>
-                        ) : d.roi ? (
-                          <Button size="sm" variant="ghost" onClick={() => void setDroneRoi(d.id, [])}>Effacer zone</Button>
-                        ) : null}
+                        {(() => {
+                          const zones = sourceZones(d);
+                          return (
+                            <>
+                              <Button
+                                data-drone-roi={d.id}
+                                size="sm"
+                                variant={roiEdit === d.id ? "outline" : "ghost"}
+                                onClick={() => {
+                                  if (roiEdit === d.id) { setRoiEdit(null); setRoiPts([]); }
+                                  else { setRoiEdit(d.id); setRoiPts([]); }
+                                }}
+                              >
+                                {roiEdit === d.id ? "Annuler" : zones.length ? "Ajouter une zone" : "Définir zone"}
+                              </Button>
+                              {roiEdit === d.id ? (
+                                <>
+                                  <Button data-drone-roiclose={d.id} size="sm" variant="outline" disabled={roiPts.length < 3} onClick={() => { void setDroneZones(d.id, [...zones, roiPts]); setRoiEdit(null); setRoiPts([]); }}>
+                                    Fermer la zone ({roiPts.length})
+                                  </Button>
+                                  <Button size="sm" variant="ghost" onClick={() => setRoiPts([])}>Vider</Button>
+                                </>
+                              ) : null}
+                              {zones.length > 0 ? (
+                                <>
+                                  {zones.map((_, i) => (
+                                    <Button key={i} data-drone-zonedel={`${d.id}:${i}`} size="sm" variant="ghost" onClick={() => void setDroneZones(d.id, zones.filter((__, idx) => idx !== i))}>
+                                      Zone {i + 1} ✕
+                                    </Button>
+                                  ))}
+                                  <Button size="sm" variant="ghost" onClick={() => void setDroneZones(d.id, [])}>Effacer zones</Button>
+                                </>
+                              ) : null}
+                            </>
+                          );
+                        })()}
                       </div>
                       <div className="flex flex-wrap items-start gap-3">
                         <div className={`relative ${zoomCap === d.id ? "w-full" : "w-72 shrink-0"}`}>
@@ -562,10 +659,14 @@ function SiteManager() {
                             className={`block h-auto w-full rounded-sm border border-border ${roiEdit === d.id ? "cursor-crosshair" : "cursor-zoom-in"}`}
                           />
                           {(() => {
-                            const poly = roiEdit === d.id ? roiPts : d.roi ?? [];
-                            return poly.length >= 2 ? (
+                            const zones = sourceZones(d);
+                            const drawn = roiEdit === d.id ? [...zones, roiPts] : zones;
+                            const polys = drawn.filter((poly) => poly.length >= 2);
+                            return polys.length > 0 ? (
                               <svg data-drone-roisvg={d.id} className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 1 1" preserveAspectRatio="none">
-                                <polygon points={poly.map((p) => `${p.x},${p.y}`).join(" ")} fill="rgba(120,200,255,0.15)" stroke="rgba(120,200,255,0.95)" strokeWidth={0.005} />
+                                {polys.map((poly, i) => (
+                                  <polygon key={i} points={poly.map((p) => `${p.x},${p.y}`).join(" ")} fill="rgba(120,200,255,0.15)" stroke="rgba(120,200,255,0.95)" strokeWidth={0.005} />
+                                ))}
                               </svg>
                             ) : null;
                           })()}
@@ -584,10 +685,57 @@ function SiteManager() {
                             </ul>
                           ) : null}
                           {m.note ? <p className="text-warn">⚠ {m.note}</p> : null}
+                          {/* RÈGLE PAR EMPLACEMENT : fenêtre nuit propre à CETTE source (sinon hérite du global). */}
+                          {(() => {
+                            const hasRule = typeof d.nightOnly === "boolean";
+                            const from = d.armFrom ?? droneArmFrom;
+                            const to = d.armTo ?? droneArmTo;
+                            return (
+                              <div className="flex flex-wrap items-center gap-1.5 rounded-sm border border-border bg-bg/40 px-2 py-1">
+                                <label className="flex items-center gap-1.5">
+                                  <input
+                                    data-drone-rule={d.id}
+                                    type="checkbox"
+                                    checked={hasRule}
+                                    onChange={(e) => void setDroneRule(d.id, e.target.checked ? { nightOnly: true, armFrom: from, armTo: to } : null)}
+                                  />
+                                  Fenêtre nuit propre à cette source
+                                </label>
+                                {hasRule ? (
+                                  <>
+                                    <span>de</span>
+                                    <input
+                                      data-drone-rulefrom={d.id}
+                                      type="number"
+                                      min={0}
+                                      max={23}
+                                      value={from}
+                                      onChange={(e) => void setDroneRule(d.id, { nightOnly: true, armFrom: Math.max(0, Math.min(23, Number(e.target.value) || 0)), armTo: to })}
+                                      className="w-14 rounded-sm border border-border bg-bg px-2 py-0.5 text-xs text-fg"
+                                    />
+                                    <span>h à</span>
+                                    <input
+                                      data-drone-ruleto={d.id}
+                                      type="number"
+                                      min={0}
+                                      max={23}
+                                      value={to}
+                                      onChange={(e) => void setDroneRule(d.id, { nightOnly: true, armFrom: from, armTo: Math.max(0, Math.min(23, Number(e.target.value) || 0)) })}
+                                      className="w-14 rounded-sm border border-border bg-bg px-2 py-0.5 text-xs text-fg"
+                                    />
+                                    <span>h</span>
+                                  </>
+                                ) : (
+                                  <span className="text-muted-foreground">hérite du global ({droneNightOnly ? `nuit ${droneArmFrom}→${droneArmTo} h` : "24/24"})</span>
+                                )}
+                              </div>
+                            );
+                          })()}
                           <p>
                             Image <strong>pleine résolution</strong> : clique pour <strong>zoomer</strong> et lire la
-                            scène. « Définir zone » = trace un périmètre (clics) pour <strong>n'armer que dedans</strong>
-                            (ignorer la route). « Export PDF » = dossier de preuve transmissible. C'est une
+                            scène. <strong>Plusieurs zones</strong> possibles (« Ajouter une zone ») : on n'arme que
+                            DANS l'une d'elles (ignore la route). Chaque source peut avoir sa <strong>fenêtre nuit</strong>
+                            propre. « Export PDF » = dossier de preuve transmissible. C'est une
                             <strong> aide à la décision</strong> : l'opérateur regarde et <strong>identifie à l'œil</strong>.
                             AfriControl ne reconnaît ni visage ni plaque, ne cible pas.
                           </p>
