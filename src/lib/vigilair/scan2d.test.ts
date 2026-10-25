@@ -35,6 +35,12 @@ test("parseHost : port invalide ignoré", () => {
   assert.deepEqual(parseHost("host:999999"), { host: "host" });
 });
 
+test("parseHost : https:// marque secure", () => {
+  assert.deepEqual(parseHost("https://cam.monsite.com:8443/snap.jpg"), { host: "cam.monsite.com", port: 8443, secure: true });
+  assert.deepEqual(parseHost("https://cam.ddns.net"), { host: "cam.ddns.net", secure: true });
+  assert.equal(parseHost("http://10.0.0.9").secure, undefined);
+});
+
 test("parseHost : vide", () => {
   assert.deepEqual(parseHost("   "), { host: "" });
 });
@@ -66,6 +72,12 @@ test("probeTargets : chemin sans / initial est normalisé", () => {
   const t = probeTargets("h", { ports: [80], paths: ["snap.jpg"] });
   assert.equal(t[0]!.path, "/snap.jpg");
   assert.equal(t[0]!.url, "http://h/snap.jpg");
+});
+
+test("probeTargets : schéma https, port 443 implicite sans :port", () => {
+  const t = probeTargets("cam.ddns.net", { scheme: "https", ports: [443, 8443], paths: ["/snap.jpg"] });
+  assert.equal(t[0]!.url, "https://cam.ddns.net/snap.jpg");
+  assert.equal(t[1]!.url, "https://cam.ddns.net:8443/snap.jpg");
 });
 
 test("probeTargets : borné à MAX_PROBE_TARGETS", () => {

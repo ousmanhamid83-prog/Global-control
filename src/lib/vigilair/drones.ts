@@ -129,7 +129,7 @@ export async function scanRangeClient(spec: string): Promise<Awaited<ReturnType<
 }
 /** Enregistrement en lot de caméras (découvertes ONVIF ou par scan de plage). */
 export async function registerCamerasClient(
-  list: { host?: string; port?: number | string; path?: string; name?: string; site?: string }[],
+  list: { host?: string; port?: number | string; path?: string; name?: string; site?: string; url?: string }[],
   scan = false,
 ): Promise<Awaited<ReturnType<typeof registerCameras>>> {
   const res = await registerCameras({ data: { list, scan } });

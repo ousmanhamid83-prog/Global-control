@@ -102,7 +102,7 @@ export const scanRange = createServerFn({ method: "POST" })
 /** Enregistrement en lot : inscrit plusieurs caméras d'un coup (scan optionnel du chemin). */
 export const registerCameras = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((raw: { list?: { host?: string; port?: number | string; path?: string; name?: string; site?: string }[]; scan?: boolean }) => ({
+  .validator((raw: { list?: { host?: string; port?: number | string; path?: string; name?: string; site?: string; url?: string }[]; scan?: boolean }) => ({
     list: Array.isArray(raw?.list) ? raw.list : [],
     scan: !!raw?.scan,
   }))

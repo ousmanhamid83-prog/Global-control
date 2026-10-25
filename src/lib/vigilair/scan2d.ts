@@ -13,6 +13,9 @@
 /** Ports HTTP couramment exposés par une caméra IP / station sol pour un snapshot ou un flux MJPEG. */
 export const CAMERA_HTTP_PORTS: readonly number[] = [80, 8080, 8000, 8081, 81, 88, 8008, 9000];
 
+/** Ports HTTPS courants — caméras exposées sur Internet (IP publique / DDNS), souvent en TLS. */
+export const CAMERA_HTTPS_PORTS: readonly number[] = [443, 8443];
+
 /** Ports RTSP : illisibles par le navigateur — on ne fait qu'un test d'ouverture (passerelle requise). */
 export const CAMERA_RTSP_PORTS: readonly number[] = [554, 8554];
 
@@ -42,26 +45,28 @@ export type ProbeTarget = { port: number; path: string; url: string };
  * isole l'hôte et un port explicite éventuel. « http://10.0.0.9:8080/x » → { host:"10.0.0.9", port:8080 }.
  * Gère un littéral IPv6 entre crochets. Renvoie host="" si rien d'exploitable.
  */
-export function parseHost(raw: string): { host: string; port?: number } {
+export function parseHost(raw: string): { host: string; port?: number; secure?: boolean } {
   let s = (raw ?? "").trim();
   if (!s) return { host: "" };
+  const secure = /^https:\/\//i.test(s);
   s = s.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, ""); // schéma
   s = s.split(/[/?#]/)[0] ?? ""; // chemin / query / fragment
   if (!s) return { host: "" };
+  const sec = secure ? { secure: true } : {};
   const okPort = (n: number): boolean => Number.isFinite(n) && n > 0 && n <= 65535;
   // IPv6 littéral : [::1]:8080
   const v6 = s.match(/^\[([^\]]+)\](?::(\d+))?$/);
   if (v6) {
     const port = v6[2] ? Number(v6[2]) : NaN;
-    return okPort(port) ? { host: v6[1]!, port } : { host: v6[1]! };
+    return okPort(port) ? { host: v6[1]!, port, ...sec } : { host: v6[1]!, ...sec };
   }
   const idx = s.lastIndexOf(":");
   if (idx > 0 && /^\d+$/.test(s.slice(idx + 1))) {
     const port = Number(s.slice(idx + 1));
-    if (okPort(port)) return { host: s.slice(0, idx), port };
-    return { host: s.slice(0, idx) };
+    if (okPort(port)) return { host: s.slice(0, idx), port, ...sec };
+    return { host: s.slice(0, idx), ...sec };
   }
-  return { host: s };
+  return { host: s, ...sec };
 }
 
 /** L'hôte a-t-il une forme plausible (nom d'hôte ou IPv4/IPv6 littéral) ? Garde-fou de saisie. */
@@ -79,7 +84,7 @@ export function isPlausibleHost(host: string): boolean {
  */
 export function probeTargets(
   host: string,
-  opts?: { port?: number; ports?: readonly number[]; paths?: readonly string[]; max?: number },
+  opts?: { port?: number; ports?: readonly number[]; paths?: readonly string[]; max?: number; scheme?: "http" | "https" },
 ): ProbeTarget[] {
   const h = (host ?? "").trim();
   if (!h) return [];
@@ -89,13 +94,15 @@ export function probeTargets(
       ? [opts.port]
       : opts?.ports ?? CAMERA_HTTP_PORTS;
   const max = opts?.max ?? MAX_PROBE_TARGETS;
+  const scheme = opts?.scheme === "https" ? "https" : "http";
+  const defPort = scheme === "https" ? 443 : 80; // port implicite du schéma → pas de :port dans l'URL
   const out: ProbeTarget[] = [];
   for (const port of ports) {
     for (const path of paths) {
       if (out.length >= max) return out;
       const p = path.startsWith("/") ? path : `/${path}`;
-      const portSeg = port === 80 ? "" : `:${port}`;
-      out.push({ port, path: p, url: `http://${h}${portSeg}${p}` });
+      const portSeg = port === defPort ? "" : `:${port}`;
+      out.push({ port, path: p, url: `${scheme}://${h}${portSeg}${p}` });
     }
   }
   return out;

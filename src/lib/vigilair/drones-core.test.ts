@@ -66,6 +66,11 @@ test("effectiveUrl : flux direct prioritaire, sinon reconstruit depuis hôte/por
   assert.equal(effectiveUrl({}), undefined);
   // le flux direct l'emporte sur hôte/port
   assert.equal(effectiveUrl({ snapshotUrl: "http://x/a", host: "y", port: 1 }), "http://x/a");
+  // caméra Internet : port HTTPS → schéma https
+  assert.equal(effectiveUrl({ host: "cam.ddns.net", port: 443, path: "/snap.jpg" }), "https://cam.ddns.net:443/snap.jpg");
+  assert.equal(effectiveUrl({ host: "cam.site", port: 8443 }), "https://cam.site:8443");
+  // URL https directe conservée telle quelle
+  assert.equal(effectiveUrl({ snapshotUrl: "https://cam.site/live" }), "https://cam.site/live");
 });
 
 const poly = (n: number) => Array.from({ length: n }, (_, i) => ({ x: i / n, y: i / n }));

@@ -75,7 +75,10 @@ export function effectiveUrl(d: { snapshotUrl?: string; host?: string; port?: nu
   if (direct) return direct;
   const host = (d.host ?? "").trim();
   if (!host) return undefined;
-  const scheme = host.startsWith("http://") || host.startsWith("https://") ? "" : "http://";
+  const hasScheme = host.startsWith("http://") || host.startsWith("https://");
+  // Caméra exposée sur Internet : un port HTTPS (443 / 8443) implique le schéma https.
+  const secure = d.port === 443 || d.port === 8443;
+  const scheme = hasScheme ? "" : secure ? "https://" : "http://";
   const base = `${scheme}${host}`.replace(/\/+$/, "");
   const port = d.port && d.port > 0 && d.port <= 65535 ? `:${d.port}` : "";
   let path = (d.path ?? "").trim();

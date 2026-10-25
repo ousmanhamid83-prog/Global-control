@@ -6,6 +6,9 @@
  * Aucune dépendance → testable sous `node --test`.
  */
 
+/** Une entrée du journal d'un site : un balayage qui a vu un CHANGEMENT (apparition / disparition). */
+export type SiteNetEvent = { at: number; up: string[]; down: string[] };
+
 export type SiteNet = {
   id: string;
   /** Nom du site distant (ex. « Poste Est », « Portail Sud »). */
@@ -17,7 +20,14 @@ export type SiteNet = {
   lastScanAt?: number;
   /** Dernières adresses caméra vues « host:port » (pour détecter tombée / nouvelle). */
   cams?: string[];
+  /** Journal (main courante) : derniers changements horodatés, le plus récent d'abord. */
+  history?: SiteNetEvent[];
 };
+
+/** Ajoute un événement en tête du journal (le plus récent d'abord), borné à `max` entrées. */
+export function appendHistory(hist: SiteNetEvent[] | undefined, entry: SiteNetEvent, max = 20): SiteNetEvent[] {
+  return [entry, ...(hist ?? [])].slice(0, max);
+}
 
 /** Clé stable d'une caméra pour comparer les présences : « host:port ». */
 export function camKey(c: { host: string; port: number }): string {

@@ -7,7 +7,7 @@ import { diffHeatmap } from "@/lib/vigilair/change-diff";
 import { addSensor, removeSensor, sensorsSnapshot, setSensorState, subscribeSensors, type SensorType } from "@/lib/vigilair/ground-sensors";
 import { addDrone, discoverOnvifClient, dronesSnapshot, registerCamerasClient, removeDrone, scanRangeClient, scanSourceClient, setDroneRule, setDroneZones, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
 import { addSiteNet, hydrateSiteNets, recordSiteScan, removeSiteNet, siteNetsSnapshot, subscribeSiteNets } from "@/lib/vigilair/sitenets";
-import { buildCapturePdf } from "@/lib/vigilair/capture-pdf";
+import { buildCapturePdf, buildTextPdf } from "@/lib/vigilair/capture-pdf";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { MINE_REGION_LABEL, MINES } from "@/lib/vigilair/mines";
 import { searchPlaces, type Place } from "@/lib/vigilair/places";
@@ -97,6 +97,7 @@ function SiteManager() {
   const [snNetErr, setSnNetErr] = useState<string | null>(null);
   type NetScanState = { busy?: boolean; cams?: Awaited<ReturnType<typeof scanRangeClient>>["cameras"]; added?: string[]; removed?: string[]; at?: number; err?: string };
   const [netScan, setNetScan] = useState<Record<string, NetScanState>>({});
+  const [openNetLog, setOpenNetLog] = useState<string | null>(null);
   const exportPdf = async (d: { id: string; name: string; site: string }, m: { frame?: string; pct?: number | null; targets?: number; hint?: string; note?: string }) => {
     if (!m.frame) return;
     try {
@@ -194,20 +195,20 @@ function SiteManager() {
       setRangeBusy(false);
     }
   };
-  const applyRangeCam = (c: { host: string; port: number; path: string; name?: string }) => {
+  const applyRangeCam = (c: { url: string; name?: string }) => {
     setDrKind("camera");
-    setDrUrl("");
-    setDrHost(c.host);
-    setDrPort(String(c.port));
-    setDrPath(c.path);
+    setDrHost("");
+    setDrPort("");
+    setDrPath("");
+    setDrUrl(c.url); // URL complète avec le bon schéma
     if (c.name && !drName.trim()) setDrName(c.name);
     setRangeRes(null);
   };
-  const registerAll = async (list: { host: string; port?: number; path?: string; name?: string }[], scan: boolean) => {
+  const registerAll = async (list: { host: string; port?: number; path?: string; name?: string; url?: string }[], scan: boolean) => {
     if (list.length === 0) return;
     setBulkMsg("Inscription en cours…");
     try {
-      const r = await registerCamerasClient(list.map((c) => ({ host: c.host, port: c.port, path: c.path, name: c.name })), scan);
+      const r = await registerCamerasClient(list.map((c) => ({ host: c.host, port: c.port, path: c.path, name: c.name, url: c.url })), scan);
       setBulkMsg(`${r.added} caméra(s) inscrite(s)${r.withStream ? ` · ${r.withStream} avec flux` : ""}${r.skipped ? ` · ${r.skipped} ignorée(s)/déjà inscrite(s)` : ""}.`);
       setOnvifRes(null);
       setRangeRes(null);
@@ -215,11 +216,12 @@ function SiteManager() {
       setBulkMsg("inscription en lot impossible (poste injoignable)");
     }
   };
-  const applyScan = (s: { host: string; port: number; path: string }) => {
-    setDrUrl("");
-    setDrHost(s.host);
-    setDrPort(String(s.port));
-    setDrPath(s.path);
+  const applyScan = (s: { url: string }) => {
+    // On remplit l'URL COMPLÈTE (schéma http/https conservé — caméra Internet en TLS).
+    setDrHost("");
+    setDrPort("");
+    setDrPath("");
+    setDrUrl(s.url);
     setScanRes(null);
   };
 
@@ -257,6 +259,32 @@ function SiteManager() {
       setSnNetRange("");
     } else {
       setSnNetErr(r.error ?? "échec");
+    }
+  };
+  // Export PDF de l'état du périmètre réseau (quelles caméras vivantes / tombées à l'instant T).
+  const exportNetPdf = () => {
+    const now = new Date();
+    const lines: string[] = [`Date : ${now.toLocaleString("fr-FR")}  ·  ${siteNets.length} site(s) distant(s)`, ""];
+    for (const s of siteNets) {
+      const cams = s.cams ?? [];
+      lines.push(`${s.name}  (${s.range})  —  ${cams.length} caméra(s) en ligne${s.lastScanAt ? ` · balayé ${new Date(s.lastScanAt).toLocaleString("fr-FR")}` : " · jamais balayé"}`);
+      for (const c of cams) lines.push(`    - ${c}  (en ligne)`);
+      const down = (s.history ?? []).flatMap((e) => e.down).slice(0, 6);
+      if (down.length) lines.push(`    Tombées récentes : ${down.join(", ")}`);
+      lines.push("");
+    }
+    lines.push("Présence d'équipement réseau (quelle caméra répond), sans identité. Aide à la décision.");
+    try {
+      const pdf = buildTextPdf("AfriControl - etat du perimetre reseau", lines);
+      const blob = new Blob([pdf as unknown as BlobPart], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `AfriControl-perimetre-reseau-${Date.now()}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      /* export impossible */
     }
   };
   const rescanNet = async (site: { id: string; range: string }) => {
@@ -559,12 +587,16 @@ function SiteManager() {
         <p className="text-[10.5px] text-muted-foreground">
           <strong>Scan auto</strong> : renseigne l'<strong>hôte</strong> (ex. 10.0.0.9) puis lance — le poste
           teste les ports et chemins de flux les plus courants de NOS caméras et pré-remplit la fiche.
-          <strong> Découverte ONVIF</strong> : trouve les caméras du réseau <strong>sans même taper d'IP</strong>
-          (sonde multicast) ; « Utiliser » enchaîne direct le scan du chemin. <strong>Scan de plage</strong> :
-          pour un site <strong>distant au bout de l'antenne</strong>, balaie son sous-réseau (ex. 10.20.0.0/24) —
-          le multicast ne traverse pas les routeurs, un balayage de plage si. <strong>« Tout inscrire »</strong>
-          enregistre toutes les caméras trouvées d'un coup. Dans tous les cas : découverte de liaison
-          (quel équipement, quel port répond une image), jamais d'identité.
+          <strong> Caméra sur Internet</strong> (IP publique / <strong>DDNS</strong>, souvent en <strong>HTTPS</strong>) :
+          mets son hôte public (ex. <code>cam.monsite.ddns.net</code>) ou colle l'URL directe
+          (<code>https://…</code>) — le scan teste aussi le <strong>HTTPS</strong> (443 / 8443).
+          <strong> Découverte ONVIF</strong> : trouve les caméras du réseau <strong>sans taper d'IP</strong>
+          (sonde multicast). <strong>Scan de plage</strong> : pour un site <strong>distant au bout de l'antenne</strong>,
+          balaie son sous-réseau (ex. 10.20.0.0/24). <strong>« Tout inscrire »</strong> enregistre toutes les
+          caméras trouvées d'un coup. La plage reste <strong>bornée à un /24</strong> (anti-abus — un balayage de
+          TES réseaux, pas un scanner d'Internet de masse) ; une caméra Internet s'ajoute, elle, par son
+          adresse propre. Dans tous les cas : découverte de liaison (quel équipement, quel port répond une
+          image), jamais d'identité.
         </p>
         {scanRes ? (
           <div data-drone-scanres className="space-y-1 rounded-sm border border-border bg-bg/60 p-2 text-[11px]">
@@ -684,7 +716,7 @@ function SiteManager() {
                   data-range-all
                   size="sm"
                   variant="outline"
-                  onClick={() => void registerAll(rangeRes.cameras.map((c) => ({ host: c.host, port: c.port, path: c.path, name: c.name })), false)}
+                  onClick={() => void registerAll(rangeRes.cameras.map((c) => ({ host: c.host, port: c.port, path: c.path, name: c.name, url: c.url })), false)}
                 >
                   Tout inscrire ({rangeRes.cameras.length})
                 </Button>
@@ -702,6 +734,11 @@ function SiteManager() {
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium text-fg">Sites distants (plages mémorisées)</span>
             <Badge tone="default">{siteNets.length}</Badge>
+            {siteNets.length > 0 ? (
+              <Button data-net-pdf size="sm" variant="ghost" className="ml-auto" onClick={() => exportNetPdf()}>
+                Export PDF périmètre
+              </Button>
+            ) : null}
           </div>
           <p className="text-[10.5px] text-muted-foreground">
             Mémorise la plage réseau de chaque site (au bout de l'antenne) pour la <strong>re-scanner d'un
@@ -748,6 +785,11 @@ function SiteManager() {
                       {s.cams && s.cams.length ? <Badge tone="ok">{s.cams.length} caméra(s)</Badge> : null}
                       {s.lastScanAt ? <span className="text-muted-foreground">dernier : {new Date(s.lastScanAt).toLocaleTimeString("fr-FR")}</span> : null}
                       <div className="ml-auto flex items-center gap-1">
+                        {s.history && s.history.length ? (
+                          <Button data-net-log={s.id} size="sm" variant="ghost" onClick={() => setOpenNetLog(openNetLog === s.id ? null : s.id)}>
+                            {openNetLog === s.id ? "Masquer journal" : `Journal (${s.history.length})`}
+                          </Button>
+                        ) : null}
                         <Button data-net-rescan={s.id} size="sm" variant="ghost" disabled={ns.busy} onClick={() => void rescanNet(s)}>
                           {ns.busy ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
                           {ns.busy ? "Balayage…" : "Re-scanner"}
@@ -764,11 +806,22 @@ function SiteManager() {
                         {ns.removed && ns.removed.length ? <span className="text-crit">−{ns.removed.length} tombée(s) : {ns.removed.join(", ")}</span> : null}
                         {(!ns.added || !ns.added.length) && (!ns.removed || !ns.removed.length) ? <span className="text-muted-foreground">aucun changement · {ns.cams?.length ?? 0} caméra(s)</span> : null}
                         {ns.cams && ns.cams.length ? (
-                          <Button data-net-all={s.id} size="sm" variant="outline" onClick={() => void registerAll((ns.cams ?? []).map((c) => ({ host: c.host, port: c.port, path: c.path, name: c.name })), false)}>
+                          <Button data-net-all={s.id} size="sm" variant="outline" onClick={() => void registerAll((ns.cams ?? []).map((c) => ({ host: c.host, port: c.port, path: c.path, name: c.name, url: c.url })), false)}>
                             Tout inscrire ({ns.cams.length})
                           </Button>
                         ) : null}
                       </div>
+                    ) : null}
+                    {openNetLog === s.id && s.history && s.history.length ? (
+                      <ul data-net-logbox={s.id} className="rounded-sm border border-border bg-bg/60 p-2 font-mono text-[10px]">
+                        {s.history.map((e, i) => (
+                          <li key={i} className={e.down.length ? "text-warn" : "text-muted-foreground"}>
+                            {new Date(e.at).toLocaleString("fr-FR")}
+                            {e.up.length ? ` · +${e.up.join(", ")}` : ""}
+                            {e.down.length ? ` · −${e.down.join(", ")} (tombée)` : ""}
+                          </li>
+                        ))}
+                      </ul>
                     ) : null}
                   </li>
                 );

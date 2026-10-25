@@ -7,8 +7,8 @@
 import { siteNetAdd, siteNetRecordScan, siteNetRemove, siteNetsList } from "./sitenets-api";
 import type { SiteNet } from "./sitenet-core";
 
-export type { SiteNet } from "./sitenet-core";
-export { camKey, diffCameras } from "./sitenet-core";
+export type { SiteNet, SiteNetEvent } from "./sitenet-core";
+export { appendHistory, camKey, diffCameras } from "./sitenet-core";
 
 const MIRROR_KEY = "africontrol.sitenets.mirror.v1";
 

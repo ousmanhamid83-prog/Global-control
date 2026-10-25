@@ -313,11 +313,18 @@ Nos drones ET CAMÉRAS — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs
   d'une caméra, on renseigne l'HÔTE (ex. 10.0.0.9) et on lance « Scan auto ». Le poste teste, côté
   serveur, les ports caméra les plus courants (80, 8080, 8000, 8081…) et, sur ceux qui répondent, les
   chemins snapshot/MJPEG répandus (Axis, Hikvision, Dahua, Foscam, ONVIF, génériques). Dès qu'un port +
-  chemin renvoie une IMAGE (ou un flux), il est proposé et « Utiliser » pré-remplit la fiche. Un port
-  RTSP ouvert est signalé (passerelle requise, le navigateur ne lit pas le RTSP). C'est de la DÉCOUVERTE
-  DE LIAISON sur VOS propres caméras (quel port répond une image), opérateur-initiée, liste de
-  ports/chemins FIGÉE et nombre de sondes plafonné — un assistant de câblage, PAS un scanner réseau, et
-  surtout PAS de l'identité : on ne vérifie que « ce chemin renvoie-t-il une image ? ».
+  chemin renvoie une IMAGE (ou un flux), il est proposé et « Utiliser » remplit la fiche avec l'URL
+  COMPLÈTE (le bon schéma est conservé). Un port RTSP ouvert est signalé (passerelle requise, le
+  navigateur ne lit pas le RTSP). C'est de la DÉCOUVERTE DE LIAISON sur VOS propres caméras (quel port
+  répond une image), opérateur-initiée, liste de ports/chemins FIGÉE et nombre de sondes plafonné — un
+  assistant de câblage, PAS un scanner réseau, et surtout PAS de l'identité : on ne vérifie que « ce
+  chemin renvoie-t-il une image ? ».
+- CAMÉRA SUR INTERNET (IP publique / DDNS, souvent en HTTPS) : aujourd'hui beaucoup de caméras sont
+  joignables PAR INTERNET. On en ajoute une par son hôte public (ex. cam.monsite.ddns.net) ou en
+  COLLANT son URL directe (http:// OU https://) ; le « Scan auto » teste aussi le HTTPS (ports 443 /
+  8443) et le proxy du flux suit le schéma. NB : une caméra HTTPS doit présenter un certificat VALIDE
+  (TLS non désactivé, question de sécurité) ; sinon, passer par http ou une passerelle à certificat
+  correct. Ça reste de la liaison vers VOTRE caméra, pas une identité.
 - DÉCOUVERTE ONVIF (réseau, sans taper d'IP) : « Découverte ONVIF » envoie une sonde multicast
   WS-Discovery (239.255.255.250:3702) ; les caméras ONVIF du réseau répondent avec l'URL de leur
   service et leurs métadonnées d'ÉQUIPEMENT (nom, modèle, emplacement). Le poste les liste ; « Utiliser »
@@ -333,7 +340,9 @@ Nos drones ET CAMÉRAS — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs
   présence d'un équipement (connexion TCP sur les ports caméra), trouve le flux sur les hôtes vivants, et
   enrichit le nom par une sonde ONVIF UNICAST (qui, elle, traverse les routeurs). Chaque caméra trouvée a
   déjà son chemin, prête à inscrire. Borné à un /24 (256 hôtes max ; au-delà, on scanne par tranches),
-  opérateur-initié : c'est un balayage de VOTRE réseau de sites, pas d'Internet, et jamais d'identité.
+  opérateur-initié : c'est un balayage de VOS réseaux de sites (le /24 que VOUS donnez), PAS un scanner
+  d'Internet de masse — une caméra exposée sur Internet s'ajoute, elle, par son adresse propre
+  (hôte public / DDNS / URL, cf. ci-dessus). Jamais d'identité.
 - ENREGISTREMENT EN LOT + ENCHAÎNEMENT : « Tout inscrire » enregistre d'un coup toutes les caméras
   trouvées (par ONVIF ou par scan de plage) — pour une caméra sans chemin connu, le flux est cherché
   automatiquement. Et « Utiliser » (ONVIF ou plage) enchaîne directement le Scan auto du chemin : un seul
@@ -345,6 +354,12 @@ Nos drones ET CAMÉRAS — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs
   automatique » (toutes les 5 / 15 / 30 / 60 min) fait tourner ça tout seul et SONNE au bandeau en cas de
   changement (caméra tombée = alerte critique). C'est de la présence d'ÉQUIPEMENT réseau (« quelle caméra
   répond »), jamais d'identité de personne.
+- JOURNAL (MAIN COURANTE) + EXPORT PDF DU PÉRIMÈTRE : chaque site tient un JOURNAL horodaté de ses
+  changements (« + caméra apparue », « − caméra tombée »), consultable d'un clic (« Journal ») — une
+  vraie main courante pour la relève. Et « Export PDF périmètre » génère, côté navigateur (aucun envoi
+  externe), un PDF d'une page : pour chaque site, les caméras EN LIGNE à l'instant T et les tombées
+  récentes — transmissible à la hiérarchie / une autorité. Des adresses d'équipement réseau, pas des
+  personnes : jamais d'identité.
 - ZONES PAR POLYGONE — PLUSIEURS PAR SOURCE (n'armer que le périmètre) : « Définir / Ajouter une zone »
   laisse tracer un polygone (clics sur l'image) ; on peut en poser PLUSIEURS par caméra (ex. le portail
   ET le dépôt), chacune retirable (« Zone 1 ✕ »). Seul ce qui bouge DANS L'UNE des zones compte — la

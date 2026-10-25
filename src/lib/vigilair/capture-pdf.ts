@@ -109,3 +109,57 @@ export function buildCapturePdf(
   for (const c of chunks) { total.set(c, o); o += c.length; }
   return total;
 }
+
+/**
+ * PDF texte seul (1 page A4) : un TITRE + des lignes. Sert au dossier « état du périmètre réseau »
+ * (quelles caméras vivantes / tombées à l'instant T), transmissible à la hiérarchie. Pur, sans image.
+ * Débordement de page → tronqué avec une mention. Pas d'identité : des adresses d'équipement, pas des gens.
+ */
+export function buildTextPdf(title: string, lines: string[]): Uint8Array {
+  const PW = 595;
+  const PH = 842;
+  const M = 40;
+  let ty = PH - M;
+  let content = `BT\n/F1 14 Tf\n${M} ${ty} Td\n(${pdfText(title)}) Tj\n/F1 10 Tf\n0 -22 Td\n14 TL\n`;
+  ty -= 22;
+  for (const ln of lines) {
+    if (ty < M + 14) {
+      content += `(... (tronque)) Tj\n`;
+      break;
+    }
+    content += `(${pdfText(ln)}) Tj\n0 -14 Td\n`;
+    ty -= 14;
+  }
+  content += `ET\n`;
+  const contentBytes = bytes(content);
+
+  const chunks: Uint8Array[] = [];
+  const offsets: number[] = [];
+  let pos = 0;
+  const push = (u: Uint8Array) => { chunks.push(u); pos += u.length; };
+  const obj = (s: string) => { offsets.push(pos); push(bytes(s)); };
+
+  push(bytes("%PDF-1.4\n%\xE2\xE3\xCF\xD3\n"));
+  obj("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+  obj("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+  obj(
+    `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PW} ${PH}] ` +
+      `/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\nendobj\n`,
+  );
+  offsets.push(pos);
+  push(bytes(`4 0 obj\n<< /Length ${contentBytes.length} >>\nstream\n`));
+  push(contentBytes);
+  push(bytes("endstream\nendobj\n"));
+  obj("5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n");
+
+  const xrefPos = pos;
+  let xref = `xref\n0 ${offsets.length + 1}\n0000000000 65535 f \n`;
+  for (const off of offsets) xref += `${off.toString().padStart(10, "0")} 00000 n \n`;
+  xref += `trailer\n<< /Size ${offsets.length + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`;
+  push(bytes(xref));
+
+  const total = new Uint8Array(pos);
+  let o = 0;
+  for (const c of chunks) { total.set(c, o); o += c.length; }
+  return total;
+}

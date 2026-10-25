@@ -8,7 +8,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expandRange } from "./scan2d";
-import { diffCameras, type SiteNet } from "./sitenet-core";
+import { appendHistory, diffCameras, type SiteNet } from "./sitenet-core";
 
 export type { SiteNet } from "./sitenet-core";
 
@@ -73,12 +73,18 @@ export async function recordSiteScanServer(id: string, cams: unknown): Promise<{
   const curr = Array.isArray(cams) ? cams.filter((x): x is string => typeof x === "string").slice(0, 256) : [];
   let added: string[] = [];
   let removed: string[] = [];
+  const now = Date.now();
   const next = (await load()).map((s) => {
     if (s.id !== id) return s;
     const d = diffCameras(s.cams, curr);
     added = d.added;
     removed = d.removed;
-    return { ...s, cams: curr, lastScanAt: Date.now() };
+    // Journal (main courante) : on n'enregistre que les balayages qui ont vu un CHANGEMENT.
+    const history =
+      d.added.length || d.removed.length
+        ? appendHistory(s.history, { at: now, up: d.added, down: d.removed })
+        : s.history;
+    return { ...s, cams: curr, lastScanAt: now, history };
   });
   await persist(next);
   return { added, removed, sitenets: next };

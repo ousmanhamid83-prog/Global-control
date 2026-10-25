@@ -17,6 +17,7 @@ import path from "node:path";
 import { effectiveUrl, extractFirstJpeg, normIdent, type OwnDrone, type SourceKind } from "./drones-core";
 import {
   CAMERA_HTTP_PORTS,
+  CAMERA_HTTPS_PORTS,
   CAMERA_RTSP_PORTS,
   classifyProbe,
   expandRange,
@@ -263,9 +264,9 @@ async function probeHttp(
 }
 
 export async function scanSourceServer(rawHost: string): Promise<ScanResult> {
-  const { host, port } = parseHost(rawHost ?? "");
+  const { host, port, secure } = parseHost(rawHost ?? "");
   const empty: ScanResult = { ok: false, found: [], openHttpPorts: [], rtsp: [], scanned: 0 };
-  if (!host) return { ...empty, error: "hôte requis (ex. 10.0.0.9 ou cam.local)" };
+  if (!host) return { ...empty, error: "hôte requis (ex. 10.0.0.9, cam.local ou cam.ddns.net)" };
   if (!isPlausibleHost(host)) return { ...empty, error: "hôte invalide" };
 
   // 1) Ports RTSP : simple test d'ouverture (le navigateur ne lit pas le RTSP → passerelle requise).
@@ -274,29 +275,44 @@ export async function scanSourceServer(rawHost: string): Promise<ScanResult> {
     rtspPorts.map(async (p) => ({ port: p, open: await tcpOpen(host, p, 1200) })),
   );
 
-  // 2) Ports HTTP : on ne sonde les chemins que sur les ports qui ACCEPTENT une connexion TCP.
-  const httpPorts = port && !CAMERA_RTSP_PORTS.includes(port) ? [port] : [...CAMERA_HTTP_PORTS];
+  // 2) Cibles HTTP/HTTPS : chaque port porte son schéma. Un port explicite est testé seul ; sinon on
+  //    balaie HTTP et HTTPS (caméra Internet en TLS). « https:// » saisi → on ne teste que HTTPS.
+  type HttpTarget = { port: number; scheme: "http" | "https" };
+  const explicit = port && !CAMERA_RTSP_PORTS.includes(port) ? port : undefined;
+  let httpTargets: HttpTarget[];
+  if (explicit) {
+    const scheme: "http" | "https" = secure || CAMERA_HTTPS_PORTS.includes(explicit) ? "https" : "http";
+    httpTargets = [{ port: explicit, scheme }];
+  } else if (secure) {
+    httpTargets = CAMERA_HTTPS_PORTS.map((p) => ({ port: p, scheme: "https" as const }));
+  } else {
+    httpTargets = [
+      ...CAMERA_HTTP_PORTS.map((p) => ({ port: p, scheme: "http" as const })),
+      ...CAMERA_HTTPS_PORTS.map((p) => ({ port: p, scheme: "https" as const })),
+    ];
+  }
   const openChecks = await Promise.all(
-    httpPorts.map(async (p) => ({ port: p, open: await tcpOpen(host, p, 900) })),
+    httpTargets.map(async (t) => ({ ...t, open: await tcpOpen(host, t.port, 900) })),
   );
-  const openHttpPorts = openChecks.filter((c) => c.open).map((c) => c.port);
+  const openTargets = openChecks.filter((c) => c.open);
+  const openHttpPorts = openTargets.map((c) => c.port);
 
-  // 3) Sur chaque port HTTP ouvert, on cherche le 1er chemin qui renvoie une image/MJPEG (borné).
+  // 3) Sur chaque port ouvert, on cherche le 1er chemin qui renvoie une image/MJPEG (borné).
   const found: ScanFinding[] = [];
   let suggested: ScanResult["suggested"];
-  let scanned = httpPorts.length + rtspPorts.length;
+  let scanned = httpTargets.length + rtspPorts.length;
   const deadline = Date.now() + 22_000;
   const MAX_HTTP = 48;
   let httpProbes = 0;
-  outer: for (const p of openHttpPorts) {
-    for (const t of probeTargets(host, { port: p })) {
+  outer: for (const t0 of openTargets) {
+    for (const t of probeTargets(host, { port: t0.port, scheme: t0.scheme })) {
       if (Date.now() > deadline || httpProbes >= MAX_HTTP) break outer;
       httpProbes++;
       scanned++;
       const r = await probeHttp(t.url, 1500);
       if (r && (r.kind === "image" || r.kind === "mjpeg")) {
-        found.push({ port: p, path: t.path, url: t.url, kind: r.kind, status: r.status });
-        if (!suggested) suggested = { url: t.url, host, port: p, path: t.path, kind: r.kind };
+        found.push({ port: t0.port, path: t.path, url: t.url, kind: r.kind, status: r.status });
+        if (!suggested) suggested = { url: t.url, host, port: t0.port, path: t.path, kind: r.kind };
         break; // un flux par port suffit — on passe au port suivant
       }
     }
@@ -497,9 +513,11 @@ export async function scanRangeServer(spec: string): Promise<RangeResult> {
     return { ok: false, cameras: [], openHosts: [], hosts: 0, scanned: 0, error: "plage invalide ou trop large (un /24 max, ex. 10.20.0.0/24)" };
   }
   const deadline = Date.now() + 35_000;
-  const SWEEP_PORTS = [80, 8080, 8000, 554]; // ports caméra HTTP les plus courants + rtsp : « un équipement ? »
+  const SWEEP_PORTS = [80, 8080, 8000, 443, 554]; // HTTP courants + HTTPS (Internet/TLS) + rtsp : « un équipement ? »
   const openHosts: string[] = [];
-  const openHttp = new Map<string, number[]>();
+  type HttpTarget = { port: number; scheme: "http" | "https" };
+  const openHttp = new Map<string, HttpTarget[]>();
+  const schemeOf = (p: number): "http" | "https" => (CAMERA_HTTPS_PORTS.includes(p) ? "https" : "http");
 
   // 1) balayage de présence : connexion TCP sur quelques ports, concurrence bornée.
   await runPool(hosts, 32, async (h) => {
@@ -508,23 +526,28 @@ export async function scanRangeServer(spec: string): Promise<RangeResult> {
     const open = checks.filter((c) => c.open);
     if (open.length) {
       openHosts.push(h);
-      openHttp.set(h, open.filter((c) => CAMERA_HTTP_PORTS.includes(c.p)).map((c) => c.p));
+      openHttp.set(
+        h,
+        open
+          .filter((c) => CAMERA_HTTP_PORTS.includes(c.p) || CAMERA_HTTPS_PORTS.includes(c.p))
+          .map((c) => ({ port: c.p, scheme: schemeOf(c.p) })),
+      );
     }
   });
 
-  // 2) sur chaque hôte vivant à port HTTP, chercher le flux puis enrichir le nom (ONVIF unicast).
+  // 2) sur chaque hôte vivant à port HTTP/HTTPS, chercher le flux puis enrichir le nom (ONVIF unicast).
   const cameras: RangeCamera[] = [];
   let scanned = hosts.length * SWEEP_PORTS.length;
   for (const h of openHosts) {
     if (Date.now() > deadline) break;
     let found: RangeCamera | undefined;
-    outer: for (const p of openHttp.get(h) ?? []) {
-      for (const t of probeTargets(h, { port: p })) {
+    outer: for (const t0 of openHttp.get(h) ?? []) {
+      for (const t of probeTargets(h, { port: t0.port, scheme: t0.scheme })) {
         if (Date.now() > deadline) break outer;
         scanned++;
         const r = await probeHttp(t.url, 1200);
         if (r && (r.kind === "image" || r.kind === "mjpeg")) {
-          found = { host: h, port: p, path: t.path, url: t.url, kind: r.kind };
+          found = { host: h, port: t0.port, path: t.path, url: t.url, kind: r.kind };
           break outer;
         }
       }
@@ -544,7 +567,7 @@ export async function scanRangeServer(spec: string): Promise<RangeResult> {
 // pour une caméra sans chemin connu, on cherche d'abord son flux. Identifiant dérivé de l'hôte pour
 // garder chaque source unique. Toujours type « caméra », sans identité.
 
-export type CameraInput = { host?: string; port?: number | string; path?: string; name?: string; site?: string };
+export type CameraInput = { host?: string; port?: number | string; path?: string; name?: string; site?: string; url?: string };
 
 export async function registerCamerasServer(
   list: CameraInput[],
@@ -556,28 +579,35 @@ export async function registerCamerasServer(
   let skipped = 0;
   for (const it of items) {
     const host = (it?.host ?? "").trim();
-    if (!host || !isPlausibleHost(host)) {
-      skipped++;
-      continue;
-    }
+    // URL COMPLÈTE prioritaire (préserve le schéma http/https — caméra Internet en TLS).
+    let url = (it?.url ?? "").trim() || undefined;
     let port = it?.port != null && it.port !== "" ? Number(it.port) : undefined;
     let pathStr = (it?.path ?? "").trim() || undefined;
-    if (scan && !pathStr) {
-      const r = await scanSourceServer(host);
-      if (r.suggested) {
-        port = r.suggested.port;
-        pathStr = r.suggested.path;
+    if (!url) {
+      if (!host || !isPlausibleHost(host)) {
+        skipped++;
+        continue;
+      }
+      if (scan && !pathStr) {
+        const r = await scanSourceServer(host);
+        if (r.suggested) {
+          url = r.suggested.url; // URL complète avec le bon schéma
+          port = r.suggested.port;
+          pathStr = r.suggested.path;
+        }
       }
     }
-    if (pathStr) withStream++;
+    if (url || pathStr) withStream++;
+    const ident = url ? url.slice(0, 48) : `${host}${port ? `:${port}` : ""}`;
     const res = await addDroneServer({
       kind: "camera",
-      name: (it?.name ?? "").trim() || `Cam ${host}`,
-      ident: `${host}${port ? `:${port}` : ""}`,
+      name: (it?.name ?? "").trim() || `Cam ${host || url}`,
+      ident,
       site: it?.site ?? "",
-      host,
-      port,
-      path: pathStr,
+      snapshotUrl: url,
+      host: url ? undefined : host,
+      port: url ? undefined : port,
+      path: url ? undefined : pathStr,
     });
     if (res.ok) added++;
     else skipped++;
