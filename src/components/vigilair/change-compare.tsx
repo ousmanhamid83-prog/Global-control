@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { diffHeatmap } from "@/lib/vigilair/change-diff";
 import { addSensor, removeSensor, sensorsSnapshot, setSensorState, subscribeSensors, type SensorType } from "@/lib/vigilair/ground-sensors";
 import { addDrone, discoverOnvifClient, dronesSnapshot, registerCamerasClient, removeDrone, scanRangeClient, scanSourceClient, setDroneRule, setDroneZones, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
+import { addSiteNet, hydrateSiteNets, recordSiteScan, removeSiteNet, siteNetsSnapshot, subscribeSiteNets } from "@/lib/vigilair/sitenets";
 import { buildCapturePdf } from "@/lib/vigilair/capture-pdf";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { MINE_REGION_LABEL, MINES } from "@/lib/vigilair/mines";
@@ -60,6 +61,9 @@ function SiteManager() {
 
   // Nos drones : registre partagé + veille mouvement sur leur imagerie.
   const drones = useSyncExternalStore(subscribeDrones, dronesSnapshot, dronesSnapshot);
+  // Sites distants : plages réseau mémorisées (au bout des liaisons antenne).
+  const siteNets = useSyncExternalStore(subscribeSiteNets, siteNetsSnapshot, siteNetsSnapshot);
+  useEffect(() => { void hydrateSiteNets(); }, []);
   const droneWatch = useVigilair((s) => s.droneWatch);
   const setDroneWatch = useVigilair((s) => s.setDroneWatch);
   const droneThreshold = useVigilair((s) => s.droneThreshold);
@@ -73,6 +77,10 @@ function SiteManager() {
   const setDroneArmWindow = useVigilair((s) => s.setDroneArmWindow);
   const droneMotion = useVigilair((s) => s.droneMotion);
   const droneLog = useVigilair((s) => s.droneLog);
+  const siteNetWatch = useVigilair((s) => s.siteNetWatch);
+  const setSiteNetWatch = useVigilair((s) => s.setSiteNetWatch);
+  const siteNetCadenceMin = useVigilair((s) => s.siteNetCadenceMin);
+  const setSiteNetCadence = useVigilair((s) => s.setSiteNetCadence);
   const [zoomCap, setZoomCap] = useState<string | null>(null);
   const [roiEdit, setRoiEdit] = useState<string | null>(null);
   const [roiPts, setRoiPts] = useState<{ x: number; y: number }[]>([]);
@@ -84,6 +92,11 @@ function SiteManager() {
   const [rangeBusy, setRangeBusy] = useState(false);
   const [rangeRes, setRangeRes] = useState<Awaited<ReturnType<typeof scanRangeClient>> | null>(null);
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+  const [snNetName, setSnNetName] = useState("");
+  const [snNetRange, setSnNetRange] = useState("");
+  const [snNetErr, setSnNetErr] = useState<string | null>(null);
+  type NetScanState = { busy?: boolean; cams?: Awaited<ReturnType<typeof scanRangeClient>>["cameras"]; added?: string[]; removed?: string[]; at?: number; err?: string };
+  const [netScan, setNetScan] = useState<Record<string, NetScanState>>({});
   const exportPdf = async (d: { id: string; name: string; site: string }, m: { frame?: string; pct?: number | null; targets?: number; hint?: string; note?: string }) => {
     if (!m.frame) return;
     try {
@@ -233,6 +246,34 @@ function SiteManager() {
     setOnvifRes(null);
     // Enchaînement : on cherche tout de suite le chemin du flux (un seul geste).
     await doScan(dev.host);
+  };
+
+  // SITES DISTANTS : mémoriser une plage nommée, re-scanner d'un clic, détecter tombée / nouvelle.
+  const addNet = async () => {
+    setSnNetErr(null);
+    const r = await addSiteNet(snNetName.trim(), snNetRange.trim());
+    if (r.ok) {
+      setSnNetName("");
+      setSnNetRange("");
+    } else {
+      setSnNetErr(r.error ?? "échec");
+    }
+  };
+  const rescanNet = async (site: { id: string; range: string }) => {
+    setNetScan((s) => ({ ...s, [site.id]: { ...s[site.id], busy: true, err: undefined } }));
+    try {
+      const res = await scanRangeClient(site.range);
+      if (res.error) {
+        setNetScan((s) => ({ ...s, [site.id]: { busy: false, err: res.error } }));
+        return;
+      }
+      const cams = res.cameras;
+      const addrs = cams.map((c) => `${c.host}:${c.port}`);
+      const diff = await recordSiteScan(site.id, addrs);
+      setNetScan((s) => ({ ...s, [site.id]: { busy: false, cams, added: diff.added, removed: diff.removed, at: Date.now() } }));
+    } catch {
+      setNetScan((s) => ({ ...s, [site.id]: { busy: false, err: "re-scan impossible" } }));
+    }
   };
 
   const pick = (pl: Place) => {
@@ -655,6 +696,87 @@ function SiteManager() {
             )}
           </div>
         ) : null}
+
+        {/* SITES DISTANTS mémorisés : plage de chaque site, re-scan d'un clic, détection tombée/nouvelle. */}
+        <div className="space-y-2 rounded-sm border border-dashed border-border p-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-fg">Sites distants (plages mémorisées)</span>
+            <Badge tone="default">{siteNets.length}</Badge>
+          </div>
+          <p className="text-[10.5px] text-muted-foreground">
+            Mémorise la plage réseau de chaque site (au bout de l'antenne) pour la <strong>re-scanner d'un
+            clic</strong>. Chaque re-scan signale une caméra <strong>tombée</strong> (disparue) ou une
+            <strong> nouvelle</strong> apparue sur le périmètre. Présence d'équipement, jamais d'identité.
+          </p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
+            <Input data-net="name" placeholder="Nom du site (ex. Poste Est)" value={snNetName} onChange={(e) => setSnNetName(e.target.value)} />
+            <Input data-net="range" placeholder="Plage (ex. 10.20.0.0/24)" value={snNetRange} onChange={(e) => setSnNetRange(e.target.value)} />
+            <Button data-net="add" size="sm" variant="outline" onClick={() => void addNet()}>
+              <Plus className="mr-1 size-3.5" />
+              Mémoriser
+            </Button>
+          </div>
+          {snNetErr ? <span className="text-xs text-crit">{snNetErr}</span> : null}
+          {siteNets.length > 0 ? (
+            <label className="flex flex-wrap items-center gap-2 text-[11px] text-fg">
+              <input data-net="autowatch" type="checkbox" checked={siteNetWatch} onChange={(e) => setSiteNetWatch(e.target.checked)} />
+              Re-scan automatique du périmètre
+              <span className="text-muted-foreground">toutes les</span>
+              <select
+                data-net="cadence"
+                value={siteNetCadenceMin}
+                onChange={(e) => setSiteNetCadence(Number(e.target.value) || 15)}
+                className="rounded-sm border border-border bg-bg px-2 py-0.5 text-[11px] text-fg"
+              >
+                <option value={5}>5 min</option>
+                <option value={15}>15 min</option>
+                <option value={30}>30 min</option>
+                <option value={60}>60 min</option>
+              </select>
+              <span className="text-muted-foreground">→ alerte si une caméra tombe ou apparaît</span>
+            </label>
+          ) : null}
+          {siteNets.length > 0 ? (
+            <ul className="divide-y divide-border rounded-sm border border-border">
+              {siteNets.map((s) => {
+                const ns = netScan[s.id] ?? {};
+                return (
+                  <li key={s.id} data-net-row={s.id} className="flex flex-col gap-1 px-2 py-1.5 text-[11px]">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-fg">{s.name}</span>
+                      <span className="font-mono text-muted-foreground">{s.range}</span>
+                      {s.cams && s.cams.length ? <Badge tone="ok">{s.cams.length} caméra(s)</Badge> : null}
+                      {s.lastScanAt ? <span className="text-muted-foreground">dernier : {new Date(s.lastScanAt).toLocaleTimeString("fr-FR")}</span> : null}
+                      <div className="ml-auto flex items-center gap-1">
+                        <Button data-net-rescan={s.id} size="sm" variant="ghost" disabled={ns.busy} onClick={() => void rescanNet(s)}>
+                          {ns.busy ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
+                          {ns.busy ? "Balayage…" : "Re-scanner"}
+                        </Button>
+                        <Button data-net-remove={s.id} size="sm" variant="ghost" onClick={() => void removeSiteNet(s.id)} aria-label={`retirer ${s.name}`}>
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                    {ns.err ? <span className="text-crit">{ns.err}</span> : null}
+                    {ns.at ? (
+                      <div data-net-diff={s.id} className="flex flex-wrap items-center gap-2">
+                        {ns.added && ns.added.length ? <span className="text-ok">+{ns.added.length} nouvelle(s) : {ns.added.join(", ")}</span> : null}
+                        {ns.removed && ns.removed.length ? <span className="text-crit">−{ns.removed.length} tombée(s) : {ns.removed.join(", ")}</span> : null}
+                        {(!ns.added || !ns.added.length) && (!ns.removed || !ns.removed.length) ? <span className="text-muted-foreground">aucun changement · {ns.cams?.length ?? 0} caméra(s)</span> : null}
+                        {ns.cams && ns.cams.length ? (
+                          <Button data-net-all={s.id} size="sm" variant="outline" onClick={() => void registerAll((ns.cams ?? []).map((c) => ({ host: c.host, port: c.port, path: c.path, name: c.name })), false)}>
+                            Tout inscrire ({ns.cams.length})
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </div>
+
         <label className="flex flex-wrap items-center gap-2 text-xs text-fg">
           <input data-drone="watch" type="checkbox" checked={droneWatch} onChange={(e) => setDroneWatch(e.target.checked)} />
           Veille mouvement (imagerie drone)

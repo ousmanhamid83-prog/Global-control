@@ -13,7 +13,8 @@ import { confirmedTracks, detectOcclusions, isStationary, stepTracker, type Trac
 import { inArmWindow, pointInPolygon } from "@/lib/vigilair/zones2d";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { fetchDroneFrame } from "@/lib/vigilair/drones-api";
-import { dronesSnapshot, effectiveUrl, hydrateDrones, sourceArmRule, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
+import { dronesSnapshot, effectiveUrl, hydrateDrones, scanRangeClient, sourceArmRule, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
+import { hydrateSiteNets, recordSiteScan, siteNetsSnapshot, subscribeSiteNets } from "@/lib/vigilair/sitenets";
 import { MINES } from "@/lib/vigilair/mines";
 import { routeHazards } from "@/lib/vigilair/nav";
 import { useVigilair } from "@/lib/vigilair/store";
@@ -42,8 +43,68 @@ export function VigilairRuntime() {
       <ChangeWatch />
       <SensorWatch />
       <DroneWatch />
+      <SiteNetWatch />
     </>
   );
+}
+
+/**
+ * Re-scan PÉRIODIQUE des sites distants (plages réseau mémorisées). À chaque tour, balaie chaque site,
+ * compare aux caméras vues au tour précédent et SONNE si une caméra est TOMBÉE (disparue) ou si une
+ * NOUVELLE est apparue sur le périmètre. C'est de la présence d'ÉQUIPEMENT réseau — jamais d'identité.
+ * Silencieux si désactivé ou si aucun site mémorisé. Cadence en minutes (balayage lourd, on espace).
+ */
+function SiteNetWatch() {
+  const on = useVigilair((s) => s.siteNetWatch);
+  const cadenceMin = useVigilair((s) => s.siteNetCadenceMin);
+  const pushAlert = useVigilair((s) => s.pushAlert);
+  const sites = useSyncExternalStore(subscribeSiteNets, siteNetsSnapshot, siteNetsSnapshot);
+  const sitesRef = useRef(sites);
+  sitesRef.current = sites;
+  useEffect(() => {
+    void hydrateSiteNets();
+  }, []);
+  useEffect(() => {
+    if (!on) return;
+    let cancelled = false;
+    const period = Math.max(1, Math.min(120, cadenceMin || 15)) * 60 * 1000;
+    const run = async () => {
+      for (const s of sitesRef.current) {
+        if (cancelled) return;
+        try {
+          const res = await scanRangeClient(s.range);
+          if (res.error) continue;
+          const addrs = res.cameras.map((c) => `${c.host}:${c.port}`);
+          const diff = await recordSiteScan(s.id, addrs);
+          if (cancelled) return;
+          if (diff.removed.length || diff.added.length) {
+            const parts: string[] = [];
+            if (diff.removed.length) parts.push(`${diff.removed.length} caméra(s) TOMBÉE(S) : ${diff.removed.join(", ")}`);
+            if (diff.added.length) parts.push(`${diff.added.length} NOUVELLE(S) : ${diff.added.join(", ")}`);
+            pushAlert({
+              id: `sitenet-${s.id}-${Date.now()}`,
+              trackId: "",
+              at: Date.now(),
+              level: diff.removed.length ? "critique" : "elevee",
+              title: `${s.name} · changement caméras réseau`,
+              body: `${parts.join(" · ")}. Présence réseau (équipement) sur le périmètre, sans identité.`,
+              acked: false,
+            });
+          }
+        } catch {
+          /* site injoignable : on réessaie au prochain tour */
+        }
+      }
+    };
+    const first = window.setTimeout(() => void run(), 5000);
+    const timer = window.setInterval(() => void run(), period);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(first);
+      window.clearInterval(timer);
+    };
+  }, [on, cadenceMin, pushAlert]);
+  return null;
 }
 
 /**

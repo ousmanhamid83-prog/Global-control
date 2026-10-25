@@ -338,6 +338,13 @@ Nos drones ET CAMÉRAS — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs
   trouvées (par ONVIF ou par scan de plage) — pour une caméra sans chemin connu, le flux est cherché
   automatiquement. Et « Utiliser » (ONVIF ou plage) enchaîne directement le Scan auto du chemin : un seul
   geste de la découverte à la fiche prête. Toujours type « caméra », sans identité.
+- SITES DISTANTS MÉMORISÉS + RE-SCAN PÉRIODIQUE : on nomme chaque site distant et on mémorise sa PLAGE
+  réseau (data/sitenets.json, partagé par le poste), pour la RE-SCANNER D'UN CLIC. Chaque re-scan compare
+  aux caméras vues la fois d'avant et SIGNALE un changement de présence : une caméra TOMBÉE (disparue —
+  liaison coupée, panne, sabotage) ou une NOUVELLE apparue sur le périmètre. Un interrupteur « Re-scan
+  automatique » (toutes les 5 / 15 / 30 / 60 min) fait tourner ça tout seul et SONNE au bandeau en cas de
+  changement (caméra tombée = alerte critique). C'est de la présence d'ÉQUIPEMENT réseau (« quelle caméra
+  répond »), jamais d'identité de personne.
 - ZONES PAR POLYGONE — PLUSIEURS PAR SOURCE (n'armer que le périmètre) : « Définir / Ajouter une zone »
   laisse tracer un polygone (clics sur l'image) ; on peut en poser PLUSIEURS par caméra (ex. le portail
   ET le dépôt), chacune retirable (« Zone 1 ✕ »). Seul ce qui bouge DANS L'UNE des zones compte — la

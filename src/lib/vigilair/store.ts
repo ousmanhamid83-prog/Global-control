@@ -207,6 +207,10 @@ type VigilairState = {
   droneMotion: Record<string, DroneMotion>;
   /** Journal de connexion par source (drone/caméra) : derniers relevés (ok/erreur + heure). */
   droneLog: Record<string, { at: number; ok: boolean; msg: string }[]>;
+  /** Re-scan périodique des sites distants : signale une caméra tombée / une nouvelle sur le périmètre. */
+  siteNetWatch: boolean;
+  /** Cadence du re-scan périodique des sites distants (minutes). */
+  siteNetCadenceMin: number;
   ewArmed: boolean;
   ppi: PpiParams;
   history: HistSample[];
@@ -278,6 +282,8 @@ type VigilairState = {
   setDroneArmWindow: (from: number, to: number) => void;
   setDroneMotion: (id: string, res: DroneMotion) => void;
   pushDroneLog: (id: string, entry: { at: number; ok: boolean; msg: string }) => void;
+  setSiteNetWatch: (v: boolean) => void;
+  setSiteNetCadence: (min: number) => void;
   pushAlert: (a: AlertItem) => void;
   setAxisId: (id: string | null) => void;
   setPeakId: (id: string | null) => void;
@@ -555,6 +561,8 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   droneArmTo: 6,
   droneMotion: {},
   droneLog: {},
+  siteNetWatch: false,
+  siteNetCadenceMin: 15,
   ewArmed: false,
   ppi: DEFAULT_PPI,
   history: [],
@@ -680,6 +688,8 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   setDroneMotion: (id, res) => set({ droneMotion: { ...get().droneMotion, [id]: res } }),
   pushDroneLog: (id, entry) =>
     set({ droneLog: { ...get().droneLog, [id]: [entry, ...(get().droneLog[id] ?? [])].slice(0, 12) } }),
+  setSiteNetWatch: (siteNetWatch) => set({ siteNetWatch }),
+  setSiteNetCadence: (siteNetCadenceMin) => set({ siteNetCadenceMin }),
   pushAlert: (a) => set({ alerts: [a, ...get().alerts].slice(0, 48) }),
   setAxisId: (axisId) => set({ axisId }),
   setPeakId: (peakId) => set({ peakId }),
