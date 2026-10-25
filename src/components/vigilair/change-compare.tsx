@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { diffHeatmap } from "@/lib/vigilair/change-diff";
 import { addSensor, removeSensor, sensorsSnapshot, setSensorState, subscribeSensors, type SensorType } from "@/lib/vigilair/ground-sensors";
-import { addDrone, dronesSnapshot, removeDrone, scanSourceClient, setDroneRule, setDroneZones, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
+import { addDrone, discoverOnvifClient, dronesSnapshot, removeDrone, scanSourceClient, setDroneRule, setDroneZones, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
 import { buildCapturePdf } from "@/lib/vigilair/capture-pdf";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { MINE_REGION_LABEL, MINES } from "@/lib/vigilair/mines";
@@ -78,6 +78,8 @@ function SiteManager() {
   const [roiPts, setRoiPts] = useState<{ x: number; y: number }[]>([]);
   const [scanBusy, setScanBusy] = useState(false);
   const [scanRes, setScanRes] = useState<Awaited<ReturnType<typeof scanSourceClient>> | null>(null);
+  const [onvifBusy, setOnvifBusy] = useState(false);
+  const [onvifRes, setOnvifRes] = useState<Awaited<ReturnType<typeof discoverOnvifClient>> | null>(null);
   const exportPdf = async (d: { id: string; name: string; site: string }, m: { frame?: string; pct?: number | null; targets?: number; hint?: string; note?: string }) => {
     if (!m.frame) return;
     try {
@@ -158,6 +160,29 @@ function SiteManager() {
     setDrPort(String(s.port));
     setDrPath(s.path);
     setScanRes(null);
+  };
+
+  // DÉCOUVERTE ONVIF : trouve les caméras du réseau sans taper d'IP (multicast WS-Discovery).
+  const runOnvif = async () => {
+    setDrErr(null);
+    setOnvifBusy(true);
+    setOnvifRes(null);
+    try {
+      setOnvifRes(await discoverOnvifClient(3000));
+    } catch {
+      setDrErr("découverte ONVIF impossible (poste injoignable)");
+    } finally {
+      setOnvifBusy(false);
+    }
+  };
+  const applyOnvif = (dev: { host: string; port?: number; name?: string }) => {
+    setDrKind("camera");
+    setDrUrl("");
+    setDrPath("");
+    setDrHost(dev.host);
+    setDrPort(dev.port ? String(dev.port) : "");
+    if (dev.name && !drName.trim()) setDrName(dev.name);
+    setOnvifRes(null);
   };
 
   const pick = (pl: Place) => {
@@ -426,12 +451,18 @@ function SiteManager() {
             {scanBusy ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
             {scanBusy ? "Scan en cours…" : "Scan auto (port/chemin)"}
           </Button>
+          <Button data-drone="onvif" size="sm" variant="ghost" disabled={onvifBusy} onClick={() => void runOnvif()}>
+            {onvifBusy ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
+            {onvifBusy ? "Recherche réseau…" : "Découverte ONVIF (réseau)"}
+          </Button>
           {drErr ? <span className="text-xs text-crit">{drErr}</span> : null}
         </div>
         <p className="text-[10.5px] text-muted-foreground">
           <strong>Scan auto</strong> : renseigne l'<strong>hôte</strong> (ex. 10.0.0.9) puis lance — le poste
           teste les ports et chemins de flux les plus courants de NOS caméras et pré-remplit la fiche.
-          Découverte de liaison (quel port répond une image), jamais d'identité.
+          <strong> Découverte ONVIF</strong> : trouve les caméras du réseau <strong>sans même taper d'IP</strong>
+          (sonde multicast) puis « Utiliser » → « Scan auto ». Dans les deux cas : découverte de liaison
+          (quel équipement, quel port répond une image), jamais d'identité.
         </p>
         {scanRes ? (
           <div data-drone-scanres className="space-y-1 rounded-sm border border-border bg-bg/60 p-2 text-[11px]">
@@ -475,6 +506,40 @@ function SiteManager() {
               </p>
             ) : null}
             <p className="text-[10px] text-muted-foreground">{scanRes.scanned} test(s) effectué(s).</p>
+          </div>
+        ) : null}
+        {onvifRes ? (
+          <div data-drone-onvifres className="space-y-1 rounded-sm border border-border bg-bg/60 p-2 text-[11px]">
+            {onvifRes.error ? (
+              <p className="text-crit">Découverte ONVIF : {onvifRes.error}</p>
+            ) : onvifRes.devices.length === 0 ? (
+              <p className="text-warn">
+                Aucune caméra ONVIF n'a répondu sur le réseau. (Caméra non-ONVIF, ou multicast non routé —
+                utilise alors « Scan auto » avec l'IP, ou l'URL directe.)
+              </p>
+            ) : (
+              <>
+                <p className="text-fg">{onvifRes.devices.length} caméra(s) ONVIF trouvée(s) sur le réseau :</p>
+                <ul className="divide-y divide-border">
+                  {onvifRes.devices.map((dev) => (
+                    <li key={dev.xaddr} data-onvif-dev={dev.address} className="flex flex-wrap items-center gap-2 py-1">
+                      <Badge tone="ok">ONVIF</Badge>
+                      <span className="font-mono text-fg">{dev.address}</span>
+                      {dev.name ? <span className="text-muted-foreground">{dev.name}</span> : null}
+                      {dev.hardware ? <span className="text-muted-foreground">· {dev.hardware}</span> : null}
+                      {dev.location ? <span className="text-muted-foreground">· {dev.location}</span> : null}
+                      <Button data-onvif-use={dev.address} size="sm" variant="outline" className="ml-auto" onClick={() => applyOnvif(dev)}>
+                        Utiliser
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-[10px] text-muted-foreground">
+                  « Utiliser » remplit l'hôte (type caméra) ; lance ensuite « Scan auto » pour trouver le
+                  chemin du flux (snapshot/MJPEG). Métadonnées d'équipement (nom, modèle), jamais d'identité.
+                </p>
+              </>
+            )}
           </div>
         ) : null}
         <label className="flex flex-wrap items-center gap-2 text-xs text-fg">

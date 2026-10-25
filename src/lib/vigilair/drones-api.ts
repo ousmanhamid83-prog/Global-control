@@ -81,6 +81,15 @@ export const scanSource = createServerFn({ method: "POST" })
     return m.scanSourceServer(data.host);
   });
 
+/** Découverte ONVIF : trouve les caméras du réseau (multicast WS-Discovery), sans taper d'IP. */
+export const onvifDiscover = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { timeoutMs?: number }) => ({ timeoutMs: Number(raw?.timeoutMs) || 3000 }))
+  .handler(async ({ data }) => {
+    const m = await import("./drones.server");
+    return m.discoverOnvifServer(data.timeoutMs);
+  });
+
 /** Proxy image : récupère une trame fixe d'un drone inscrit et la renvoie en data URL (voir serveur). */
 export const fetchDroneFrame = createServerFn({ method: "POST" })
   .middleware([authMiddleware])

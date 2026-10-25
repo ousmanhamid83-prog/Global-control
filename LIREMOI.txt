@@ -318,6 +318,14 @@ Nos drones ET CAMÉRAS — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs
   DE LIAISON sur VOS propres caméras (quel port répond une image), opérateur-initiée, liste de
   ports/chemins FIGÉE et nombre de sondes plafonné — un assistant de câblage, PAS un scanner réseau, et
   surtout PAS de l'identité : on ne vérifie que « ce chemin renvoie-t-il une image ? ».
+- DÉCOUVERTE ONVIF (réseau, sans taper d'IP) : « Découverte ONVIF » envoie une sonde multicast
+  WS-Discovery (239.255.255.250:3702) ; les caméras ONVIF du réseau répondent avec l'URL de leur
+  service et leurs métadonnées d'ÉQUIPEMENT (nom, modèle, emplacement). Le poste les liste ; « Utiliser »
+  remplit l'hôte (type caméra), puis « Scan auto » trouve le chemin du flux. On n'a même plus à connaître
+  l'IP. C'est de la découverte d'équipement (« quelles caméras sont là ? »), opérateur-initiée, lecture
+  seule, JAMAIS de l'identité de personnes (nom DE LA CAMÉRA, pas de qui que ce soit). Si le réseau ne
+  route pas le multicast (certains VLAN/conteneurs) ou la caméra n'est pas ONVIF : la liste revient vide
+  sans bloquer — on passe alors au « Scan auto » avec l'IP, ou à l'URL directe.
 - ZONES PAR POLYGONE — PLUSIEURS PAR SOURCE (n'armer que le périmètre) : « Définir / Ajouter une zone »
   laisse tracer un polygone (clics sur l'image) ; on peut en poser PLUSIEURS par caméra (ex. le portail
   ET le dépôt), chacune retirable (« Zone 1 ✕ »). Seul ce qui bouge DANS L'UNE des zones compte — la
@@ -386,6 +394,11 @@ Sites surveillés — ajouter ses propres sites au périmètre de sécurité (Ca
   remplit les coordonnées — sans dépendre d'une carte externe mauvaise ou hors-ligne. Tolère les
   accents et la casse (« amdjarass » = « Amdjarass »). Ces lieux affinent aussi le « lieu le plus
   proche » des phénomènes dans tout le théâtre tchadien.
+  COUVERTURE ÉTENDUE au-delà du Tchad : le DARFOUR voisin (El Fasher, Nyala, Geneina + l'intérieur :
+  Zalingei, Ed Daein, Kutum, Kabkabiya, Mellit, Tawila, Gereida, Buram, Kas, Um Dukhun, Mukjar, Kornoi
+  et la frontière de Tiné) — essentiel pour un poste à N'Djamena qui regarde par-dessus la frontière —
+  et les trous du SAHARA/SAHEL (Ténéré nigérien : Dirkou, Séguédine, Madama ; Adrar des Ifoghas malien :
+  Ménaka, Tessalit, en plus de Gao, Tombouctou, Kidal, Agadez, Faya, Kufra, Khartoum déjà présents).
 - STOCKAGE PARTAGÉ : les sites sont enregistrés SUR LE POSTE (serveur, fichier data/watch-sites.json),
   donc partagés par tous les navigateurs qui parlent à ce poste et conservés au redémarrage — plus
   seulement dans un seul navigateur. Un miroir local sert à peindre instantanément au chargement.

@@ -10,6 +10,8 @@
  */
 
 import net from "node:net";
+import dgram from "node:dgram";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { effectiveUrl, extractFirstJpeg, normIdent, type OwnDrone, type SourceKind } from "./drones-core";
@@ -21,6 +23,13 @@ import {
   parseHost,
   probeTargets,
 } from "./scan2d";
+import {
+  buildProbe,
+  parseProbeMatches,
+  WS_DISCOVERY_ADDR,
+  WS_DISCOVERY_PORT,
+  type OnvifDevice,
+} from "./onvif";
 
 export type { OwnDrone } from "./drones-core";
 
@@ -301,6 +310,59 @@ export async function scanSourceServer(rawHost: string): Promise<ScanResult> {
     rtsp,
     scanned,
   };
+}
+
+// ───────────────────────── Découverte ONVIF / WS-Discovery (réseau) ─────────────────────────
+//
+// Trouve les caméras ONVIF du LAN SANS taper d'IP : une sonde multicast (Probe) est envoyée, les
+// caméras répondent (ProbeMatch) avec l'URL de leur service et leurs métadonnées d'équipement (nom,
+// modèle, emplacement). Opérateur-initié, lecture seule (« qui est là ? »), aucune identité de
+// personne. Si le réseau ne route pas le multicast (certains conteneurs/VLAN), la liste revient vide
+// sans erreur bloquante.
+
+export type OnvifResult = { ok: boolean; devices: OnvifDevice[]; error?: string };
+
+export async function discoverOnvifServer(timeoutMs = 3000): Promise<OnvifResult> {
+  const budget = Math.max(1000, Math.min(8000, Math.round(timeoutMs) || 3000));
+  return new Promise<OnvifResult>((resolve) => {
+    const devices = new Map<string, OnvifDevice>();
+    let settled = false;
+    const sock = dgram.createSocket({ type: "udp4", reuseAddr: true });
+    const finish = (error?: string) => {
+      if (settled) return;
+      settled = true;
+      try {
+        sock.close();
+      } catch {
+        /* déjà fermé */
+      }
+      resolve({ ok: !error, devices: [...devices.values()], error });
+    };
+    sock.on("error", (e) => finish(e instanceof Error ? e.message : "socket ONVIF"));
+    sock.on("message", (msg) => {
+      try {
+        for (const d of parseProbeMatches(msg.toString("utf8"))) {
+          if (!devices.has(d.xaddr)) devices.set(d.xaddr, d);
+        }
+      } catch {
+        /* réponse illisible : ignorée */
+      }
+    });
+    sock.bind(() => {
+      const probe = Buffer.from(buildProbe(randomUUID()));
+      const send = () => sock.send(probe, WS_DISCOVERY_PORT, WS_DISCOVERY_ADDR, () => undefined);
+      try {
+        try { sock.setMulticastTTL(2); } catch { /* non supporté */ }
+        try { sock.setBroadcast(true); } catch { /* non supporté */ }
+        send();
+        setTimeout(() => { if (!settled) send(); }, 250); // 2e sonde : l'UDP peut se perdre
+      } catch (e) {
+        finish(e instanceof Error ? e.message : "sonde ONVIF impossible");
+        return;
+      }
+      setTimeout(() => finish(), budget);
+    });
+  });
 }
 
 /**

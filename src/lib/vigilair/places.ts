@@ -5,7 +5,7 @@
  * carte externe mauvaise ou hors-ligne. Centres de localité (le point est la ville, pas une adresse).
  */
 
-import { haversineKm, SAHEL_CITIES } from "./geo";
+import { haversineKm, SAHEL_CITIES } from "./geo.ts";
 
 export type Place = { name: string; region: string; lat: number; lon: number };
 
@@ -57,6 +57,26 @@ const EXTRA: Place[] = [
   // Logone / Mandoul / Moyen-Chari
   { name: "Bébédjia", region: "Logone Oriental", lat: 8.67, lon: 16.93 },
   { name: "Kyabé", region: "Moyen-Chari", lat: 9.45, lon: 18.94 },
+  // DARFOUR (Soudan) — juste à l'est, de l'autre côté de la frontière : flux transfrontaliers,
+  // camps, axes. Les capitales (El Fasher, Nyala, Geneina) sont déjà dans SAHEL_CITIES ; ici les
+  // villes de l'intérieur qui manquent sur les cartes publiques.
+  { name: "Zalingei", region: "Darfour-Centre", lat: 12.909, lon: 23.485 },
+  { name: "Ed Daein", region: "Darfour-Est", lat: 11.462, lon: 26.128 },
+  { name: "Kutum", region: "Darfour-Nord", lat: 14.2, lon: 24.667 },
+  { name: "Kabkabiya", region: "Darfour-Nord", lat: 13.645, lon: 24.089 },
+  { name: "Mellit", region: "Darfour-Nord", lat: 14.128, lon: 25.564 },
+  { name: "Tawila", region: "Darfour-Nord", lat: 13.967, lon: 24.867 },
+  { name: "Kornoi", region: "Darfour-Nord", lat: 15.05, lon: 23.6 },
+  { name: "Gereida", region: "Darfour-Sud", lat: 11.267, lon: 25.133 },
+  { name: "Buram", region: "Darfour-Sud", lat: 10.834, lon: 25.164 },
+  { name: "Kas", region: "Darfour-Sud", lat: 12.5, lon: 24.283 },
+  { name: "Um Dukhun", region: "Darfour-Centre", lat: 10.983, lon: 23.467 },
+  { name: "Mukjar", region: "Darfour-Centre", lat: 11.933, lon: 23.133 },
+  { name: "Tiné", region: "Frontière Tchad-Soudan", lat: 14.95, lon: 22.05 },
+  // SAHARA / SAHEL — trous résiduels (Ténéré nigérien, Adrar des Ifoghas malien).
+  { name: "Dirkou", region: "Ténéré / Niger", lat: 18.983, lon: 12.867 },
+  { name: "Séguédine", region: "Ténéré / Niger", lat: 20.183, lon: 12.983 },
+  { name: "Madama", region: "Ténéré / Niger", lat: 21.967, lon: 13.65 },
 ];
 
 /** Union : SAHEL_CITIES (villes du théâtre) + localités fines. Coordonnées des villes non dupliquées. */

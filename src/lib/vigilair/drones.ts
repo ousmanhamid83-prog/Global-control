@@ -4,7 +4,7 @@
  * drone inscrit, sans attendre le réseau. AfriControl suit et analyse ; il ne pilote pas.
  */
 
-import { droneAdd, droneRemove, droneSetRoi, droneSetRule, droneSetZones, dronesList, scanSource } from "./drones-api";
+import { droneAdd, droneRemove, droneSetRoi, droneSetRule, droneSetZones, dronesList, onvifDiscover, scanSource } from "./drones-api";
 import type { OwnDrone } from "./drones-core";
 
 export type { OwnDrone, SourceKind, ArmRule } from "./drones-core";
@@ -118,4 +118,8 @@ export async function setDroneRule(
 /** Scan auto : renvoie le flux découvert (port/chemin) pour pré-remplir la fiche. */
 export async function scanSourceClient(host: string): Promise<Awaited<ReturnType<typeof scanSource>>> {
   return scanSource({ data: { host } });
+}
+/** Découverte ONVIF : liste les caméras du réseau (sans taper d'IP). */
+export async function discoverOnvifClient(timeoutMs = 3000): Promise<Awaited<ReturnType<typeof onvifDiscover>>> {
+  return onvifDiscover({ data: { timeoutMs } });
 }
