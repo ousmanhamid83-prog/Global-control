@@ -153,6 +153,14 @@ Symbologie APP-6 et radar
 - PPI : portées jusqu'à 20 000 km, vecteur vitesse, nord vrai/magnétique, bascule symboles APP-6 /
   formes plateforme. Fiche « interception » : toutes les données reçues. À 8000 km « couverture
   Afrique », à 12 000+ « couverture monde · tous continents ».
+- COUVERTURE CONTINENTALE (pas seulement FTTJ) : le COP est physiquement à N'Djamena, mais l'AO a un
+  rayon de ~4200 km (côté 8400 km) et le 1090ES balaie un maillage de cellules sur TOUT le continent —
+  Maghreb, Égypte, Sahel/Ouest (Dakar, Bamako, Abidjan, Accra, Lagos), Centre (Yaoundé, Kinshasa,
+  Luanda), Corne/Est (Addis, Nairobi, Dar es Salaam) et Australe (Johannesburg, Durban, Le Cap) — plus
+  des ancres mondiales. Par courtoisie API, 3 cellules par relevé en rotation ; le CHEF DE DIVISION
+  active le « balayage total » (toutes à chaque relevé) pour la photo continentale la plus complète.
+  Là où un agrégateur a un récepteur, de vrais avions remontent ; ailleurs la cellule est prête pour
+  le jour où un récepteur apparaît. Réception passive, jamais d'identité.
 - Débruitage (touche D, ou « Pertinent » dans Peinture) : à large portée le scope se remplit de
   transit civil lointain. Le débruitage ne garde que ce qui compte pour la sûreté du site — urgence,
   militaire, GNSS dégradé (NIC < 5), et tout contact à moins de 300 km de FTTJ — plus la piste
@@ -300,6 +308,20 @@ Nos drones ET CAMÉRAS — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs
 - PARADE ÉCLAIRAGE : un basculement GLOBAL d'image (exposition, voile, nuage, phare) fait virer une
   énorme part du cadre d'un coup — ce n'est pas une intrusion. Le poste le reconnaît, ré-étalonne vite
   le fond, note « variation d'éclairage » et N'ALERTE PAS.
+- SABOTAGE CAMÉRA (l'intrus interne) : la vraie parade contre celui qui TRAVAILLE sur le site et croit
+  « passer » en neutralisant la caméra. On ne cherche JAMAIS à reconnaître la personne (pas d'identité) —
+  on surveille la SURVEILLANCE elle-même. Le poste mesure en continu la luminance et la stabilité de
+  chaque flux et lève une alerte CRITIQUE « SABOTAGE caméra » dans trois cas :
+    · MASQUÉE  — objectif couvert / peint / sac dessus : l'image devient noire ou uniforme (plus aucun
+      détail) pendant plusieurs trames d'affilée.
+    · FIGÉE    — flux gelé / rejoué en boucle / câble image coupé : les trames restent strictement
+      identiques alors qu'une vraie scène bouge toujours un peu.
+    · COUPÉE   — caméra débranchée / hors tension : le flux ne répond plus (déjà remonté par le journal
+      et, pour les caméras réseau des sites distants, par la re-scrutation périodique « caméra DOWN »).
+  Garde-fou NUIT : une image noire la nuit sur une caméra qui n'a jamais rien éclairé n'est PAS un
+  sabotage — on n'alerte au « noir » que si la caméra avait montré une scène éclairée auparavant. Le
+  message dit clairement : la caméra est neutralisée, quelqu'un cherche peut-être à passer sans être
+  filmé — vérifier sur place / envoyer une patrouille. Détection de signal, sans identité.
 - FLUX / CADENCE : la cadence est réglable (Normale 15 s · Rapprochée 5 s · Continue 3 s) — plus serré
   = suivi quasi continu. L'URL accepte une IMAGE FIXE (snapshot JPEG) ou un FLUX MJPEG (le proxy en
   extrait la première trame). Le RTSP n'est PAS pris en charge directement (navigateur incapable de le

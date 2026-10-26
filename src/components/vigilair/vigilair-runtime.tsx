@@ -9,6 +9,7 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { allBlobs, blobStats, diffHeatmap, foregroundDiff, frameHeading, isGlobalChange, mergeNearbyBlobs, presenceHint } from "@/lib/vigilair/change-diff";
 import { createRing, medianBackground, pushLuma, type FrameRing } from "@/lib/vigilair/motion-bg";
+import { EMPTY_TAMPER, framesNearlyIdentical, luminanceStats, stepTamper, type TamperTrack } from "@/lib/vigilair/tamper";
 import { confirmedTracks, detectOcclusions, isStationary, stepTracker, type Track2D } from "@/lib/vigilair/track2d";
 import { inArmWindow, pointInPolygon } from "@/lib/vigilair/zones2d";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
@@ -154,6 +155,11 @@ function DroneWatch() {
   const ringRef = useRef<Map<string, FrameRing>>(new Map());
   const warmRef = useRef<Map<string, number>>(new Map());
   const lastAlert = useRef<Map<string, number>>(new Map());
+  /** Détection de SABOTAGE : état par caméra, trame précédente, « a déjà montré une scène éclairée », cooldown. */
+  const tamperRef = useRef<Map<string, TamperTrack>>(new Map());
+  const prevLumaRef = useRef<Map<string, Uint8Array>>(new Map());
+  const litRef = useRef<Map<string, boolean>>(new Map());
+  const lastTamper = useRef<Map<string, number>>(new Map());
   /** Trames consécutives où la zone d'une présence immobile est VIDE (→ elle est partie, on libère). */
   const emptyStreak = useRef<Map<string, number>>(new Map());
   /** Pistage multi-cibles, par drone (sans identité) : pistes en cours, prochain id, heure du relevé. */
@@ -199,6 +205,45 @@ function DroneWatch() {
         if (!ctx) return;
         ctx.drawImage(img, 0, 0, PX, PX);
         const cur = ctx.getImageData(0, 0, PX, PX);
+
+        // SABOTAGE CAMÉRA : l'intrus (souvent interne) qui veut « se passer » de la caméra la NEUTRALISE
+        // — objectif couvert/bombé/aspergé (image noire ou uniforme), ou flux gelé/bouclé (trames
+        // identiques). On ne reconnaît personne, mais on voit que la surveillance a été sabotée.
+        const curLuma = new Uint8Array(PX * PX);
+        for (let i = 0, pph = 0; pph < curLuma.length; i += 4, pph++) {
+          curLuma[pph] = (cur.data[i]! * 299 + cur.data[i + 1]! * 587 + cur.data[i + 2]! * 114) / 1000;
+        }
+        const tstats = luminanceStats(curLuma);
+        if (tstats.mean > 40) litRef.current.set(drone.id, true); // la caméra a déjà montré une scène éclairée
+        const prevL = prevLumaRef.current.get(drone.id);
+        const sameAsPrev = prevL ? framesNearlyIdentical(curLuma, prevL) : false;
+        prevLumaRef.current.set(drone.id, curLuma);
+        const tam = stepTamper(tamperRef.current.get(drone.id) ?? EMPTY_TAMPER, { mean: tstats.mean, variance: tstats.variance, sameAsPrev });
+        tamperRef.current.set(drone.id, tam.track);
+        // Image noire sur une caméra qui n'a JAMAIS montré de scène éclairée : probablement la nuit sans
+        // éclairage, pas un masquage → on ne crie pas au sabotage.
+        const darkByNight = tam.verdict === "masquee" && (tam.reason ?? "").includes("noire") && !(litRef.current.get(drone.id) ?? false);
+        if (tam.verdict && !darkByNight) {
+          const label = tam.verdict === "figee" ? "figée" : "masquée";
+          setDroneMotion(drone.id, { pct: null, at: Date.now(), tamper: tam.verdict, note: `sabotage : ${tam.reason}`, frame: res.dataUrl, level: "critique" });
+          pushDroneLog(drone.id, { at: Date.now(), ok: false, msg: `sabotage : caméra ${label}` });
+          const lastT = lastTamper.current.get(drone.id) ?? 0;
+          if (Date.now() - lastT > 5 * 60 * 1000) {
+            lastTamper.current.set(drone.id, Date.now());
+            pushAlert({
+              id: `tamper-${drone.id}-${Date.now()}`,
+              trackId: "",
+              at: Date.now(),
+              level: "critique",
+              title: `${drone.name} · SABOTAGE caméra (${label})`,
+              body: `${tam.reason}. La caméra est neutralisée — quelqu'un cherche peut-être à passer sans être filmé (intrus interne ?). Vérifier sur place / envoyer une patrouille. Détection de signal, sans identité.`,
+              acked: false,
+            });
+            navBeep();
+          }
+          return; // caméra neutralisée : on n'analyse pas le mouvement et on ne nourrit pas le fond
+        }
+
         // Fond MULTI-TRAMES : la médiane des N dernières trames. Un objet qui traverse ne décale pas
         // la médiane, un éclair d'une trame est rejeté → détection plus stable, sans bandes.
         let ring = ringRef.current.get(drone.id);

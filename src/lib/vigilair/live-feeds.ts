@@ -57,11 +57,14 @@ const THEATRE_CELLS: Cell[] = [
 ];
 
 /**
- * Continent : les zones où les agrégateurs ont réellement des récepteurs (Maghreb, Égypte,
- * Afrique de l'Est et australe). Interrogées en rotation, trois par relevé, pour rester sous les
- * limites de débit des API ; chaque cellule reste affichée 100 s.
+ * Continent : maillage de TOUT le continent africain — Maghreb, Égypte, Sahel/Ouest, Golfe de Guinée,
+ * Centre, Corne, Est et Australe. Là où un agrégateur a un récepteur, de vrais avions remontent ;
+ * ailleurs la cellule est prête pour le jour où un récepteur apparaît (même logique que le théâtre).
+ * Interrogées en rotation, trois par relevé, pour rester sous les limites de débit des API ; chaque
+ * cellule reste affichée 100 s. Le chef peut activer le « balayage total » (toutes à chaque relevé).
  */
 const CONTINENT_CELLS: Cell[] = [
+  // Maghreb + Égypte
   { lat: 36.7, lon: 3.2, label: "Alger" },
   { lat: 36.8, lon: 10.2, label: "Tunis" },
   { lat: 32.7, lon: 13.2, label: "Tripoli" },
@@ -69,7 +72,21 @@ const CONTINENT_CELLS: Cell[] = [
   { lat: 30.1, lon: 31.4, label: "Le Caire" },
   { lat: 33.4, lon: -7.6, label: "Casablanca" },
   { lat: 30.4, lon: -9.6, label: "Agadir" },
+  // Ouest / Golfe de Guinée
+  { lat: 14.7, lon: -17.3, label: "Dakar" },
+  { lat: 12.6, lon: -8.0, label: "Bamako" },
+  { lat: 5.3, lon: -3.9, label: "Abidjan" },
+  { lat: 5.6, lon: -0.17, label: "Accra" },
+  { lat: 6.58, lon: 3.32, label: "Lagos" },
+  // Centre
+  { lat: 3.68, lon: 11.55, label: "Yaoundé" },
+  { lat: -4.4, lon: 15.44, label: "Kinshasa" },
+  { lat: -8.86, lon: 13.23, label: "Luanda" },
+  // Corne / Est
+  { lat: 8.98, lon: 38.8, label: "Addis-Abeba" },
   { lat: -1.3, lon: 36.9, label: "Nairobi" },
+  { lat: -6.87, lon: 39.2, label: "Dar es Salaam" },
+  // Australe
   { lat: -26.1, lon: 28.2, label: "Johannesburg" },
   { lat: -29.9, lon: 31.0, label: "Durban" },
   { lat: -33.9, lon: 18.6, label: "Le Cap" },

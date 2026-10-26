@@ -96,6 +96,8 @@ export type DroneMotion = {
   frame?: string;
   /** Niveau de la dernière alerte liée (elevee / critique si périmètre armé). */
   level?: "elevee" | "critique";
+  /** Sabotage caméra détecté : objectif masqué/obscurci, ou flux figé (gelé/bouclé). Jamais d'identité. */
+  tamper?: "masquee" | "figee";
 };
 import { reportZoneBreach } from "./zones-ops";
 

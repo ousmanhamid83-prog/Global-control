@@ -965,7 +965,11 @@ function SiteManager() {
                     {last ? (
                       <Badge tone={last.ok ? "ok" : "warn"}>{last.ok ? "en ligne" : "injoignable"}</Badge>
                     ) : null}
-                    {m ? (
+                    {m?.tamper ? (
+                      <Badge data-drone-tamper={d.id} tone="crit">
+                        SABOTAGE · {m.tamper === "figee" ? "figée" : "masquée"}
+                      </Badge>
+                    ) : m ? (
                       <Badge tone={m.error ? "warn" : alarmed ? "crit" : "default"}>
                         {m.error ? m.error : m.pct == null ? "trame de réf." : `mvt ${m.pct}%`}
                       </Badge>
