@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appendHistory, camKey, diffCameras } from "./sitenet-core.ts";
+import { appendHistory, camKey, diffCameras, groupSites, perimeterSummaryLines, type SiteNet } from "./sitenet-core.ts";
 
 test("camKey : host:port", () => {
   assert.equal(camKey({ host: "10.20.0.5", port: 8080 }), "10.20.0.5:8080");
@@ -33,6 +33,36 @@ test("diffCameras : aucun changement", () => {
 test("diffCameras : premier relevé (prev vide/undefined) = tout nouveau", () => {
   assert.deepEqual(diffCameras(undefined, ["a:1"]).added, ["a:1"]);
   assert.deepEqual(diffCameras([], ["a:1", "a:1"]).added, ["a:1"]); // doublon ignoré
+});
+
+const mkSite = (o: Partial<SiteNet>): SiteNet => ({ id: o.id ?? "x", name: o.name ?? "S", range: o.range ?? "10.0.0.0/24", at: 0, ...o });
+
+test("groupSites : regroupe par secteur en gardant l'ordre, sans secteur en dernier recours", () => {
+  const sites = [
+    mkSite({ id: "1", name: "A", group: "Est" }),
+    mkSite({ id: "2", name: "B" }),
+    mkSite({ id: "3", name: "C", group: "Est" }),
+    mkSite({ id: "4", name: "D", group: "Ouest" }),
+  ];
+  const g = groupSites(sites);
+  assert.deepEqual(g.map((x) => x.group), ["Est", "", "Ouest"]);
+  assert.deepEqual(g[0]!.sites.map((s) => s.name), ["A", "C"]);
+  assert.deepEqual(g[1]!.sites.map((s) => s.name), ["B"]);
+});
+
+test("perimeterSummaryLines : compte les caméras en ligne + tombées, par secteur", () => {
+  const sites = [
+    mkSite({ id: "1", name: "Portail", group: "Est", cams: ["10.0.0.5:80", "10.0.0.6:80"], history: [{ at: 1, up: [], down: ["10.0.0.7:80"] }] }),
+  ];
+  const lines = perimeterSummaryLines(sites);
+  assert.ok(lines[0]!.includes("1 site"));
+  assert.ok(lines.some((l) => l.includes("[Est]")));
+  assert.ok(lines.some((l) => l.includes("Portail") && l.includes("2 camera(s) en ligne")));
+  assert.ok(lines.some((l) => l.includes("tombees recentes : 10.0.0.7:80")));
+});
+
+test("perimeterSummaryLines : aucun site", () => {
+  assert.ok(perimeterSummaryLines([])[0]!.includes("aucun site"));
 });
 
 test("appendHistory : le plus récent d'abord, borné", () => {

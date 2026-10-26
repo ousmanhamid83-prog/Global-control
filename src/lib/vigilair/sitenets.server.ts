@@ -40,9 +40,10 @@ export async function listSiteNetsServer(): Promise<SiteNet[]> {
   return [...(await load())];
 }
 
-export async function addSiteNetServer(input: { name?: string; range?: string }): Promise<{ ok: boolean; error?: string; sitenets?: SiteNet[] }> {
+export async function addSiteNetServer(input: { name?: string; range?: string; group?: string }): Promise<{ ok: boolean; error?: string; sitenets?: SiteNet[] }> {
   const name = (input?.name ?? "").trim().slice(0, 60);
   const range = (input?.range ?? "").trim().slice(0, 64);
+  const group = (input?.group ?? "").trim().slice(0, 40) || undefined;
   if (!name) return { ok: false, error: "nom requis" };
   if (!range) return { ok: false, error: "plage requise" };
   if (expandRange(range).length === 0) return { ok: false, error: "plage invalide ou trop large (un /24 max, ex. 10.20.0.0/24)" };
@@ -51,6 +52,7 @@ export async function addSiteNetServer(input: { name?: string; range?: string })
   const site: SiteNet = {
     id: `net:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
     name,
+    group,
     range,
     at: Date.now(),
   };

@@ -16,7 +16,7 @@ export const siteNetsList = createServerFn({ method: "GET" })
 
 export const siteNetAdd = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((raw: { name?: string; range?: string }) => ({ name: String(raw?.name ?? ""), range: String(raw?.range ?? "") }))
+  .validator((raw: { name?: string; range?: string; group?: string }) => ({ name: String(raw?.name ?? ""), range: String(raw?.range ?? ""), group: String(raw?.group ?? "") }))
   .handler(async ({ data }): Promise<{ ok: boolean; error?: string; sitenets?: SiteNet[] }> => {
     const m = await import("./sitenets.server");
     return m.addSiteNetServer(data);

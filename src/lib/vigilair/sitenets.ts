@@ -8,7 +8,7 @@ import { siteNetAdd, siteNetRecordScan, siteNetRemove, siteNetsList } from "./si
 import type { SiteNet } from "./sitenet-core";
 
 export type { SiteNet, SiteNetEvent } from "./sitenet-core";
-export { appendHistory, camKey, diffCameras } from "./sitenet-core";
+export { appendHistory, camKey, diffCameras, groupSites, perimeterSummaryLines } from "./sitenet-core";
 
 const MIRROR_KEY = "africontrol.sitenets.mirror.v1";
 
@@ -56,9 +56,9 @@ export async function hydrateSiteNets(): Promise<void> {
     /* poste injoignable : on garde le miroir */
   }
 }
-export async function addSiteNet(name: string, range: string): Promise<{ ok: boolean; error?: string }> {
+export async function addSiteNet(name: string, range: string, group = ""): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await siteNetAdd({ data: { name, range } });
+    const res = await siteNetAdd({ data: { name, range, group } });
     if (res.ok && res.sitenets) set(res.sitenets);
     return { ok: res.ok, error: res.error };
   } catch {

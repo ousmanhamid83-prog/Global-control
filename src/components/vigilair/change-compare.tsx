@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { diffHeatmap } from "@/lib/vigilair/change-diff";
 import { addSensor, removeSensor, sensorsSnapshot, setSensorState, subscribeSensors, type SensorType } from "@/lib/vigilair/ground-sensors";
 import { addDrone, discoverOnvifClient, dronesSnapshot, registerCamerasClient, removeDrone, scanRangeClient, scanSourceClient, setDroneRule, setDroneZones, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
-import { addSiteNet, hydrateSiteNets, recordSiteScan, removeSiteNet, siteNetsSnapshot, subscribeSiteNets } from "@/lib/vigilair/sitenets";
+import { addSiteNet, groupSites, hydrateSiteNets, perimeterSummaryLines, recordSiteScan, removeSiteNet, siteNetsSnapshot, subscribeSiteNets } from "@/lib/vigilair/sitenets";
 import { buildCapturePdf, buildTextPdf } from "@/lib/vigilair/capture-pdf";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { MINE_REGION_LABEL, MINES } from "@/lib/vigilair/mines";
@@ -94,6 +94,7 @@ function SiteManager() {
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
   const [snNetName, setSnNetName] = useState("");
   const [snNetRange, setSnNetRange] = useState("");
+  const [snNetGroup, setSnNetGroup] = useState("");
   const [snNetErr, setSnNetErr] = useState<string | null>(null);
   type NetScanState = { busy?: boolean; cams?: Awaited<ReturnType<typeof scanRangeClient>>["cameras"]; added?: string[]; removed?: string[]; at?: number; err?: string };
   const [netScan, setNetScan] = useState<Record<string, NetScanState>>({});
@@ -106,6 +107,9 @@ function SiteManager() {
       const bin = atob(b64);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      // On relie la capture à l'ÉTAT DU PÉRIMÈTRE RÉSEAU au même instant (caméras en ligne / tombées) :
+      // utile en enquête (ex. une caméra du secteur tombée juste avant la présence captée).
+      const perim = siteNets.length ? ["", `Perimetre reseau a ${new Date().toLocaleString("fr-FR")} :`, ...perimeterSummaryLines(siteNets)] : [];
       const lines = [
         "AfriControl — dossier de preuve (veille imagerie)",
         `Source : ${d.name}  ·  Site : ${d.site || "—"}`,
@@ -114,6 +118,7 @@ function SiteManager() {
         m.note ? `Note : ${m.note}` : "",
         "Détection de mouvement/présence, sans identité. L'identité reste à l'œil de l'opérateur.",
         "AfriControl : réception + analyse. Ne pilote pas, n'arme rien.",
+        ...perim,
       ].filter(Boolean);
       const pdf = buildCapturePdf(bytes, img.naturalWidth, img.naturalHeight, lines);
       const blob = new Blob([pdf as unknown as BlobPart], { type: "application/pdf" });
@@ -253,10 +258,11 @@ function SiteManager() {
   // SITES DISTANTS : mémoriser une plage nommée, re-scanner d'un clic, détecter tombée / nouvelle.
   const addNet = async () => {
     setSnNetErr(null);
-    const r = await addSiteNet(snNetName.trim(), snNetRange.trim());
+    const r = await addSiteNet(snNetName.trim(), snNetRange.trim(), snNetGroup.trim());
     if (r.ok) {
       setSnNetName("");
       setSnNetRange("");
+      // on garde le secteur sélectionné pour enchaîner plusieurs sites du même secteur
     } else {
       setSnNetErr(r.error ?? "échec");
     }
@@ -302,6 +308,10 @@ function SiteManager() {
     } catch {
       setNetScan((s) => ({ ...s, [site.id]: { busy: false, err: "re-scan impossible" } }));
     }
+  };
+  // Re-scanne tout un secteur (ou tous les sites) d'un bouton, en séquentiel (un balayage est lourd).
+  const rescanGroup = async (sites: { id: string; range: string }[]) => {
+    for (const s of sites) await rescanNet(s);
   };
 
   const pick = (pl: Place) => {
@@ -735,18 +745,25 @@ function SiteManager() {
             <span className="text-xs font-medium text-fg">Sites distants (plages mémorisées)</span>
             <Badge tone="default">{siteNets.length}</Badge>
             {siteNets.length > 0 ? (
-              <Button data-net-pdf size="sm" variant="ghost" className="ml-auto" onClick={() => exportNetPdf()}>
-                Export PDF périmètre
-              </Button>
+              <div className="ml-auto flex items-center gap-1">
+                <Button data-net-all-rescan size="sm" variant="ghost" onClick={() => void rescanGroup(siteNets)}>
+                  Tout re-scanner
+                </Button>
+                <Button data-net-pdf size="sm" variant="ghost" onClick={() => exportNetPdf()}>
+                  Export PDF périmètre
+                </Button>
+              </div>
             ) : null}
           </div>
           <p className="text-[10.5px] text-muted-foreground">
             Mémorise la plage réseau de chaque site (au bout de l'antenne) pour la <strong>re-scanner d'un
-            clic</strong>. Chaque re-scan signale une caméra <strong>tombée</strong> (disparue) ou une
-            <strong> nouvelle</strong> apparue sur le périmètre. Présence d'équipement, jamais d'identité.
+            clic</strong>, ou tout un <strong>secteur</strong> d'un bouton. Chaque re-scan signale une caméra
+            <strong> tombée</strong> (disparue) ou une <strong>nouvelle</strong> apparue sur le périmètre.
+            Présence d'équipement, jamais d'identité.
           </p>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
             <Input data-net="name" placeholder="Nom du site (ex. Poste Est)" value={snNetName} onChange={(e) => setSnNetName(e.target.value)} />
+            <Input data-net="group" placeholder="Secteur (option., ex. Secteur Est)" value={snNetGroup} onChange={(e) => setSnNetGroup(e.target.value)} />
             <Input data-net="range" placeholder="Plage (ex. 10.20.0.0/24)" value={snNetRange} onChange={(e) => setSnNetRange(e.target.value)} />
             <Button data-net="add" size="sm" variant="outline" onClick={() => void addNet()}>
               <Plus className="mr-1 size-3.5" />
@@ -774,11 +791,22 @@ function SiteManager() {
             </label>
           ) : null}
           {siteNets.length > 0 ? (
-            <ul className="divide-y divide-border rounded-sm border border-border">
-              {siteNets.map((s) => {
-                const ns = netScan[s.id] ?? {};
-                return (
-                  <li key={s.id} data-net-row={s.id} className="flex flex-col gap-1 px-2 py-1.5 text-[11px]">
+            groupSites(siteNets).map((grp) => (
+              <div key={grp.group || "_sans_"} className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-medium text-muted-foreground">{grp.group || "Sans secteur"}</span>
+                  <Badge tone="default">{grp.sites.length}</Badge>
+                  {grp.group ? (
+                    <Button data-net-group={grp.group} size="sm" variant="ghost" onClick={() => void rescanGroup(grp.sites)}>
+                      Re-scanner le secteur
+                    </Button>
+                  ) : null}
+                </div>
+                <ul className="divide-y divide-border rounded-sm border border-border">
+                  {grp.sites.map((s) => {
+                    const ns = netScan[s.id] ?? {};
+                    return (
+                      <li key={s.id} data-net-row={s.id} className="flex flex-col gap-1 px-2 py-1.5 text-[11px]">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-fg">{s.name}</span>
                       <span className="font-mono text-muted-foreground">{s.range}</span>
@@ -823,10 +851,12 @@ function SiteManager() {
                         ))}
                       </ul>
                     ) : null}
-                  </li>
-                );
-              })}
-            </ul>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))
           ) : null}
         </div>
 
