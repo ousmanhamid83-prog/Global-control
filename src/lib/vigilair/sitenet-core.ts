@@ -42,6 +42,24 @@ export function groupSites(sites: SiteNet[]): { group: string; sites: SiteNet[] 
   return order.map((g) => ({ group: g, sites: by.get(g)! }));
 }
 
+/** Santé d'un secteur : caméras EN LIGNE, connues (en ligne + tombées encore absentes), et la liste des tombées. */
+export type SectorHealth = { group: string; sites: number; online: number; known: number; down: string[] };
+
+/**
+ * Agrège la SANTÉ par secteur (pour la vue synoptique). « online » = caméras actuellement vues ;
+ * « down » = caméras vues tombées (dans le journal) qui ne sont PAS revenues ; « known » = online + down
+ * (base « X/Y en ligne »). Pur : présence d'ÉQUIPEMENT, jamais d'identité.
+ */
+export function sectorHealth(sites: SiteNet[]): SectorHealth[] {
+  return groupSites(sites).map((g) => {
+    const online = new Set<string>();
+    for (const s of g.sites) for (const c of s.cams ?? []) online.add(c);
+    const down = new Set<string>();
+    for (const s of g.sites) for (const e of s.history ?? []) for (const d of e.down) if (!online.has(d)) down.add(d);
+    return { group: g.group, sites: g.sites.length, online: online.size, known: online.size + down.size, down: [...down] };
+  });
+}
+
 /**
  * Lignes « état du périmètre réseau » (pour un PDF / un dossier) : par site, le nombre de caméras EN
  * LIGNE au dernier relevé et les dernières tombées. Pur, sans formatage de date (l'appelant ajoute

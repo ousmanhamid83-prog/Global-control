@@ -356,6 +356,13 @@ Nos drones ET CAMÉRAS — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs
   automatique » (toutes les 5 / 15 / 30 / 60 min) fait tourner ça tout seul et SONNE au bandeau en cas de
   changement (caméra tombée = alerte critique). C'est de la présence d'ÉQUIPEMENT réseau (« quelle caméra
   répond »), jamais d'identité de personne.
+- VUE SYNOPTIQUE PAR SECTEUR + SEUIL D'ATTAQUE COORDONNÉE : en tête des sites distants, une rangée de
+  pastilles donne la santé de chaque secteur d'un coup d'œil — « Secteur Est : 4/5 en ligne » — VERTE si
+  tout répond, AMBRE si une caméra manque, ROUGE si on atteint le seuil. Ce SEUIL (réglable, « alerte
+  secteur si ≥ N caméras tombent ») déclenche, quand plusieurs caméras d'un même secteur lâchent SUR LE
+  MÊME CYCLE de re-scan, une alerte CRITIQUE « attaque coordonnée possible » (brouillage, coupure de
+  liaison, sabotage simultané) avec « vérifier le secteur / envoyer une patrouille ». Toujours de la
+  présence d'équipement réseau, jamais d'identité.
 - JOURNAL (MAIN COURANTE) + EXPORT PDF DU PÉRIMÈTRE : chaque site tient un JOURNAL horodaté de ses
   changements (« + caméra apparue », « − caméra tombée »), consultable d'un clic (« Journal ») — une
   vraie main courante pour la relève. Et « Export PDF périmètre » génère, côté navigateur (aucun envoi

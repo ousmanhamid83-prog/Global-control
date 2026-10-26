@@ -211,6 +211,8 @@ type VigilairState = {
   siteNetWatch: boolean;
   /** Cadence du re-scan périodique des sites distants (minutes). */
   siteNetCadenceMin: number;
+  /** Seuil d'alerte par secteur : si ≥ N caméras d'un même secteur tombent sur un cycle → attaque coordonnée. */
+  siteNetSectorThreshold: number;
   ewArmed: boolean;
   ppi: PpiParams;
   history: HistSample[];
@@ -284,6 +286,7 @@ type VigilairState = {
   pushDroneLog: (id: string, entry: { at: number; ok: boolean; msg: string }) => void;
   setSiteNetWatch: (v: boolean) => void;
   setSiteNetCadence: (min: number) => void;
+  setSiteNetSectorThreshold: (n: number) => void;
   pushAlert: (a: AlertItem) => void;
   setAxisId: (id: string | null) => void;
   setPeakId: (id: string | null) => void;
@@ -563,6 +566,7 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   droneLog: {},
   siteNetWatch: false,
   siteNetCadenceMin: 15,
+  siteNetSectorThreshold: 2,
   ewArmed: false,
   ppi: DEFAULT_PPI,
   history: [],
@@ -690,6 +694,7 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
     set({ droneLog: { ...get().droneLog, [id]: [entry, ...(get().droneLog[id] ?? [])].slice(0, 12) } }),
   setSiteNetWatch: (siteNetWatch) => set({ siteNetWatch }),
   setSiteNetCadence: (siteNetCadenceMin) => set({ siteNetCadenceMin }),
+  setSiteNetSectorThreshold: (siteNetSectorThreshold) => set({ siteNetSectorThreshold }),
   pushAlert: (a) => set({ alerts: [a, ...get().alerts].slice(0, 48) }),
   setAxisId: (axisId) => set({ axisId }),
   setPeakId: (peakId) => set({ peakId }),

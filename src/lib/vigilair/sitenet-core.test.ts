@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appendHistory, camKey, diffCameras, groupSites, perimeterSummaryLines, type SiteNet } from "./sitenet-core.ts";
+import { appendHistory, camKey, diffCameras, groupSites, perimeterSummaryLines, sectorHealth, type SiteNet } from "./sitenet-core.ts";
 
 test("camKey : host:port", () => {
   assert.equal(camKey({ host: "10.20.0.5", port: 8080 }), "10.20.0.5:8080");
@@ -63,6 +63,30 @@ test("perimeterSummaryLines : compte les caméras en ligne + tombées, par secte
 
 test("perimeterSummaryLines : aucun site", () => {
   assert.ok(perimeterSummaryLines([])[0]!.includes("aucun site"));
+});
+
+test("sectorHealth : en ligne / tombées / connues par secteur", () => {
+  const sites = [
+    mkSite({ id: "1", name: "A", group: "Est", cams: ["10.0.0.5:80", "10.0.0.6:80"], history: [{ at: 2, up: [], down: ["10.0.0.7:80"] }] }),
+    mkSite({ id: "2", name: "B", group: "Est", cams: ["10.0.1.5:80"] }),
+  ];
+  const h = sectorHealth(sites);
+  assert.equal(h.length, 1);
+  assert.equal(h[0]!.group, "Est");
+  assert.equal(h[0]!.sites, 2);
+  assert.equal(h[0]!.online, 3); // 2 + 1
+  assert.deepEqual(h[0]!.down, ["10.0.0.7:80"]); // tombée, pas revenue
+  assert.equal(h[0]!.known, 4); // 3 en ligne + 1 tombée
+});
+
+test("sectorHealth : une tombée revenue ne compte plus comme down", () => {
+  const sites = [
+    mkSite({ id: "1", name: "A", group: "Est", cams: ["10.0.0.5:80"], history: [{ at: 1, up: [], down: ["10.0.0.5:80"] }, { at: 2, up: ["10.0.0.5:80"], down: [] }] }),
+  ];
+  const h = sectorHealth(sites);
+  assert.equal(h[0]!.online, 1);
+  assert.deepEqual(h[0]!.down, []); // elle est revenue (dans cams)
+  assert.equal(h[0]!.known, 1);
 });
 
 test("appendHistory : le plus récent d'abord, borné", () => {

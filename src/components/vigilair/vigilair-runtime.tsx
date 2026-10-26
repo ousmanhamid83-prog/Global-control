@@ -57,6 +57,7 @@ export function VigilairRuntime() {
 function SiteNetWatch() {
   const on = useVigilair((s) => s.siteNetWatch);
   const cadenceMin = useVigilair((s) => s.siteNetCadenceMin);
+  const sectorThreshold = useVigilair((s) => s.siteNetSectorThreshold);
   const pushAlert = useVigilair((s) => s.pushAlert);
   const sites = useSyncExternalStore(subscribeSiteNets, siteNetsSnapshot, siteNetsSnapshot);
   const sitesRef = useRef(sites);
@@ -68,7 +69,11 @@ function SiteNetWatch() {
     if (!on) return;
     let cancelled = false;
     const period = Math.max(1, Math.min(120, cadenceMin || 15)) * 60 * 1000;
+    const thr = Math.max(2, Math.min(50, Math.round(sectorThreshold) || 2));
     const run = async () => {
+      // Tombées de CE cycle agrégées par SECTEUR → détecter une attaque coordonnée (plusieurs caméras
+      // d'un même secteur qui lâchent en même temps).
+      const bySector = new Map<string, string[]>();
       for (const s of sitesRef.current) {
         if (cancelled) return;
         try {
@@ -77,6 +82,10 @@ function SiteNetWatch() {
           const addrs = res.cameras.map((c) => `${c.host}:${c.port}`);
           const diff = await recordSiteScan(s.id, addrs);
           if (cancelled) return;
+          if (diff.removed.length) {
+            const g = (s.group ?? "").trim() || "Sans secteur";
+            bySector.set(g, [...(bySector.get(g) ?? []), ...diff.removed]);
+          }
           if (diff.removed.length || diff.added.length) {
             const parts: string[] = [];
             if (diff.removed.length) parts.push(`${diff.removed.length} caméra(s) TOMBÉE(S) : ${diff.removed.join(", ")}`);
@@ -95,6 +104,21 @@ function SiteNetWatch() {
           /* site injoignable : on réessaie au prochain tour */
         }
       }
+      if (cancelled) return;
+      // Alerte SECTEUR : plusieurs caméras d'un même secteur tombées sur ce cycle = possible coordination.
+      for (const [g, downs] of bySector) {
+        if (downs.length >= thr) {
+          pushAlert({
+            id: `sitenet-sector-${g}-${Date.now()}`,
+            trackId: "",
+            at: Date.now(),
+            level: "critique",
+            title: `${g} · ${downs.length} caméras tombées — attaque coordonnée possible`,
+            body: `${downs.length} caméras du secteur hors ligne en même temps (${downs.join(", ")}). Vérifier le secteur / envoyer une patrouille. Présence réseau, sans identité.`,
+            acked: false,
+          });
+        }
+      }
     };
     const first = window.setTimeout(() => void run(), 5000);
     const timer = window.setInterval(() => void run(), period);
@@ -103,7 +127,7 @@ function SiteNetWatch() {
       window.clearTimeout(first);
       window.clearInterval(timer);
     };
-  }, [on, cadenceMin, pushAlert]);
+  }, [on, cadenceMin, sectorThreshold, pushAlert]);
   return null;
 }
 

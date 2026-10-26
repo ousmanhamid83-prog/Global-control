@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { diffHeatmap } from "@/lib/vigilair/change-diff";
 import { addSensor, removeSensor, sensorsSnapshot, setSensorState, subscribeSensors, type SensorType } from "@/lib/vigilair/ground-sensors";
 import { addDrone, discoverOnvifClient, dronesSnapshot, registerCamerasClient, removeDrone, scanRangeClient, scanSourceClient, setDroneRule, setDroneZones, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
-import { addSiteNet, groupSites, hydrateSiteNets, perimeterSummaryLines, recordSiteScan, removeSiteNet, siteNetsSnapshot, subscribeSiteNets } from "@/lib/vigilair/sitenets";
+import { addSiteNet, groupSites, hydrateSiteNets, perimeterSummaryLines, recordSiteScan, removeSiteNet, sectorHealth, siteNetsSnapshot, subscribeSiteNets } from "@/lib/vigilair/sitenets";
 import { buildCapturePdf, buildTextPdf } from "@/lib/vigilair/capture-pdf";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { MINE_REGION_LABEL, MINES } from "@/lib/vigilair/mines";
@@ -81,6 +81,8 @@ function SiteManager() {
   const setSiteNetWatch = useVigilair((s) => s.setSiteNetWatch);
   const siteNetCadenceMin = useVigilair((s) => s.siteNetCadenceMin);
   const setSiteNetCadence = useVigilair((s) => s.setSiteNetCadence);
+  const siteNetSectorThreshold = useVigilair((s) => s.siteNetSectorThreshold);
+  const setSiteNetSectorThreshold = useVigilair((s) => s.setSiteNetSectorThreshold);
   const [zoomCap, setZoomCap] = useState<string | null>(null);
   const [roiEdit, setRoiEdit] = useState<string | null>(null);
   const [roiPts, setRoiPts] = useState<{ x: number; y: number }[]>([]);
@@ -761,6 +763,23 @@ function SiteManager() {
             <strong> tombée</strong> (disparue) ou une <strong>nouvelle</strong> apparue sur le périmètre.
             Présence d'équipement, jamais d'identité.
           </p>
+          {siteNets.length > 0 ? (
+            <div data-net-synoptic className="flex flex-wrap items-center gap-1.5">
+              {sectorHealth(siteNets).map((h) => {
+                const tone = h.down.length === 0 ? "ok" : h.down.length >= siteNetSectorThreshold ? "crit" : "warn";
+                return (
+                  <span
+                    key={h.group || "_sans_"}
+                    data-net-chip={h.group || "_sans_"}
+                    className={`rounded-sm border px-2 py-0.5 text-[10.5px] ${tone === "crit" ? "border-crit text-crit" : tone === "warn" ? "border-warn text-warn" : "border-border text-ok"}`}
+                  >
+                    {h.group || "Sans secteur"} : <strong>{h.online}/{h.known}</strong> en ligne
+                    {h.down.length ? ` · ${h.down.length} tombée(s)` : ""}
+                  </span>
+                );
+              })}
+            </div>
+          ) : null}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
             <Input data-net="name" placeholder="Nom du site (ex. Poste Est)" value={snNetName} onChange={(e) => setSnNetName(e.target.value)} />
             <Input data-net="group" placeholder="Secteur (option., ex. Secteur Est)" value={snNetGroup} onChange={(e) => setSnNetGroup(e.target.value)} />
@@ -788,6 +807,17 @@ function SiteManager() {
                 <option value={60}>60 min</option>
               </select>
               <span className="text-muted-foreground">→ alerte si une caméra tombe ou apparaît</span>
+              <span className="text-muted-foreground">· alerte secteur si ≥</span>
+              <input
+                data-net="sectorthreshold"
+                type="number"
+                min={2}
+                max={50}
+                value={siteNetSectorThreshold}
+                onChange={(e) => setSiteNetSectorThreshold(Math.max(2, Math.min(50, Number(e.target.value) || 2)))}
+                className="w-14 rounded-sm border border-border bg-bg px-2 py-0.5 text-[11px] text-fg"
+              />
+              <span className="text-muted-foreground">caméras tombent (attaque coordonnée)</span>
             </label>
           ) : null}
           {siteNets.length > 0 ? (
