@@ -4,7 +4,7 @@ import { methodBlurb } from "./engine";
 import { bulletinToJournal, fileEvidence } from "./evidence-store";
 import { canRequestEw } from "./ew";
 import { AO, HOME, SCALE, haversineKm, nearestCity, theaterRank, type GeoOrigin, type MapScale } from "./geo";
-import { countFriends, isFriend, spawnFriendTrack } from "./friends";
+import { isFriend, spawnFriendTrack } from "./friends";
 import {
   beginM4Request,
   canRequestM4,

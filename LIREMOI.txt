@@ -237,6 +237,11 @@ Imagerie Sentinel-2 fraîche (Copernicus) — Capteurs > Outils, couche « Senti
 - « Tester la clé » dans Outils vérifie que le jeton est obtenu. Lecture seule : le poste lit des
   images publiques, il ne commande aucun satellite. Pour le sous-métrique (30 cm), il faut une clé
   commerciale (Planet/Maxar) — je ne simule pas ce que le compte gratuit ne donne pas.
+- REPLI HORS LIGNE : la mosaïque embarquée dans le poste (public/sentinel) prend le relais quand il
+  n'y a pas de clé, pas de réseau, ou que Copernicus refuse — le cas du poste isolé au bout de
+  l'antenne. Elle est créditée comme telle (« mosaïque embarquée (hors ligne) »), jamais présentée
+  comme une image fraîche, et une tuile absente du disque reste une absence franche, pas une image
+  inventée.
 
 Détection auto pour les sites (Capteurs > Changement > Sites surveillés)
 - CHANGEMENT AUTO : interrupteur « Surveillance changement auto (Sentinel-2) ». Le poste passe en
@@ -319,9 +324,11 @@ Nos drones ET CAMÉRAS — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs
     · DÉPLACÉE — le coup d'après de celui qui sait qu'un objectif bâché se voit : il TOURNE la caméra
       (vers un mur, le ciel, le sol) ou pose un obstacle devant. L'image reste claire et vivante, donc
       invisible aux deux tests ci-dessus. Le poste compare le MOTIF de la scène à la vue de référence
-      qu'il a apprise de cette caméra. Le motif est centré avant comparaison : le jour qui tombe, un
-      nuage ou un phare décalent toutes les cases ensemble et ne comptent pas — seule la géométrie de
-      la vue compte. Plus patient que les autres (un camion qui se gare change aussi le motif) : on
+      qu'il a apprise de cette caméra. Le motif est normalisé avant comparaison, en décalage ET en
+      contraste : un nuage ou un phare DÉCALENT la scène, le jour qui tombe la MULTIPLIE (l'éclairement
+      module la réflectance) — ni l'un ni l'autre ne compte, seule la géométrie de la vue compte.
+      Échelle : 0 = même vue, 2 = motif inversé ; on alerte au-delà de 0,8. Mesuré sur banc : 0,003
+      entre deux trames de la même vue, 0,003 sur tout un crépuscule, 2,0 caméra détournée. Plus patient que les autres (un camion qui se gare change aussi le motif) : on
       n'alerte que si ça DURE. La référence suit la dérive légitime (végétation, saisons) mais n'adopte
       JAMAIS d'elle-même une vue sabotée ; si c'est l'opérateur qui a volontairement re-visé la caméra,
       un bouton « Ré-apprendre la vue » valide la nouvelle visée.
@@ -333,9 +340,14 @@ Nos drones ET CAMÉRAS — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs
   zoomable, et embarquée dans le dossier PDF. La trame neutralisée reste affichée à côté en vignette
   « ÉTAT ACTUEL » : elle prouve que la caméra a bien été neutralisée. L'opérateur a donc les deux :
   ce que la caméra voyait juste avant, et ce qu'on lui a fait.
-  Garde-fou NUIT : une image noire la nuit sur une caméra qui n'a jamais rien éclairé n'est PAS un
-  sabotage — on n'alerte au « noir » que si la caméra avait montré une scène éclairée auparavant. Le
-  message dit clairement : la caméra est neutralisée, quelqu'un cherche peut-être à passer sans être
+  GARDE-FOU NUIT (la question qui décide de tout sur un poste isolé) : une caméra sans éclairage voit
+  noir chaque nuit. Ce qui sépare la nuit d'un objectif bâché, ce n'est pas la noirceur, c'est la
+  MANIÈRE d'y arriver : le crépuscule fait perdre quelques points de luminance par trame, une bâche
+  fait tomber l'image D'UN COUP. Le poste ne crie donc au « noir » que si l'entrée dans le noir a été
+  BRUTALE. Deux conséquences assumées : la nuit ne déclenche rien, et une caméra DÉJÀ dans le noir ne
+  peut pas détecter qu'on la bâche (il n'y a plus rien à perdre). Pour la même raison, « image
+  uniforme » ne compte que CLAIRE (bâche, peinture) — une image noire uniforme, c'est la nuit.
+  Le message dit clairement : la caméra est neutralisée, quelqu'un cherche peut-être à passer sans être
   filmé — vérifier sur place / envoyer une patrouille. Détection de signal, sans identité : ce qui est
   détecté, c'est que la SURVEILLANCE a changé d'état, jamais qui est devant l'objectif.
 - FLUX / CADENCE : la cadence est réglable (Normale 15 s · Rapprochée 5 s · Continue 3 s) — plus serré

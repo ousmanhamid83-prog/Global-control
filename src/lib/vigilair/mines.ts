@@ -1,5 +1,5 @@
-import { haversineKm, type MapScale } from "./geo";
-import type { ZoneRow } from "./zones";
+import { haversineKm, type MapScale } from "./geo.ts";
+import type { ZoneRow } from "./zones.ts";
 
 export type MineRegion = "tchad" | "sahel" | "maghreb" | "est";
 

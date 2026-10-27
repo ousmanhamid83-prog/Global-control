@@ -8,8 +8,6 @@ import type { SatLayer, SatMeta } from "./sat";
 const UA = "AfriControl-COP/21 (C-UAS tiles; no operator identity)";
 const GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best";
 const EUM = "https://view.eumetsat.int/geoserver/wms";
-const EOX =
-  "https://tiles.maps.eox.at/wmts?layer=s2cloudless-2025_3857&style=default&tilematrixset=GoogleMapsCompatible&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image/jpeg";
 const ESRI =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile";
 const CLARITY =
@@ -307,11 +305,6 @@ async function gibsDaily(layer: string, matrix: string, z: number, x: number, y:
   return null;
 }
 
-async function eoxTile(z: number, x: number, y: number) {
-  if (z < 2 || z > 17) return null;
-  return fetchImg(`${EOX}&TileMatrix=${z}&TileCol=${x}&TileRow=${y}`, 8000);
-}
-
 async function esriTile(z: number, x: number, y: number) {
   if (z < 11 || z > 19) return null;
   const got = await fetchImg(`${ESRI}/${z}/${y}/${x}`, 12000);
@@ -572,9 +565,22 @@ export async function serveTile(
 
   if (layer === "s2") {
     // Sentinel-2 10 m via le compte Copernicus gratuit de l'opérateur. Natif ~z13 ; au-delà on
-    // laisse jusqu'à z15 (suréchantillonné, honnête dans le crédit). Non configuré → le crédit le dit.
+    // laisse jusqu'à z15 (suréchantillonné, honnête dans le crédit).
+    // REPLI HORS LIGNE : la mosaïque embarquée (public/sentinel) sert quand il n'y a pas de clé, pas
+    // de réseau, ou que Copernicus refuse — c'est le cas du poste isolé au bout de l'antenne. Elle est
+    // créditée comme telle (« mosaïque embarquée »), jamais présentée comme une image fraîche.
+    const offline = async () => {
+      const loc = await localTile(z, x, y);
+      if (!loc) return null;
+      const src = "mosaïque embarquée (hors ligne)";
+      meta.s2Src = src;
+      remember(key, loc, "S2LOCAL", src);
+      return img(loc, "S2LOCAL", src);
+    };
     const { sentinelConfigured, sentinelTile } = await import("./sentinelhub.server");
     if (!sentinelConfigured()) {
+      const off = await offline();
+      if (off) return off;
       meta.s2Src = "clé Copernicus requise (Capteurs > Outils)";
       return new Response(null, { status: 404 });
     }
@@ -589,10 +595,12 @@ export async function serveTile(
         return img(s2.bytes, "S2LIVE", s2.src);
       }
     } catch (e) {
+      const off = await offline();
+      if (off) return off;
       meta.s2Src = `Sentinel-2 · ${e instanceof Error ? e.message : "échec"}`;
       return new Response(null, { status: e instanceof Error && e.message === "429" ? 429 : 502 });
     }
-    return new Response(null, { status: 404 });
+    return (await offline()) ?? new Response(null, { status: 404 });
   }
 
   if (layer === "ir") {

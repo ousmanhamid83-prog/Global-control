@@ -167,10 +167,11 @@ function DroneWatch() {
   const ringRef = useRef<Map<string, FrameRing>>(new Map());
   const warmRef = useRef<Map<string, number>>(new Map());
   const lastAlert = useRef<Map<string, number>>(new Map());
-  /** Détection de SABOTAGE : état par caméra, trame précédente, « a déjà montré une scène éclairée », cooldown. */
+  /** Détection de SABOTAGE : état par caméra, trame précédente, luminance précédente, cooldown. */
   const tamperRef = useRef<Map<string, TamperTrack>>(new Map());
   const prevLumaRef = useRef<Map<string, Uint8Array>>(new Map());
-  const litRef = useRef<Map<string, boolean>>(new Map());
+  /** Luminance moyenne de la trame précédente, par caméra : sert à mesurer la BRUTALITÉ d'une chute. */
+  const prevMeanRef = useRef<Map<string, number>>(new Map());
   const lastTamper = useRef<Map<string, number>>(new Map());
   /**
    * Dernière trame NETTE de la vue NORMALE, par caméra. C'est LA vraie image : quand l'objectif est
@@ -193,6 +194,17 @@ function DroneWatch() {
     if (watched.length === 0) return;
     let dead = false;
     const PX = 128;
+
+    // Une caméra retirée laissait derrière elle son fond, ses pistes, sa trame de référence et sa
+    // dernière image nette — jamais libérés, et ressuscités tels quels si on réinscrivait le même id.
+    // On purge ce qui n'est plus surveillé.
+    const vivants = new Set(watched.map((d) => d.id));
+    for (const m of [
+      ringRef, warmRef, lastAlert, tamperRef, prevLumaRef, prevMeanRef, lastTamper,
+      lastClearRef, viewRef, emptyStreak, tracksRef, seedRef, lastAt,
+    ]) {
+      for (const id of [...m.current.keys()]) if (!vivants.has(id)) m.current.delete(id);
+    }
 
     const norm = (s?: string) => (s ?? "").trim().toLowerCase();
     /** Le site du drone est-il un PÉRIMÈTRE ARMÉ (mine, ou site surveillé armé) ? → alerte critique. */
@@ -234,7 +246,11 @@ function DroneWatch() {
           curLuma[pph] = (cur.data[i]! * 299 + cur.data[i + 1]! * 587 + cur.data[i + 2]! * 114) / 1000;
         }
         const tstats = luminanceStats(curLuma);
-        if (tstats.mean > 40) litRef.current.set(drone.id, true); // la caméra a déjà montré une scène éclairée
+        // Chute de luminance depuis la trame précédente : c'est ce qui sépare un objectif qu'on couvre
+        // (chute brutale) de la nuit qui tombe (baisse de quelques points par trame).
+        const prevMean = prevMeanRef.current.get(drone.id);
+        const drop = prevMean == null ? 0 : prevMean - tstats.mean;
+        prevMeanRef.current.set(drone.id, tstats.mean);
         const prevL = prevLumaRef.current.get(drone.id);
         const sameAsPrev = prevL ? framesNearlyIdentical(curLuma, prevL) : false;
         prevLumaRef.current.set(drone.id, curLuma);
@@ -256,12 +272,9 @@ function DroneWatch() {
         // trame d'une vue déjà suspecte, sinon on perdrait justement l'image qui sert à quelque chose.
         if (clear && !sigFar) lastClearRef.current.set(drone.id, { url: res.dataUrl, at: Date.now() });
 
-        const tam = stepTamper(tamperRef.current.get(drone.id) ?? EMPTY_TAMPER, { mean: tstats.mean, variance: tstats.variance, sameAsPrev, sigFar });
+        const tam = stepTamper(tamperRef.current.get(drone.id) ?? EMPTY_TAMPER, { mean: tstats.mean, variance: tstats.variance, sameAsPrev, sigFar, drop });
         tamperRef.current.set(drone.id, tam.track);
-        // Image noire sur une caméra qui n'a JAMAIS montré de scène éclairée : probablement la nuit sans
-        // éclairage, pas un masquage → on ne crie pas au sabotage.
-        const darkByNight = tam.verdict === "masquee" && (tam.reason ?? "").includes("noire") && !(litRef.current.get(drone.id) ?? false);
-        if (tam.verdict && !darkByNight) {
+        if (tam.verdict) {
           const label = tam.verdict === "figee" ? "figée" : tam.verdict === "deplacee" ? "déplacée" : "masquée";
           // LA VRAIE IMAGE : la trame du moment ne montre plus rien d'exploitable (noire, bâchée, ou
           // tournée vers un mur). Ce qu'il faut à l'opérateur, c'est la dernière vue NETTE d'avant la

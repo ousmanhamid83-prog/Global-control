@@ -278,7 +278,9 @@ function tokenIdentityKey(token: string): string {
             .digest("base64url");
         }
       }
-    } catch {}
+    } catch {
+      /* jeton illisible : on retombe sur le hachage du jeton brut, juste en dessous */
+    }
   }
   return createHash("sha256").update(token).digest("base64url");
 }

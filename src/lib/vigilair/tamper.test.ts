@@ -37,15 +37,45 @@ test("framesNearlyIdentical : identiques vs bruitées", () => {
   assert.equal(framesNearlyIdentical(a, fill(50, 80)), false); // tailles différentes
 });
 
-test("stepTamper : image noire tenue → masquée", () => {
+test("stepTamper : image noire D'UN COUP et tenue → masquée", () => {
   let t: TamperTrack = EMPTY_TAMPER;
   let verdict = null;
   for (let i = 0; i < DEFAULT_TAMPER_CFG.grace; i++) {
-    const r = stepTamper(t, { mean: 5, variance: 2, sameAsPrev: false });
+    // drop : chute de luminance par rapport à la trame précédente (130 → 5 à la première).
+    const r = stepTamper(t, { mean: 5, variance: 2, sameAsPrev: false, drop: i === 0 ? 125 : 0 });
     t = r.track;
     verdict = r.verdict;
   }
   assert.equal(verdict, "masquee");
+});
+
+test("LA NUIT QUI TOMBE N'EST PAS UN SABOTAGE : baisse progressive → aucun verdict", () => {
+  // Crépuscule : la luminance descend doucement, quelques points par trame, jusqu'au noir complet.
+  let t: TamperTrack = EMPTY_TAMPER;
+  let mean = 130;
+  for (let i = 0; i < 80; i++) {
+    const next = Math.max(3, mean - 4);
+    const r = stepTamper(t, { mean: next, variance: next <= 12 ? 2 : 400, sameAsPrev: false, drop: mean - next });
+    t = r.track;
+    mean = next;
+    assert.equal(r.verdict, null, `verdict inattendu a la trame ${i} (luminance ${next})`);
+  }
+  // …et la nuit DURE, toujours sans crier au sabotage.
+  for (let i = 0; i < 40; i++) {
+    const r = stepTamper(t, { mean: 3, variance: 2, sameAsPrev: false, drop: 0 });
+    t = r.track;
+    assert.equal(r.verdict, null, `verdict inattendu en pleine nuit (trame ${i})`);
+  }
+});
+
+test("stepTamper : on bâche l'objectif EN PLEINE NUIT — noir déjà installé, rien de brutal", () => {
+  // Limite assumée : une caméra déjà dans le noir ne peut pas distinguer un objectif couvert.
+  // Le test fige ce comportement pour qu'il soit un choix, pas une surprise.
+  let r = stepTamper(EMPTY_TAMPER, { mean: 3, variance: 2, sameAsPrev: false, drop: 0 });
+  for (let i = 1; i < DEFAULT_TAMPER_CFG.grace + 2; i++) {
+    r = stepTamper(r.track, { mean: 3, variance: 2, sameAsPrev: false, drop: 0 });
+  }
+  assert.equal(r.verdict, null);
 });
 
 test("stepTamper : image uniforme claire tenue → masquée (bâche/peinture)", () => {
@@ -70,9 +100,9 @@ test("stepTamper : scène normale vivante → aucun verdict", () => {
 });
 
 test("stepTamper : les compteurs se remettent à zéro quand ça redevient normal", () => {
-  let r = stepTamper(EMPTY_TAMPER, { mean: 5, variance: 2, sameAsPrev: true, sigFar: true });
+  let r = stepTamper(EMPTY_TAMPER, { mean: 5, variance: 2, sameAsPrev: true, sigFar: true, drop: 125 });
   r = stepTamper(r.track, { mean: 120, variance: 800, sameAsPrev: false }); // revenu normal
-  assert.deepEqual(r.track, { dark: 0, uniform: 0, frozen: 0, moved: 0 });
+  assert.deepEqual(r.track, { dark: 0, uniform: 0, frozen: 0, moved: 0, darkAbrupt: false });
   assert.equal(r.verdict, null);
 });
 
@@ -99,11 +129,22 @@ test("sceneSignature : grille de luminances moyennes", () => {
 test("signatureDistance : INSENSIBLE à l'éclairage, sensible au motif", () => {
   const vue = [10, 90, 20, 80, 15, 85, 25, 75];
   assert.equal(signatureDistance(vue, vue), 0);
-  // Le jour qui tombe / un nuage / un phare : TOUTES les cases bougent ensemble → même vue.
+  // Un nuage / un phare DÉCALENT toute la scène → même vue.
   const plusSombre = vue.map((v) => v - 40);
   assert.equal(signatureDistance(vue, plusSombre), 0);
-  const plusClair = vue.map((v) => v * 1 + 60);
+  const plusClair = vue.map((v) => v + 60);
   assert.equal(signatureDistance(vue, plusClair), 0);
+  // LE CRÉPUSCULE MULTIPLIE la scène (l'éclairement module la réflectance) : le contraste s'écrase.
+  // C'est ce cas-là qui faisait conclure « caméra détournée » chaque soir.
+  for (const k of [0.6, 0.3, 0.12]) {
+    const crepuscule = vue.map((v) => v * k);
+    assert.ok(
+      signatureDistance(vue, crepuscule) < DEFAULT_TAMPER_CFG.movedDist,
+      `crepuscule x${k} pris pour un deplacement`,
+    );
+  }
+  // Scène devenue plate (mur, image sans relief) : plus de motif → on ne conclut rien.
+  assert.equal(signatureDistance(vue, vue.map(() => 50)), 0);
   // Caméra détournée : le motif lui-même change → écart franc, au-delà du seuil.
   const autreVue = [90, 10, 80, 20, 85, 15, 75, 25];
   assert.ok(signatureDistance(vue, autreVue) > DEFAULT_TAMPER_CFG.movedDist);
@@ -128,7 +169,7 @@ test("stepTamper : vue qui ne colle plus à la référence, tenue → déplacée
 });
 
 test("stepTamper : un masquage l'emporte sur un déplacement (image inexploitable d'abord)", () => {
-  let r = stepTamper(EMPTY_TAMPER, { mean: 5, variance: 2, sameAsPrev: false, sigFar: true });
+  let r = stepTamper(EMPTY_TAMPER, { mean: 5, variance: 2, sameAsPrev: false, sigFar: true, drop: 125 });
   for (let i = 1; i < DEFAULT_TAMPER_CFG.movedGrace; i++) {
     r = stepTamper(r.track, { mean: 5, variance: 2, sameAsPrev: false, sigFar: true });
   }

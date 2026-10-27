@@ -1,4 +1,3 @@
-import { normalizeIff } from "./iff";
 import type { EwState, FriendKind, IdState, IffFix, Origin, Track, UasClass } from "./types";
 
 export const SNAP_MS = 1000;

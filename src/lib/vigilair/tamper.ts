@@ -43,8 +43,19 @@ export function framesNearlyIdentical(a: Uint8Array, b: Uint8Array, tol = 1.2, s
   return cnt > 0 && sum / cnt <= tol;
 }
 
-export type TamperTrack = { dark: number; uniform: number; frozen: number; moved: number };
-export const EMPTY_TAMPER: TamperTrack = { dark: 0, uniform: 0, frozen: 0, moved: 0 };
+export type TamperTrack = {
+  dark: number;
+  uniform: number;
+  frozen: number;
+  moved: number;
+  /**
+   * L'entrée dans le noir s'est-elle faite d'un COUP ? Verrouillé au début de la série sombre et tenu
+   * tant qu'elle dure. C'est ce qui sépare un objectif qu'on couvre (chute brutale) de la nuit qui
+   * tombe (baisse progressive) — sans ça, toute caméra sans éclairage crierait au sabotage chaque soir.
+   */
+  darkAbrupt: boolean;
+};
+export const EMPTY_TAMPER: TamperTrack = { dark: 0, uniform: 0, frozen: 0, moved: 0, darkAbrupt: false };
 
 export type TamperCfg = {
   /** Moyenne de luminance sous laquelle l'image est « noire » (objectif couvert, de nuit sans éclairage). */
@@ -55,21 +66,31 @@ export type TamperCfg = {
   grace: number;
   /** Marge au-dessus des seuils « noir / uniforme » pour qu'une trame soit EXPLOITABLE comme preuve. */
   clearMargin: number;
-  /** Écart de signature spatiale au-delà duquel la vue n'est plus la vue de référence. */
+  /**
+   * Écart de MOTIF au-delà duquel la vue n'est plus la vue de référence. Échelle de
+   * `signatureDistance` : 0 = même vue, 2 = motif exactement inversé.
+   */
   movedDist: number;
   /**
    * Trames consécutives avant de déclarer la caméra déplacée. Plus patient que `grace` : un véhicule
    * qui se gare devant l'objectif change aussi le motif, on ne crie qu'une fois que ça DURE.
    */
   movedGrace: number;
+  /**
+   * Chute de luminance, en UNE trame, à partir de laquelle l'entrée dans le noir est jugée BRUTALE
+   * (donc provoquée). Le crépuscule fait perdre quelques points par trame ; une bâche sur l'objectif
+   * fait tomber l'image d'un coup.
+   */
+  abruptDrop: number;
 };
 export const DEFAULT_TAMPER_CFG: TamperCfg = {
   darkMean: 12,
   uniformVar: 6,
   grace: 3,
   clearMargin: 1.5,
-  movedDist: 14,
+  movedDist: 0.8,
   movedGrace: 9,
+  abruptDrop: 35,
 };
 
 export type TamperVerdict = "masquee" | "figee" | "deplacee" | null;
@@ -108,17 +129,39 @@ export function sceneSignature(luma: Uint8Array, px: number, side = 4): number[]
 }
 
 /**
- * Écart entre deux signatures, INSENSIBLE À L'ÉCLAIRAGE : on retire d'abord à chaque signature sa
- * propre moyenne, donc seul le MOTIF compte. Un nuage, un phare ou le jour qui tombe décalent toutes
- * les cases ensemble → écart ~0 (c'est la même vue). Une caméra détournée change le motif → écart fort.
+ * Amplitude minimale du motif (en niveaux de luminance) en dessous de laquelle une signature n'a plus
+ * rien à dire : image plate, ou scène trop sombre pour que le motif sorte du bruit.
+ */
+const MIN_AMP = 1.5;
+
+/**
+ * Normalise une signature en MOTIF PUR : on retire la moyenne (décalage de luminosité) PUIS on divise
+ * par l'amplitude propre du motif (changement de contraste). Renvoie null quand il n'y a plus de motif
+ * exploitable — à ce moment-là on ne conclut rien plutôt que d'amplifier du bruit.
+ */
+function patternOf(a: number[]): number[] | null {
+  const m = a.reduce((s, v) => s + v, 0) / a.length;
+  const c = a.map((v) => v - m);
+  const amp = c.reduce((s, v) => s + Math.abs(v), 0) / c.length;
+  if (!(amp >= MIN_AMP)) return null;
+  return c.map((v) => v / amp);
+}
+
+/**
+ * Écart entre deux signatures, INSENSIBLE À L'ÉCLAIRAGE — au décalage ET au contraste. C'est la
+ * différence qui compte : un nuage ou un phare DÉCALENT toute la scène, mais le jour qui tombe la
+ * MULTIPLIE (l'éclairement module la réflectance). En ne comparant que le motif normalisé, le
+ * crépuscule donne un écart ~0, là où une caméra détournée change le motif lui-même.
+ * Repère d'échelle : deux vues identiques → 0 ; un motif exactement inversé → 2.
  */
 export function signatureDistance(a: number[], b: number[]): number {
   if (a.length !== b.length || a.length === 0) return 0;
-  const ma = a.reduce((s, v) => s + v, 0) / a.length;
-  const mb = b.reduce((s, v) => s + v, 0) / b.length;
+  const na = patternOf(a);
+  const nb = patternOf(b);
+  if (!na || !nb) return 0; // pas de motif exploitable des deux côtés : on ne conclut rien
   let sum = 0;
-  for (let i = 0; i < a.length; i++) sum += Math.abs((a[i]! - ma) - (b[i]! - mb));
-  return sum / a.length;
+  for (let i = 0; i < na.length; i++) sum += Math.abs(na[i]! - nb[i]!);
+  return sum / na.length;
 }
 
 /**
@@ -137,7 +180,8 @@ export function blendSignature(ref: number[], sig: number[], alpha = 0.05): numb
  * Met à jour l'état de sabotage d'une caméra pour une nouvelle trame. `sameAsPrev` = la trame est
  * quasi identique à la précédente (voir framesNearlyIdentical). Renvoie la piste mise à jour et un
  * verdict quand un état anormal DURE au-delà de `grace` trames.
- *   - masquee : sombre OU uniforme assez longtemps (objectif couvert/bombé/aspergé, image noire).
+ *   - masquee : uniforme CLAIR assez longtemps (bâche/peinture), ou noir assez longtemps MAIS entré
+ *               dans le noir d'un coup — une baisse progressive, c'est le crépuscule, pas un sabotage.
  *   - figee   : trames identiques assez longtemps (gelé / bouclé) — mais PAS quand c'est aussi noir
  *               (une image noire figée est d'abord un masquage).
  *   - deplacee: `sigFar` (le motif ne colle plus à la vue de référence) assez longtemps, sur une image
@@ -146,20 +190,29 @@ export function blendSignature(ref: number[], sig: number[], alpha = 0.05): numb
  */
 export function stepTamper(
   prev: TamperTrack,
-  obs: { mean: number; variance: number; sameAsPrev: boolean; sigFar?: boolean },
+  obs: { mean: number; variance: number; sameAsPrev: boolean; sigFar?: boolean; drop?: number },
   cfg: TamperCfg = DEFAULT_TAMPER_CFG,
 ): { track: TamperTrack; verdict: TamperVerdict; reason?: string } {
   const isDark = obs.mean <= cfg.darkMean;
   const isUniform = obs.variance <= cfg.uniformVar;
+  // Une image noire est AUSSI uniforme : si on comptait les deux, la nuit déclencherait la branche
+  // « uniforme » en contournant le test de brutalité. L'uniformité ne compte donc que CLAIRE — une
+  // bâche ou de la peinture sur l'objectif, qui elles ne ressemblent à aucune heure de la journée.
   const track: TamperTrack = {
     dark: isDark ? prev.dark + 1 : 0,
-    uniform: isUniform ? prev.uniform + 1 : 0,
+    uniform: isUniform && !isDark ? prev.uniform + 1 : 0,
     frozen: obs.sameAsPrev ? prev.frozen + 1 : 0,
     moved: obs.sigFar ? prev.moved + 1 : 0,
+    // Verrouillé à l'entrée dans le noir, puis tenu tant que la série dure.
+    darkAbrupt: isDark ? (prev.dark > 0 ? prev.darkAbrupt : (obs.drop ?? 0) >= cfg.abruptDrop) : false,
   };
   const g = Math.max(1, cfg.grace);
-  if (track.dark >= g || track.uniform >= g) {
-    return { track, verdict: "masquee", reason: isDark ? "image noire (objectif couvert ?)" : "image uniforme (objectif bâché/aspergé ?)" };
+  if (track.uniform >= g) {
+    return { track, verdict: "masquee", reason: "image uniforme (objectif bâché/aspergé ?)" };
+  }
+  // Noir SEULEMENT si la chute a été brutale : sinon c'est la nuit qui tombe, pas un sabotage.
+  if (track.dark >= g && track.darkAbrupt) {
+    return { track, verdict: "masquee", reason: "image noire (objectif couvert ?)" };
   }
   // Figé seulement si l'image n'est pas (aussi) noire : une image noire relève du masquage.
   if (track.frozen >= g && !isDark) {

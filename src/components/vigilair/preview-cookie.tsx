@@ -37,7 +37,8 @@ export function PreviewCookieHint() {
     try {
       const w = window.open(window.location.href, "_blank", "noopener");
       if (!w) {
-        window.location.href = window.location.href;
+        // Popup bloquée : on recharge sur place. (Se réaffecter location.href ne rechargeait rien.)
+        window.location.reload();
       }
     } catch {
       /* WebView sans popup */
