@@ -385,8 +385,12 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
     turnRate: 0,
     acoustic: null,
     pilotFix: null,
-    cpa: null,
-    siteWarned: true,
+    // Le CPA site est calculé par le store après la fusion (il lui faut les zones vivantes).
+    cpa: prev?.cpa ?? null,
+    // Verrou « déjà prévenu », à PRÉSERVER d'un relevé à l'autre : la piste est reconstruite à
+    // chaque tour, le remettre à zéro rejouerait l'alerte en boucle. Il valait « true » en dur,
+    // ce qui interdisait purement et simplement l'alerte d'approche sur le trafic réel.
+    siteWarned: prev?.siteWarned ?? false,
     launchFix: prev?.launchFix ?? {
       lat: ac.lat,
       lon: ac.lon,

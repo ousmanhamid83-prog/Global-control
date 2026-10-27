@@ -93,6 +93,22 @@ test("SAUT IMPOSSIBLE : la téléportation est refusée et signalée, la piste r
   assert.ok(t.coast, "on continue à l'estime en attendant un relevé crédible");
 });
 
+test("ALERTE SITE : une piste réelle naît DÉVERROUILLÉE, sinon l'alerte d'approche est impossible", () => {
+  // siteWarned valait « true » en dur à la création : la condition d'alerte (!siteWarned && …)
+  // était donc définitivement fausse sur tout le trafic réel.
+  const t = premier()[0]!;
+  assert.equal(t.siteWarned, false);
+});
+
+test("ALERTE SITE : le verrou « déjà prévenu » SURVIT d'un relevé à l'autre", () => {
+  // La piste est reconstruite à chaque tour : si le verrou repartait à zéro, l'alerte se rejouerait
+  // en boucle à chaque relevé. C'est l'autre moitié du correctif.
+  const avant = premier();
+  avant[0]!.siteWarned = true;
+  const apres = mergeLiveTracks(avant, [avion({ lon: 15.018 })], T0 + 10_000).tracks;
+  assert.equal(apres.find((x) => x.feed === "adsb")!.siteWarned, true);
+});
+
 test("SAUT NORMAL : un déplacement crédible est accepté tel quel", () => {
   const avant = premier();
   // 10 s à 720 km/h = 2 km vers l'est, soit environ 0,018° de longitude à cette latitude.

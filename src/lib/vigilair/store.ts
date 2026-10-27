@@ -37,6 +37,8 @@ import {
   mergeLiveTracks,
   type LivePicture,
 } from "./live-adsb";
+import { sampleCpa } from "./acoustics";
+import { siteApproach } from "./site-approach";
 import { indexTape, rejeuClock, tapeAt, type RejeuTape, type TapeIndex } from "./rejeu";
 import { treatContact } from "./treat";
 import { preloadAoTiles, preloadAt, SAT_CREDIT, tileRef } from "./tiles";
@@ -1564,25 +1566,27 @@ function applySim(dt: number) {
         acked: false,
       });
     }
+    // Le CPA est purement HORIZONTAL : sans plafond d'altitude, un avion de ligne à la verticale
+    // d'une mine afficherait une distance nulle « en rapprochement » et alerterait à chaque survol.
+    const cpa = t.cpa;
     if (
       !t.siteWarned &&
-      t.cpa &&
-      t.cpa.closing &&
-      t.cpa.distKm < 3.2 &&
+      cpa &&
+      siteApproach(t, cpa).relevant &&
       t.idState !== "hors-mandat" &&
       t.idState !== "perdu"
     ) {
       const plat = PLATFORM_BY_ID[t.truePlatformId];
       const level = plat?.threat ?? "moderee";
-      if (level === "elevee" || level === "critique" || t.cpa.distKm < 1.6) {
+      if (level === "elevee" || level === "critique" || cpa.distKm < 1.6) {
         t.siteWarned = true;
         alerts.push({
           id: `al-${t.id}-cpa`,
           trackId: t.id,
           at: now,
           level: level === "faible" ? "moderee" : level,
-          title: `${t.callsign} · approche ${t.cpa.name}`,
-          body: `${t.cpa.distKm.toFixed(1)} km · ${t.cpa.etaS ? `ETA ${Math.max(1, Math.round(t.cpa.etaS))} s` : "CPA"}`,
+          title: `${t.callsign} · approche ${cpa.name}`,
+          body: `${cpa.distKm.toFixed(1)} km · ${cpa.etaS ? `ETA ${Math.max(1, Math.round(cpa.etaS))} s` : "CPA"}`,
           acked: false,
         });
       }
@@ -1814,6 +1818,13 @@ export function ingestLivePicture(pic: LivePicture) {
   const now = Date.now();
   const { tracks, born, emergencies } = mergeLiveTracks(liveTracks, pic.aircraft, now);
   liveTracks = tracks;
+  // CPA SITE SUR LE TRAFIC RÉEL. Il n'était calculé que par la simulation : sur une piste 1090ES
+  // réelle il restait nul, donc l'alerte « approche d'un site protégé » ne pouvait jamais partir —
+  // exactement sur les pistes qui comptent. On le calcule ici, après la fusion, là où les zones
+  // vivantes sont connues.
+  for (const t of liveTracks) {
+    if (t.feed === "adsb") t.cpa = sampleCpa(t);
+  }
   // NOS drones : une piste live appariée au registre devient AMI (friendKind "drone") — elle n'est
   // plus comptée comme intrusion (isFriend l'exclut). AfriControl la SUIT, il ne la pilote pas.
   const drones = dronesPeek();

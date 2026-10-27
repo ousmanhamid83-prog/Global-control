@@ -177,6 +177,17 @@ Symbologie APP-6 et radar
   signal, jamais une identité : on ne dit pas qui ment, on dit que la trame ne tient pas debout.
   Les deux compteurs (« Pistes mémoire », « Relevés douteux ») sont dans le bandeau de la vue Radar,
   pour que l'opérateur sache en permanence ce qui est MESURÉ et ce qui ne l'est pas.
+- APPROCHE D'UN SITE PROTÉGÉ : l'alerte existait mais ne pouvait PAS partir sur du trafic réel — le
+  CPA n'était calculé que par la simulation, et une piste 1090ES naissait avec le verrou « déjà
+  prévenu » fermé. Autrement dit l'alerte la plus utile d'un poste de surveillance de site ne
+  fonctionnait que sur des pistes fictives. Le CPA est désormais calculé sur les pistes réelles, le
+  verrou est préservé d'un relevé à l'autre (sinon l'alerte se rejouerait en boucle), et surtout un
+  PLAFOND D'ALTITUDE a été ajouté : le CPA est purement horizontal, donc sans ce garde-fou un avion
+  de ligne à 10 000 m passant à la verticale d'une mine affichait une distance nulle « en
+  rapprochement » et aurait alerté à chaque survol. Ne compte comme approche que ce qui est BAS
+  (≤ 1500 m), EN MOUVEMENT, PROCHE (≤ 3,2 km) et EN RAPPROCHEMENT — ce qui laisse passer le cas qui
+  compte pour un site isolé : le petit, le lent et le très bas. Géométrie et cinématique, jamais
+  d'identité.
 - Débruitage (touche D, ou « Pertinent » dans Peinture) : à large portée le scope se remplit de
   transit civil lointain. Le débruitage ne garde que ce qui compte pour la sûreté du site — urgence,
   militaire, GNSS dégradé (NIC < 5), et tout contact à moins de 300 km de FTTJ — plus la piste
