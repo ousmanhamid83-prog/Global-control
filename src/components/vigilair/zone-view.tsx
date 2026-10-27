@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Shield } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,8 @@ export function ZoneView() {
   const lockTrack = useVigilair((s) => s.lockTrack);
   const [breaches, setBreaches] = useState<ZoneBreachRow[]>([]);
 
-  const reload = () => {
+  // Stable d'un rendu à l'autre : sinon l'intervalle ci-dessous serait recréé à chaque rendu.
+  const reload = useCallback(() => {
     listZones()
       .then((rows) => {
         setLiveZones(rows);
@@ -46,13 +47,13 @@ export function ZoneView() {
     listZoneBreaches()
       .then(setBreaches)
       .catch(() => setBreaches([]));
-  };
+  }, [setZones]);
 
   useEffect(() => {
     reload();
     const id = window.setInterval(reload, 10_000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [reload]);
 
   const statusOf = (id: string): ZoneLevel =>
     picture.find((p) => p.zone.id === id)?.level ?? "veille";

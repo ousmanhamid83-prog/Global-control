@@ -42,8 +42,12 @@ export function DutyWatch() {
     }, 1400);
   };
 
+  // On ne dépend que de l'IDENTITÉ de l'agent : l'effet lie la machine à la session, il n'a pas à
+  // rejouer parce qu'un autre champ du profil (libellé, rôle) a changé.
+  const profileUserId = profile?.userId;
+
   useEffect(() => {
-    if (isSuperadmin || !profile) return;
+    if (isSuperadmin || !profileUserId) return;
     let live = true;
     machineFingerprint()
       .then((fp) => {
@@ -66,7 +70,7 @@ export function DutyWatch() {
     return () => {
       live = false;
     };
-  }, [isSuperadmin, profile?.userId]);
+  }, [isSuperadmin, profileUserId]);
 
   useEffect(() => {
     let live = true;

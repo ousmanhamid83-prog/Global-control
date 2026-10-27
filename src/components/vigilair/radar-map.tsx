@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { PLATFORM_BY_ID } from "@/lib/vigilair/catalog";
+import { copHud, releaseLiveCop, setLiveCop } from "@/components/vigilair/cop-hud";
 import {
   AES_HULL,
   AO,
@@ -67,43 +68,6 @@ function clampPt(x: number, y: number, w: number, h: number) {
     y: Math.max(m, Math.min(h - m, y)),
     clipped: x < m || x > w - m || y < m || y > h - m,
   };
-}
-
-type CopHud = {
-  cursor: { x: number; y: number; lat: number; lon: number } | null;
-  a: { lat: number; lon: number } | null;
-  b: { lat: number; lon: number } | null;
-};
-
-const copHud: CopHud = { cursor: null, a: null, b: null };
-let liveCanvas: HTMLCanvasElement | null = null;
-
-export function armMeasure(
-  a: { lat: number; lon: number } | null,
-  b: { lat: number; lon: number } | null = null,
-) {
-  copHud.a = a;
-  copHud.b = b;
-}
-
-export function peekCopCursor() {
-  return copHud.cursor;
-}
-
-export function snapshotCop(): void {
-  const canvas = liveCanvas;
-  if (!canvas) return;
-  const scale = SCALE[useVigilair.getState().mapScale]?.label ?? "COP";
-  canvas.toBlob((blob) => {
-    if (!blob) return;
-    const now = new Date();
-    const stamp = now.toISOString().replace(/[:.]/g, "").slice(0, 15);
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `AfriControl-COP-${scale}-${stamp}.png`;
-    a.click();
-    window.setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-  }, "image/png");
 }
 
 const VECTOR_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300];
@@ -1529,7 +1493,7 @@ export function RadarMap({
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    liveCanvas = canvas;
+    setLiveCop(canvas);
     let raf = 0;
     let sweep = 0;
     const reduced =
@@ -1563,7 +1527,7 @@ export function RadarMap({
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
-      if (liveCanvas === canvas) liveCanvas = null;
+      releaseLiveCop(canvas);
     };
   }, []);
 

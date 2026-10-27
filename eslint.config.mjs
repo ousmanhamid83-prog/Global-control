@@ -15,6 +15,8 @@ export default tseslint.config(
       ".nitro/**",
       "node_modules/**",
       "src/routeTree.gen.ts",
+      // Sondes de débogage jetables, déjà hors du dépôt (.gitignore) : pas du code AfriControl.
+      "screenshots/**",
     ],
   },
   js.configs.recommended,

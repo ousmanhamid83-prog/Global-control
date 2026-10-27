@@ -241,11 +241,14 @@ function SpectroPanel({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hist = useRef<number[][]>([]);
 
+  // On ré-amorce la cascade SEULEMENT en changeant de piste. Dépendre de `track` entier la remettrait
+  // à zéro à chaque tic de la piste : le spectrogramme ne défilerait jamais.
   useEffect(() => {
     hist.current = [];
     if (track) {
       for (let i = 0; i < 90; i++) hist.current.push(spectrogramColumn(track, 56));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- volontaire : ne pas effacer l'historique à chaque tic
   }, [track?.id]);
 
   useEffect(() => {
@@ -341,8 +344,13 @@ function SpectroPanel({
 
 function useListen(track: Track | null, listening: boolean, wide: boolean) {
   const ac = track?.acoustic;
+  // Le graphe audio est reconstruit à chaque changement de dépendance : on ne dépend donc que de
+  // SCALAIRES. Dépendre de `track` ou du tableau `harmonics` (identités neuves à chaque rendu) le
+  // reconstruirait en continu — cliquetis à chaque tic de piste.
+  const trackId = track?.id ?? null;
+  const h2Hz = ac?.locked ? ac.harmonics[1] : 240;
   useEffect(() => {
-    const want = (listening && ac?.locked) || (wide && track);
+    const want = (listening && ac?.locked) || (wide && trackId !== null);
     if (!want) return;
     const Ctx =
       window.AudioContext ||
@@ -364,7 +372,7 @@ function useListen(track: Track | null, listening: boolean, wide: boolean) {
 
     const h2 = ctx.createOscillator();
     h2.type = "triangle";
-    h2.frequency.value = ac?.locked ? ac.harmonics[1] : 240;
+    h2.frequency.value = h2Hz;
     const hg = ctx.createGain();
     hg.gain.value = ac?.locked ? 0.05 : 0.02;
     h2.connect(hg).connect(master);
@@ -392,7 +400,7 @@ function useListen(track: Track | null, listening: boolean, wide: boolean) {
       noise.stop();
       void ctx.close();
     };
-  }, [listening, wide, ac?.locked, ac?.bpfHz, ac?.channel, track?.id]);
+  }, [listening, wide, ac?.locked, ac?.bpfHz, ac?.channel, trackId, h2Hz]);
 }
 
 function InterceptDossier({

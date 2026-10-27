@@ -5,7 +5,7 @@ import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import { PosteBoot } from "@/components/vigilair/poste-boot";
 import { PostePcRequis } from "@/components/vigilair/poste-pc";
 import { VigilairRuntime } from "@/components/vigilair/vigilair-runtime";
-import { StaffProvider } from "@/lib/vigilair/staff-context";
+import { StaffProvider } from "@/lib/vigilair/staff-provider";
 import appCss from "../styles.css?url";
 
 const APP_NAME = "AfriControl";

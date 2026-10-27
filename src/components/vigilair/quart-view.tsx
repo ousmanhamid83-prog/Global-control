@@ -63,8 +63,12 @@ export function QuartView() {
     reloadHistory();
   }, [watch?.id, watch?.status]);
 
+  // On recharge la note SEULEMENT quand on change de quart. Ajouter watch?.noteIn aux dépendances
+  // écraserait ce que l'opérateur est en train de taper dès que la note change côté serveur : le
+  // rétrécissement est voulu, pas un oubli.
   useEffect(() => {
     setNote(watch?.noteIn ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- volontaire : ne pas écraser la saisie en cours
   }, [watch?.id]);
 
   const liveSnap = snapFromPicture(pic, copExtras());

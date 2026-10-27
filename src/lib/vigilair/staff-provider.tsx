@@ -1,51 +1,27 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-} from "react";
+/**
+ * Fournisseur du contexte « agent de quart » : charge la fiche de l'agent connecté et coupe la
+ * session quand l'accès a été retiré. Séparé du contexte (staff-context.ts) pour que ce fichier
+ * n'exporte QUE son composant.
+ */
+import { useEffect, useState, type ReactNode } from "react";
 import { signOut } from "@/lib/auth/client";
 import { SIGN_IN_PATH } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
-import {
-  EJECTED_MSG,
-  ensureMyStaff,
-  type StaffProfile,
-  type StaffRole,
-  type StaffTeam,
-} from "./staff";
-
-type StaffState = {
-  profile: StaffProfile | null;
-  loading: boolean;
-  role: StaffRole | null;
-  team: StaffTeam | null;
-  isSuperadmin: boolean;
-  canDelete: boolean;
-  canArmEw: boolean;
-  applyProfile: (p: StaffProfile) => void;
-};
-
-const StaffContext = createContext<StaffState>({
-  profile: null,
-  loading: true,
-  role: null,
-  team: null,
-  isSuperadmin: false,
-  canDelete: false,
-  canArmEw: false,
-  applyProfile: () => undefined,
-});
+import { EJECTED_MSG, ensureMyStaff, type StaffProfile } from "./staff";
+import { StaffContext } from "./staff-context";
 
 export function StaffProvider({ children }: { children: ReactNode }) {
   const { user, isPending } = useCurrentUserState();
   const [profile, setProfile] = useState<StaffProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Seule l'IDENTITÉ compte ici : l'effet recharge la fiche agent, il n'a pas à rejouer parce qu'un
+  // autre champ de la session a changé.
+  const userId = user?.id;
+
   useEffect(() => {
     if (isPending) return;
-    if (!user) {
+    if (!userId) {
       setProfile(null);
       setLoading(false);
       return;
@@ -76,7 +52,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, isPending]);
+  }, [userId, isPending]);
 
   const isSuperadmin = profile?.role === "superadmin";
 
@@ -96,8 +72,4 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       {children}
     </StaffContext.Provider>
   );
-}
-
-export function useStaff(): StaffState {
-  return useContext(StaffContext);
 }

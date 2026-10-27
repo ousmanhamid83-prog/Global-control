@@ -1,4 +1,4 @@
-import { armMeasure } from "@/components/vigilair/radar-map";
+import { armMeasure } from "@/components/vigilair/cop-hud";
 import { AO } from "@/lib/vigilair/geo";
 import { useVigilair } from "@/lib/vigilair/store";
 import {
