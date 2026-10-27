@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Clock, Shield } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -63,13 +63,24 @@ export function QuartView() {
     reloadHistory();
   }, [watch?.id, watch?.status]);
 
-  // On recharge la note SEULEMENT quand on change de quart. Ajouter watch?.noteIn aux dépendances
-  // écraserait ce que l'opérateur est en train de taper dès que la note change côté serveur : le
-  // rétrécissement est voulu, pas un oubli.
+  /** Note enregistrée du quart, tenue à jour après chaque rendu. Déclaré AVANT l'effet qui la lit :
+   *  les effets s'exécutent dans l'ordre, la référence est donc fraîche au changement de quart. */
+  const noteInRef = useRef(watch?.noteIn ?? "");
   useEffect(() => {
-    setNote(watch?.noteIn ?? "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- volontaire : ne pas écraser la saisie en cours
-  }, [watch?.id]);
+    noteInRef.current = watch?.noteIn ?? "";
+  });
+
+  // On recharge le champ SEULEMENT en changeant de quart. Dépendre de la note elle-même écraserait ce
+  // que l'opérateur est en train de taper dès qu'elle change côté serveur — d'où la lecture par
+  // référence : la dépendance est l'IDENTITÉ du quart, pas son contenu.
+  const watchId = watch?.id ?? null;
+  useEffect(() => {
+    if (!watchId) {
+      setNote("");
+      return;
+    }
+    setNote(noteInRef.current);
+  }, [watchId]);
 
   const liveSnap = snapFromPicture(pic, copExtras());
   const mine = Boolean(profile && watch && watch.openedBy === profile.userId);
