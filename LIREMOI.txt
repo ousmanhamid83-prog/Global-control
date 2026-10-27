@@ -161,6 +161,22 @@ Symbologie APP-6 et radar
   active le « balayage total » (toutes à chaque relevé) pour la photo continentale la plus complète.
   Là où un agrégateur a un récepteur, de vrais avions remontent ; ailleurs la cellule est prête pour
   le jour où un récepteur apparaît. Réception passive, jamais d'identité.
+- PISTE MÉMOIRE (transpondeur muet) : quand une piste cesse d'émettre, elle n'est plus laissée FIGÉE
+  à sa dernière position en se faisant passer pour un retour vivant — à 800 km/h, un symbole gelé
+  45 s est 10 km à côté, et rien ne le disait. Le poste fait maintenant ce que fait un radar : il la
+  tient en mémoire, EXTRAPOLE sa position à l'estime (dernier cap, dernière vitesse), fait grandir un
+  cercle d'incertitude en pointillé autour du point prédit, écrit « MÉM » avec le nombre de secondes
+  de silence, et l'abandonne au-delà de 45 s. Intérêt direct pour la sûreté d'un site : un aéronef
+  qui COUPE son transpondeur en approche ne disparaît plus discrètement du scope — il devient une
+  piste mémoire signalée, avec une zone d'incertitude qui dit où il peut être.
+- RELEVÉ DOUTEUX (trame invraisemblable) : toute position reçue était acceptée telle quelle, si bien
+  qu'une trame brouillée, mal décodée ou falsifiée pouvait téléporter une piste. Chaque nouveau
+  relevé est désormais confronté au précédent : si le déplacement exigerait une vitesse impossible
+  (> 1500 km/h) ou une variation d'altitude impossible (> 80 m/s), le saut est REFUSÉ — la piste
+  continue à l'estime et le relevé est signalé avec son motif. Contrôle de cohérence physique du
+  signal, jamais une identité : on ne dit pas qui ment, on dit que la trame ne tient pas debout.
+  Les deux compteurs (« Pistes mémoire », « Relevés douteux ») sont dans le bandeau de la vue Radar,
+  pour que l'opérateur sache en permanence ce qui est MESURÉ et ce qui ne l'est pas.
 - Débruitage (touche D, ou « Pertinent » dans Peinture) : à large portée le scope se remplit de
   transit civil lointain. Le débruitage ne garde que ce qui compte pour la sûreté du site — urgence,
   militaire, GNSS dégradé (NIC < 5), et tout contact à moins de 300 km de FTTJ — plus la piste

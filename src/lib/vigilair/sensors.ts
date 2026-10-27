@@ -1,5 +1,5 @@
 import type { ProtectedSite, SensorSite } from "./types";
-import { AO } from "./geo";
+import { AO } from "./geo.ts";
 
 export const SENSOR_SITES: SensorSite[] = [
   {

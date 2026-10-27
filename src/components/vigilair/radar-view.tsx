@@ -173,6 +173,10 @@ export function RadarView() {
             <Item label="Période" value={`${(60 / ppi.rpm).toFixed(1)} s`} />
             <Item label="Site" value="FTTJ" />
             <Item label="Pistes dans le PPI" value={`${live.filter((t) => haversineKm(AO.airport.lat, AO.airport.lon, t.lat, t.lon) <= ppi.rangeKm).length}`} />
+            {/* Pistes dont la position est EXTRAPOLÉE (transpondeur muet), et relevés refusés comme
+                physiquement impossibles. L'opérateur doit savoir ce qui est mesuré et ce qui ne l'est pas. */}
+            <Item label="Pistes mémoire" value={`${live.filter((t) => t.coast).length}`} />
+            <Item label="Relevés douteux" value={`${live.filter((t) => t.suspectJump).length}`} />
           </dl>
 
           <div className="flex items-center gap-2">

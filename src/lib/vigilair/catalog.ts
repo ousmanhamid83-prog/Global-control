@@ -1,5 +1,5 @@
-import { EXTRA_PLATFORMS } from "./catalog-extra";
-import { FRIEND_PLATFORMS } from "./catalog-friends";
+import { EXTRA_PLATFORMS } from "./catalog-extra.ts";
+import { FRIEND_PLATFORMS } from "./catalog-friends.ts";
 import type { Origin, Platform, Threat, UasClass } from "./types";
 
 function p(row: Platform): Platform {

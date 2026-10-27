@@ -1,10 +1,11 @@
 /** 1090ES dump1090 / readsb — fusion en pistes AfriControl. AfriControl n'émet pas. */
 
 import type { Phenomenon } from "./capture";
-import { PLATFORM_BY_ID } from "./catalog";
-import { FRIEND_BY_ID } from "./catalog-friends";
-import { AO, haversineKm, theaterOf } from "./geo";
-import { M4_ABSENT_CIVIL } from "./iff";
+import { PLATFORM_BY_ID } from "./catalog.ts";
+import { checkJump, stepCoast } from "./coast.ts";
+import { FRIEND_BY_ID } from "./catalog-friends.ts";
+import { AO, haversineKm, theaterOf } from "./geo.ts";
+import { M4_ABSENT_CIVIL } from "./iff.ts";
 import type { IffFix, ModeSReply, Track, UasClass } from "./types";
 
 export const LIVE_CREDIT =
@@ -437,17 +438,45 @@ export function mergeLiveTracks(
     seen.add(ac.hex);
     const prev = prevByHex.get(ac.hex);
     const t = liveAcToTrack(ac, now, prev);
+    // PLAUSIBILITÉ : une position n'est acceptée que si elle est atteignable depuis la précédente
+    // dans le temps écoulé. Sinon la trame est fausse (brouillage, décodage raté, falsification) :
+    // on REFUSE le saut, on garde la piste à l'estime et on le signale à l'opérateur.
+    if (prev && prev.feed === "adsb") {
+      const dtS = (now - prev.lastUpdate) / 1000;
+      const v = checkJump(prev, t, dtS);
+      if (!v.ok) {
+        const dr = stepCoast(prev, now);
+        nextLive.push({
+          ...prev,
+          lat: dr.lat,
+          lon: dr.lon,
+          coast: { silentS: Math.round(dr.silentS), radiusKm: dr.radiusKm },
+          suspectJump: v.reason,
+        });
+        continue;
+      }
+    }
     nextLive.push(t);
     if (!prev) born.push(t);
     if (t.emergency && (!prev || prev.emergency !== t.emergency)) emergencies.push(t);
   }
+  // PISTE MUETTE : on ne la laisse plus figée à sa dernière position en se faisant passer pour un
+  // retour vivant. On la tient EN MÉMOIRE — position extrapolée à l'estime, incertitude croissante —
+  // puis on l'abandonne au-delà du délai. Un transpondeur qu'on coupe se voit, au lieu de disparaître.
   const stale: Track[] = [];
   for (const [hex, t] of prevByHex) {
     if (seen.has(hex)) continue;
-    if (now - t.lastUpdate < 45_000) {
-      stale.push({ ...t, lastUpdate: t.lastUpdate });
-    } else {
+    const dr = stepCoast(t, now);
+    if (dr.drop) {
       stale.push({ ...t, idState: "perdu", lastUpdate: now });
+    } else {
+      stale.push({
+        ...t,
+        lat: dr.lat,
+        lon: dr.lon,
+        coast: { silentS: Math.round(dr.silentS), radiusKm: dr.radiusKm },
+        lastUpdate: t.lastUpdate,
+      });
     }
   }
   const rest = existing.filter((t) => t.feed !== "adsb");

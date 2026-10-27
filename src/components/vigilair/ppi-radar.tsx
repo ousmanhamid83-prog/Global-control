@@ -484,6 +484,24 @@ function drawFrame(
     // à ce qui compte (sélection, verrou, urgence, piste non coopérative).
     const wide = params.rangeKm >= 2500;
     const quiet = wide && ami && !tr.locked && tr.id !== selectedId && !tr.emergency;
+    // PISTE MÉMOIRE : position EXTRAPOLÉE, pas mesurée. On trace le cercle d'incertitude (il grandit
+    // avec le silence) et on marque « MÉM » avec la durée, pour qu'elle ne puisse pas être confondue
+    // avec un retour vivant. Un transpondeur coupé doit SE VOIR, pas disparaître discrètement.
+    if (tr.coast) {
+      const rPx = Math.max(6, (tr.coast.radiusKm / params.rangeKm) * radius);
+      ctx.strokeStyle = hexAlpha(warn, 0.55);
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, rPx, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (!quiet) {
+        ctx.fillStyle = hexAlpha(warn, 0.95);
+        ctx.font = "400 9px 'IBM Plex Mono', monospace";
+        ctx.fillText(`MÉM ${tr.coast.silentS}s`, p.x + rPx + 3, p.y - 3);
+      }
+    }
     if (params.symbols) {
       drawApp6Air(ctx, p.x, p.y, tr.locked ? 9 : wide ? 5 : 7, affil, tr.locked ? warn : color, hexAlpha(color, 0.12));
     } else {

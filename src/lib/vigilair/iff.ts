@@ -1,7 +1,7 @@
 /** IFF Mode 4 — crypto FATL. AfriControl n'émet pas le challenge. */
-import { PLATFORM_BY_ID, threatRank } from "./catalog";
-import { AO, destPoint, haversineKm } from "./geo";
-import { SENSOR_SITES } from "./sensors";
+import { PLATFORM_BY_ID, threatRank } from "./catalog.ts";
+import { AO, destPoint, haversineKm } from "./geo.ts";
+import { SENSOR_SITES } from "./sensors.ts";
 import type {
   FriendKind,
   IffFix,

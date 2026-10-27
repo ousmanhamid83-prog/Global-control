@@ -274,6 +274,17 @@ export type Track = {
   friendKind?: FriendKind;
   /** Nom de NOTRE drone (registre du poste) quand cette piste a été appariée à un drone inscrit. */
   ownDrone?: string;
+  /**
+   * PISTE MÉMOIRE : la piste n'émet plus, la position affichée est EXTRAPOLÉE à l'estime, pas
+   * mesurée. `silentS` = durée du silence, `radiusKm` = incertitude autour du point prédit.
+   * Absent tant que la piste émet normalement.
+   */
+  coast?: { silentS: number; radiusKm: number };
+  /**
+   * Dernier relevé REFUSÉ parce que physiquement impossible (trame brouillée, décodage faux ou
+   * position falsifiée) : contient le motif. Incohérence de signal, jamais une identité.
+   */
+  suspectJump?: string;
   iff?: IffFix | null;
   /** Origine de la piste : sim COP, 1090ES live, Remote ID, ou rejeu de 1090ES réellement reçu. */
   feed?: "sim" | "adsb" | "rid" | "rejeu";
