@@ -94,10 +94,21 @@ export type DroneMotion = {
   note?: string;
   /** Capture : trame figée + surcouche mouvement + trace (data URL), pour revue humaine. */
   frame?: string;
+  /**
+   * Heure de la trame de preuve `frame` quand elle est ANTÉRIEURE à `at`. Cas du sabotage : la trame du
+   * moment ne montre plus rien (noire, bâchée, détournée), donc la preuve est la dernière vue NETTE
+   * d'avant la neutralisation — et il faut dire à l'opérateur de quand elle date.
+   */
+  frameAt?: number;
   /** Niveau de la dernière alerte liée (elevee / critique si périmètre armé). */
   level?: "elevee" | "critique";
-  /** Sabotage caméra détecté : objectif masqué/obscurci, ou flux figé (gelé/bouclé). Jamais d'identité. */
-  tamper?: "masquee" | "figee";
+  /**
+   * Sabotage caméra détecté : objectif masqué/obscurci, flux figé (gelé/bouclé), ou caméra détournée de
+   * son champ de vue. Jamais d'identité : on constate que la surveillance a été neutralisée.
+   */
+  tamper?: "masquee" | "figee" | "deplacee";
+  /** Ce que la caméra montre MAINTENANT (noir / bâché / figé / autre visée) : la preuve du sabotage. */
+  tamperFrame?: string;
 };
 import { reportZoneBreach } from "./zones-ops";
 

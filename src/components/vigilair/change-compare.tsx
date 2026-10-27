@@ -7,6 +7,7 @@ import { diffHeatmap } from "@/lib/vigilair/change-diff";
 import { addSensor, removeSensor, sensorsSnapshot, setSensorState, subscribeSensors, type SensorType } from "@/lib/vigilair/ground-sensors";
 import { addDrone, discoverOnvifClient, dronesSnapshot, registerCamerasClient, removeDrone, scanRangeClient, scanSourceClient, setDroneRule, setDroneZones, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
 import { addSiteNet, groupSites, hydrateSiteNets, perimeterSummaryLines, recordSiteScan, removeSiteNet, sectorHealth, siteNetsSnapshot, subscribeSiteNets } from "@/lib/vigilair/sitenets";
+import { requestRelearn } from "@/lib/vigilair/tamper-relearn";
 import { buildCapturePdf, buildTextPdf } from "@/lib/vigilair/capture-pdf";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { MINE_REGION_LABEL, MINES } from "@/lib/vigilair/mines";
@@ -84,6 +85,8 @@ function SiteManager() {
   const siteNetSectorThreshold = useVigilair((s) => s.siteNetSectorThreshold);
   const setSiteNetSectorThreshold = useVigilair((s) => s.setSiteNetSectorThreshold);
   const [zoomCap, setZoomCap] = useState<string | null>(null);
+  /** Source dont l'opérateur vient de valider la vue actuelle comme étant la bonne (re-visée volontaire). */
+  const [relearned, setRelearned] = useState<string | null>(null);
   const [roiEdit, setRoiEdit] = useState<string | null>(null);
   const [roiPts, setRoiPts] = useState<{ x: number; y: number }[]>([]);
   const [scanBusy, setScanBusy] = useState(false);
@@ -101,7 +104,10 @@ function SiteManager() {
   type NetScanState = { busy?: boolean; cams?: Awaited<ReturnType<typeof scanRangeClient>>["cameras"]; added?: string[]; removed?: string[]; at?: number; err?: string };
   const [netScan, setNetScan] = useState<Record<string, NetScanState>>({});
   const [openNetLog, setOpenNetLog] = useState<string | null>(null);
-  const exportPdf = async (d: { id: string; name: string; site: string }, m: { frame?: string; pct?: number | null; targets?: number; hint?: string; note?: string }) => {
+  const exportPdf = async (
+    d: { id: string; name: string; site: string },
+    m: { frame?: string; pct?: number | null; targets?: number; hint?: string; note?: string; tamper?: string; frameAt?: number },
+  ) => {
     if (!m.frame) return;
     try {
       const img = await loadImage(m.frame);
@@ -112,11 +118,22 @@ function SiteManager() {
       // On relie la capture à l'ÉTAT DU PÉRIMÈTRE RÉSEAU au même instant (caméras en ligne / tombées) :
       // utile en enquête (ex. une caméra du secteur tombée juste avant la présence captée).
       const perim = siteNets.length ? ["", `Perimetre reseau a ${new Date().toLocaleString("fr-FR")} :`, ...perimeterSummaryLines(siteNets)] : [];
+      // Dossier de SABOTAGE : l'image embarquée est la dernière vue nette d'AVANT la neutralisation —
+      // il faut donc dater l'image séparément du constat, sinon la preuve serait trompeuse.
+      const corps = m.tamper
+        ? [
+            `SABOTAGE CAMÉRA : ${m.tamper === "figee" ? "figée (flux gelé / bouclé)" : m.tamper === "deplacee" ? "déplacée (champ de vue modifié)" : "masquée (objectif couvert)"}`,
+            m.frameAt
+              ? `Image ci-dessus : DERNIÈRE VUE NETTE avant neutralisation, prise le ${new Date(m.frameAt).toLocaleString("fr-FR")}.`
+              : "Aucune vue nette n'avait été enregistrée avant la neutralisation : l'image est l'état neutralisé.",
+            "La surveillance elle-même a été neutralisée — vérification sur place requise.",
+          ]
+        : [`Mouvement : ${m.pct ?? 0}%  ·  Pistes : ${m.targets ?? 0}  ·  ${m.hint ?? ""}`];
       const lines = [
         "AfriControl — dossier de preuve (veille imagerie)",
         `Source : ${d.name}  ·  Site : ${d.site || "—"}`,
-        `Date : ${new Date().toLocaleString("fr-FR")}`,
-        `Mouvement : ${m.pct ?? 0}%  ·  Pistes : ${m.targets ?? 0}  ·  ${m.hint ?? ""}`,
+        `Date du constat : ${new Date().toLocaleString("fr-FR")}`,
+        ...corps,
         m.note ? `Note : ${m.note}` : "",
         "Détection de mouvement/présence, sans identité. L'identité reste à l'œil de l'opérateur.",
         "AfriControl : réception + analyse. Ne pilote pas, n'arme rien.",
@@ -967,7 +984,7 @@ function SiteManager() {
                     ) : null}
                     {m?.tamper ? (
                       <Badge data-drone-tamper={d.id} tone="crit">
-                        SABOTAGE · {m.tamper === "figee" ? "figée" : "masquée"}
+                        SABOTAGE · {m.tamper === "figee" ? "figée" : m.tamper === "deplacee" ? "déplacée" : "masquée"}
                       </Badge>
                     ) : m ? (
                       <Badge tone={m.error ? "warn" : alarmed ? "crit" : "default"}>
@@ -1015,6 +1032,35 @@ function SiteManager() {
                   ) : null}
                   {open && m?.frame ? (
                     <div className="space-y-2 rounded-sm border border-border bg-bg/60 p-2 text-[11px] text-muted-foreground">
+                      {m.tamper ? (
+                        <div data-drone-tamper-proof={d.id} className="space-y-1 rounded-sm border border-crit p-2">
+                          <div className="font-semibold text-crit">
+                            SABOTAGE — caméra {m.tamper === "figee" ? "figée" : m.tamper === "deplacee" ? "déplacée" : "masquée"}
+                          </div>
+                          <p>
+                            {m.frameAt ? (
+                              <>
+                                L'image ci-dessous est la <span className="text-fg">VRAIE IMAGE</span> : la dernière vue
+                                nette, prise à{" "}
+                                <span className="font-mono text-fg">{new Date(m.frameAt).toLocaleTimeString("fr-FR")}</span>,
+                                juste avant que la caméra soit neutralisée. Ce que la caméra montre MAINTENANT est la
+                                vignette « état actuel ».
+                              </>
+                            ) : (
+                              <>
+                                Aucune vue nette n'avait encore été enregistrée sur cette source : l'image ci-dessous est
+                                l'état neutralisé lui-même.
+                              </>
+                            )}
+                          </p>
+                          <p>
+                            {m.tamper === "deplacee"
+                              ? "La caméra ne regarde plus ce qu'elle surveillait. Si c'est vous qui l'avez re-visée, cliquez « Ré-apprendre la vue »."
+                              : "Vérifier sur place / envoyer une patrouille."}{" "}
+                            L'identité se lit à l'œil sur la capture — le logiciel n'en fait aucune.
+                          </p>
+                        </div>
+                      ) : null}
                       <div className="flex flex-wrap items-center gap-1.5">
                         <Button size="sm" variant="ghost" onClick={() => setZoomCap(zoomCap === d.id ? null : d.id)}>
                           {zoomCap === d.id ? "Réduire" : "Zoom"}
@@ -1022,6 +1068,16 @@ function SiteManager() {
                         <Button data-drone-pdf={d.id} size="sm" variant="ghost" onClick={() => void exportPdf(d, m)}>
                           Export PDF
                         </Button>
+                        {m.tamper ? (
+                          <Button
+                            data-drone-relearn={d.id}
+                            size="sm"
+                            variant="outline"
+                            onClick={() => { requestRelearn(d.id); setRelearned(d.id); }}
+                          >
+                            {relearned === d.id ? "Vue ré-apprise" : "Ré-apprendre la vue"}
+                          </Button>
+                        ) : null}
                         {(() => {
                           const zones = sourceZones(d);
                           return (
@@ -1087,11 +1143,37 @@ function SiteManager() {
                               </svg>
                             ) : null;
                           })()}
+                          {m.tamper && m.frameAt ? (
+                            <span className="absolute left-1 top-1 rounded-sm border border-crit bg-bg/80 px-1 py-0.5 font-mono text-[9.5px] text-crit">
+                              VRAIE IMAGE · {new Date(m.frameAt).toLocaleTimeString("fr-FR")}
+                            </span>
+                          ) : null}
                         </div>
+                        {/* Ce que la caméra montre MAINTENANT : la preuve qu'elle a été neutralisée. */}
+                        {m.tamper && m.tamperFrame && m.tamperFrame !== m.frame ? (
+                          <div className="w-40 shrink-0 space-y-1">
+                            <img
+                              data-drone-tamperframe={d.id}
+                              src={m.tamperFrame}
+                              alt={`état actuel ${d.name}`}
+                              className="block h-auto w-full rounded-sm border border-crit"
+                            />
+                            <div className="font-mono text-[9.5px] text-crit">
+                              ÉTAT ACTUEL · {new Date(m.at).toLocaleTimeString("fr-FR")}
+                            </div>
+                          </div>
+                        ) : null}
                         <div className="min-w-0 flex-1 space-y-1">
-                          <p className="text-fg">
-                            Mouvement <strong>{m.pct}%</strong> · {m.targets ?? 0} piste{(m.targets ?? 0) > 1 ? "s" : ""} · {m.hint} · {m.where}
-                          </p>
+                          {m.tamper ? (
+                            <p className="text-crit">
+                              Caméra {m.tamper === "figee" ? "figée" : m.tamper === "deplacee" ? "déplacée" : "masquée"} — pas
+                              d'analyse de mouvement possible tant que la surveillance est neutralisée.
+                            </p>
+                          ) : (
+                            <p className="text-fg">
+                              Mouvement <strong>{m.pct}%</strong> · {m.targets ?? 0} piste{(m.targets ?? 0) > 1 ? "s" : ""} · {m.hint} · {m.where}
+                            </p>
+                          )}
                           {m.tracks && m.tracks.length > 0 ? (
                             <ul className="font-mono text-[10.5px]">
                               {m.tracks.map((t) => (

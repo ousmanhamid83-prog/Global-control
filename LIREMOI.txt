@@ -311,17 +311,33 @@ Nos drones ET CAMÉRAS — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs
 - SABOTAGE CAMÉRA (l'intrus interne) : la vraie parade contre celui qui TRAVAILLE sur le site et croit
   « passer » en neutralisant la caméra. On ne cherche JAMAIS à reconnaître la personne (pas d'identité) —
   on surveille la SURVEILLANCE elle-même. Le poste mesure en continu la luminance et la stabilité de
-  chaque flux et lève une alerte CRITIQUE « SABOTAGE caméra » dans trois cas :
+  chaque flux et lève une alerte CRITIQUE « SABOTAGE caméra » dans quatre cas :
     · MASQUÉE  — objectif couvert / peint / sac dessus : l'image devient noire ou uniforme (plus aucun
       détail) pendant plusieurs trames d'affilée.
     · FIGÉE    — flux gelé / rejoué en boucle / câble image coupé : les trames restent strictement
       identiques alors qu'une vraie scène bouge toujours un peu.
+    · DÉPLACÉE — le coup d'après de celui qui sait qu'un objectif bâché se voit : il TOURNE la caméra
+      (vers un mur, le ciel, le sol) ou pose un obstacle devant. L'image reste claire et vivante, donc
+      invisible aux deux tests ci-dessus. Le poste compare le MOTIF de la scène à la vue de référence
+      qu'il a apprise de cette caméra. Le motif est centré avant comparaison : le jour qui tombe, un
+      nuage ou un phare décalent toutes les cases ensemble et ne comptent pas — seule la géométrie de
+      la vue compte. Plus patient que les autres (un camion qui se gare change aussi le motif) : on
+      n'alerte que si ça DURE. La référence suit la dérive légitime (végétation, saisons) mais n'adopte
+      JAMAIS d'elle-même une vue sabotée ; si c'est l'opérateur qui a volontairement re-visé la caméra,
+      un bouton « Ré-apprendre la vue » valide la nouvelle visée.
     · COUPÉE   — caméra débranchée / hors tension : le flux ne répond plus (déjà remonté par le journal
       et, pour les caméras réseau des sites distants, par la re-scrutation périodique « caméra DOWN »).
+  LA VRAIE IMAGE : au moment du sabotage, la trame du moment ne montre plus rien d'exploitable (écran
+  noir, bâche, mur). Elle ne vaut RIEN comme preuve. Le poste garde donc en permanence la dernière vue
+  NETTE de chaque caméra, et c'est ELLE qu'il présente comme preuve — horodatée « VRAIE IMAGE · hh:mm:ss »,
+  zoomable, et embarquée dans le dossier PDF. La trame neutralisée reste affichée à côté en vignette
+  « ÉTAT ACTUEL » : elle prouve que la caméra a bien été neutralisée. L'opérateur a donc les deux :
+  ce que la caméra voyait juste avant, et ce qu'on lui a fait.
   Garde-fou NUIT : une image noire la nuit sur une caméra qui n'a jamais rien éclairé n'est PAS un
   sabotage — on n'alerte au « noir » que si la caméra avait montré une scène éclairée auparavant. Le
   message dit clairement : la caméra est neutralisée, quelqu'un cherche peut-être à passer sans être
-  filmé — vérifier sur place / envoyer une patrouille. Détection de signal, sans identité.
+  filmé — vérifier sur place / envoyer une patrouille. Détection de signal, sans identité : ce qui est
+  détecté, c'est que la SURVEILLANCE a changé d'état, jamais qui est devant l'objectif.
 - FLUX / CADENCE : la cadence est réglable (Normale 15 s · Rapprochée 5 s · Continue 3 s) — plus serré
   = suivi quasi continu. L'URL accepte une IMAGE FIXE (snapshot JPEG) ou un FLUX MJPEG (le proxy en
   extrait la première trame). Le RTSP n'est PAS pris en charge directement (navigateur incapable de le

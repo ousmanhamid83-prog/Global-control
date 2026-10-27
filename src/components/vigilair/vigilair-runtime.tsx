@@ -9,7 +9,19 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { allBlobs, blobStats, diffHeatmap, foregroundDiff, frameHeading, isGlobalChange, mergeNearbyBlobs, presenceHint } from "@/lib/vigilair/change-diff";
 import { createRing, medianBackground, pushLuma, type FrameRing } from "@/lib/vigilair/motion-bg";
-import { EMPTY_TAMPER, framesNearlyIdentical, luminanceStats, stepTamper, type TamperTrack } from "@/lib/vigilair/tamper";
+import {
+  blendSignature,
+  DEFAULT_TAMPER_CFG,
+  EMPTY_TAMPER,
+  framesNearlyIdentical,
+  isClearFrame,
+  luminanceStats,
+  sceneSignature,
+  signatureDistance,
+  stepTamper,
+  type TamperTrack,
+} from "@/lib/vigilair/tamper";
+import { takeRelearn } from "@/lib/vigilair/tamper-relearn";
 import { confirmedTracks, detectOcclusions, isStationary, stepTracker, type Track2D } from "@/lib/vigilair/track2d";
 import { inArmWindow, pointInPolygon } from "@/lib/vigilair/zones2d";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
@@ -160,6 +172,14 @@ function DroneWatch() {
   const prevLumaRef = useRef<Map<string, Uint8Array>>(new Map());
   const litRef = useRef<Map<string, boolean>>(new Map());
   const lastTamper = useRef<Map<string, number>>(new Map());
+  /**
+   * Dernière trame NETTE de la vue NORMALE, par caméra. C'est LA vraie image : quand l'objectif est
+   * couvert ou la caméra détournée, la trame du moment ne montre plus rien — la preuve utile est
+   * celle-ci, prise juste avant la neutralisation.
+   */
+  const lastClearRef = useRef<Map<string, { url: string; at: number }>>(new Map());
+  /** Signature de la vue de RÉFÉRENCE apprise par caméra (pour repérer une caméra détournée). */
+  const viewRef = useRef<Map<string, number[]>>(new Map());
   /** Trames consécutives où la zone d'une présence immobile est VIDE (→ elle est partie, on libère). */
   const emptyStreak = useRef<Map<string, number>>(new Map());
   /** Pistage multi-cibles, par drone (sans identité) : pistes en cours, prochain id, heure du relevé. */
@@ -218,31 +238,75 @@ function DroneWatch() {
         const prevL = prevLumaRef.current.get(drone.id);
         const sameAsPrev = prevL ? framesNearlyIdentical(curLuma, prevL) : false;
         prevLumaRef.current.set(drone.id, curLuma);
-        const tam = stepTamper(tamperRef.current.get(drone.id) ?? EMPTY_TAMPER, { mean: tstats.mean, variance: tstats.variance, sameAsPrev });
+
+        // CAMÉRA DÉTOURNÉE : celui qui sait qu'un objectif masqué déclenche l'alerte tourne la caméra
+        // (mur, ciel, sol) — image claire et vivante, invisible aux deux tests ci-dessus. On compare donc
+        // le MOTIF de la scène à la vue de référence apprise. Le motif est centré avant comparaison : le
+        // jour qui tombe ou un phare ne compte pas, seule la géométrie de la vue compte.
+        const clear = isClearFrame(tstats);
+        const sig = sceneSignature(curLuma, PX);
+        if (takeRelearn(drone.id)) viewRef.current.delete(drone.id); // l'opérateur a re-visé volontairement
+        const refSig = viewRef.current.get(drone.id);
+        let sigFar = false;
+        if (clear) {
+          if (!refSig) viewRef.current.set(drone.id, sig); // première vue nette = vue de référence
+          else sigFar = signatureDistance(refSig, sig) >= DEFAULT_TAMPER_CFG.movedDist;
+        }
+        // La preuve, c'est la dernière trame nette de la vue NORMALE : on ne la remplace pas par une
+        // trame d'une vue déjà suspecte, sinon on perdrait justement l'image qui sert à quelque chose.
+        if (clear && !sigFar) lastClearRef.current.set(drone.id, { url: res.dataUrl, at: Date.now() });
+
+        const tam = stepTamper(tamperRef.current.get(drone.id) ?? EMPTY_TAMPER, { mean: tstats.mean, variance: tstats.variance, sameAsPrev, sigFar });
         tamperRef.current.set(drone.id, tam.track);
         // Image noire sur une caméra qui n'a JAMAIS montré de scène éclairée : probablement la nuit sans
         // éclairage, pas un masquage → on ne crie pas au sabotage.
         const darkByNight = tam.verdict === "masquee" && (tam.reason ?? "").includes("noire") && !(litRef.current.get(drone.id) ?? false);
         if (tam.verdict && !darkByNight) {
-          const label = tam.verdict === "figee" ? "figée" : "masquée";
-          setDroneMotion(drone.id, { pct: null, at: Date.now(), tamper: tam.verdict, note: `sabotage : ${tam.reason}`, frame: res.dataUrl, level: "critique" });
+          const label = tam.verdict === "figee" ? "figée" : tam.verdict === "deplacee" ? "déplacée" : "masquée";
+          // LA VRAIE IMAGE : la trame du moment ne montre plus rien d'exploitable (noire, bâchée, ou
+          // tournée vers un mur). Ce qu'il faut à l'opérateur, c'est la dernière vue NETTE d'avant la
+          // neutralisation — c'est elle qui part en preuve (et dans le dossier PDF). La trame du moment
+          // reste attachée à côté : elle prouve que la caméra a bien été neutralisée.
+          const shot = lastClearRef.current.get(drone.id);
+          setDroneMotion(drone.id, {
+            pct: null,
+            at: Date.now(),
+            tamper: tam.verdict,
+            note: `sabotage : ${tam.reason}`,
+            frame: shot?.url ?? res.dataUrl,
+            frameAt: shot?.at,
+            tamperFrame: res.dataUrl,
+            level: "critique",
+          });
           pushDroneLog(drone.id, { at: Date.now(), ok: false, msg: `sabotage : caméra ${label}` });
           const lastT = lastTamper.current.get(drone.id) ?? 0;
           if (Date.now() - lastT > 5 * 60 * 1000) {
             lastTamper.current.set(drone.id, Date.now());
+            const quoi =
+              tam.verdict === "deplacee"
+                ? "La caméra ne regarde plus ce qu'elle surveillait"
+                : "La caméra est neutralisée";
+            const preuve = shot
+              ? ` Dernière image nette conservée : ${new Date(shot.at).toLocaleTimeString("fr-FR")} — à lire à l'œil dans « Capture ».`
+              : " Aucune image nette n'avait encore été prise sur cette source.";
             pushAlert({
               id: `tamper-${drone.id}-${Date.now()}`,
               trackId: "",
               at: Date.now(),
               level: "critique",
               title: `${drone.name} · SABOTAGE caméra (${label})`,
-              body: `${tam.reason}. La caméra est neutralisée — quelqu'un cherche peut-être à passer sans être filmé (intrus interne ?). Vérifier sur place / envoyer une patrouille. Détection de signal, sans identité.`,
+              body: `${tam.reason}. ${quoi} — quelqu'un cherche peut-être à passer sans être filmé (intrus interne ?). Vérifier sur place / envoyer une patrouille.${preuve} Détection de signal, sans identité.`,
               acked: false,
             });
             navBeep();
           }
           return; // caméra neutralisée : on n'analyse pas le mouvement et on ne nourrit pas le fond
         }
+        // Rien d'anormal : la vue de référence suit la dérive LÉGITIME de la scène (végétation, saisons,
+        // véhicule garé pour de bon). On n'adapte QUE sur une vue qui colle encore à la référence : sinon
+        // la référence glisserait vers la vue suspecte pendant le délai de grâce et affaiblirait la
+        // détection — une vue sabotée ne devient jamais la nouvelle normale toute seule.
+        if (clear && !sigFar && refSig) viewRef.current.set(drone.id, blendSignature(refSig, sig));
 
         // Fond MULTI-TRAMES : la médiane des N dernières trames. Un objet qui traverse ne décale pas
         // la médiane, un éclair d'une trame est rejeté → détection plus stable, sans bandes.
