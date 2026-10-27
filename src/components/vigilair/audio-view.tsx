@@ -241,15 +241,24 @@ function SpectroPanel({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hist = useRef<number[][]>([]);
 
-  // On ré-amorce la cascade SEULEMENT en changeant de piste. Dépendre de `track` entier la remettrait
-  // à zéro à chaque tic de la piste : le spectrogramme ne défilerait jamais.
+  /** Piste la plus fraîche, tenue à jour après chaque rendu (déclaré AVANT l'amorçage ci-dessous :
+   *  les effets s'exécutent dans l'ordre, la référence est donc à jour quand l'amorçage la lit). */
+  const trackRef = useRef<Track | null>(track);
+  useEffect(() => {
+    trackRef.current = track;
+  });
+
+  // On ré-amorce la cascade SEULEMENT en changeant de piste : la remettre à zéro à chaque tic de la
+  // piste empêcherait le spectrogramme de défiler. D'où la lecture par référence — la dépendance est
+  // l'IDENTITÉ de la piste, pas son contenu qui bouge en continu.
+  const trackId = track?.id ?? null;
   useEffect(() => {
     hist.current = [];
-    if (track) {
-      for (let i = 0; i < 90; i++) hist.current.push(spectrogramColumn(track, 56));
+    const t = trackRef.current;
+    if (trackId && t) {
+      for (let i = 0; i < 90; i++) hist.current.push(spectrogramColumn(t, 56));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- volontaire : ne pas effacer l'historique à chaque tic
-  }, [track?.id]);
+  }, [trackId]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
