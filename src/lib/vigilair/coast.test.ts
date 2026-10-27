@@ -5,7 +5,11 @@ import {
   coastRadiusKm,
   deadReckon,
   DEFAULT_COAST_CFG,
+  DUP_ADDR_RUN,
+  DUP_ADDR_WINDOW_MS,
   impliedSpeedKmh,
+  noteJump,
+  suspectActive,
   stepCoast,
 } from "./coast.ts";
 import { haversineKm } from "./geo.ts";
@@ -75,6 +79,36 @@ test("stepCoast : la piste muette est EXTRAPOLÉE, pas figée", () => {
   assert.ok(Math.abs(haversineKm(12, 15, apres20s.lat, apres20s.lon) - 4) < 0.2);
   assert.ok(apres20s.radiusKm > 0);
   assert.equal(apres20s.drop, false);
+});
+
+test("noteJump : une trame ratée isolée garde son motif, la RÉPÉTITION accuse l'adresse", () => {
+  const T = 1_000_000;
+  // Un seul relevé refusé : c'est une trame brouillée, on n'accuse personne.
+  const un = noteJump(null, T, "saut de position : 90000 km/h impliqués");
+  assert.equal(un.run, 1);
+  assert.equal(un.dupAddr, false);
+  assert.match(un.label, /saut de position/);
+
+  // Des refus RÉPÉTÉS dans la fenêtre, même entrecoupés de bonnes trames : deux émetteurs.
+  let st = un;
+  for (let i = 2; i <= DUP_ADDR_RUN; i++) st = noteJump(st, T + i * 10_000, "saut de position");
+  assert.equal(st.run, DUP_ADDR_RUN);
+  assert.equal(st.dupAddr, true);
+  assert.match(st.label, /adresse ICAO partagée/);
+  assert.equal(st.since, T, "la fenêtre garde son origine");
+});
+
+test("noteJump : l'épisode se ferme un délai après le DERNIER incident, pas le premier", () => {
+  const T = 1_000_000;
+  const episode = { run: 5, since: T, at: T + 120_000 };
+  // Ancré sur le dernier incident : toujours vivant bien après le premier.
+  assert.equal(suspectActive(episode, T + 120_000 + DUP_ADDR_WINDOW_MS), true);
+  assert.equal(suspectActive(episode, T + 120_000 + DUP_ADDR_WINDOW_MS + 1), false);
+  assert.equal(suspectActive(null, T), false);
+  // Un refus hors épisode en ouvre un neuf, il ne s'empile pas sur une vieille histoire.
+  const neuf = noteJump(episode, T + 120_000 + DUP_ADDR_WINDOW_MS + 1, "saut de position");
+  assert.equal(neuf.run, 1);
+  assert.equal(neuf.dupAddr, false);
 });
 
 test("stepCoast : au-delà du délai, la piste est abandonnée", () => {

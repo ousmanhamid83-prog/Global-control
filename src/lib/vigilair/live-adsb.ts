@@ -2,7 +2,7 @@
 
 import type { Phenomenon } from "./capture";
 import { PLATFORM_BY_ID } from "./catalog.ts";
-import { checkJump, stepCoast } from "./coast.ts";
+import { checkJump, noteJump, stepCoast, suspectActive } from "./coast.ts";
 import { FRIEND_BY_ID } from "./catalog-friends.ts";
 import { AO, haversineKm, theaterOf } from "./geo.ts";
 import { M4_ABSENT_CIVIL } from "./iff.ts";
@@ -450,15 +450,27 @@ export function mergeLiveTracks(
       const v = checkJump(prev, t, dtS);
       if (!v.ok) {
         const dr = stepCoast(prev, now);
+        // Un relevé refusé isolé, c'est une trame ratée. Plusieurs d'affilée, c'est que la position
+        // fait du ping-pong : deux émetteurs se partagent très probablement la même adresse ICAO.
+        // Le dédoublonnage par adresse, en amont, ne peut pas le voir — il garde juste le dernier.
+        const st = noteJump(prev.suspect, now, v.reason ?? "relevé incohérent");
         nextLive.push({
           ...prev,
           lat: dr.lat,
           lon: dr.lon,
           coast: { silentS: Math.round(dr.silentS), radiusKm: dr.radiusKm },
-          suspectJump: v.reason,
+          suspectJump: st.label,
+          suspect: { run: st.run, since: st.since, at: st.at },
         });
         continue;
       }
+    }
+    // Un relevé crédible n'efface pas un épisode en cours : l'anomalie est une propriété de
+    // l'ADRESSE sur la durée, pas du dernier relevé. Deux émetteurs qui alternent donnent une bonne
+    // trame sur deux — tout effacer ici rendrait le doublon indétectable.
+    if (prev && suspectActive(prev.suspect, now)) {
+      t.suspectJump = prev.suspectJump;
+      t.suspect = prev.suspect;
     }
     nextLive.push(t);
     if (!prev) born.push(t);

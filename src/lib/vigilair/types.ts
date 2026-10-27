@@ -285,6 +285,12 @@ export type Track = {
    * position falsifiée) : contient le motif. Incohérence de signal, jamais une identité.
    */
   suspectJump?: string;
+  /**
+   * Épisode de relevés incohérents en cours : combien, depuis quand, et quand remonte le dernier.
+   * La RÉPÉTITION est ce qui trahit une adresse ICAO tenue par deux émetteurs — un refus isolé est
+   * seulement une trame ratée. L'épisode se referme un délai après le dernier incident.
+   */
+  suspect?: { run: number; since: number; at: number };
   iff?: IffFix | null;
   /** Origine de la piste : sim COP, 1090ES live, Remote ID, ou rejeu de 1090ES réellement reçu. */
   feed?: "sim" | "adsb" | "rid" | "rejeu";

@@ -188,6 +188,19 @@ Symbologie APP-6 et radar
   (≤ 1500 m), EN MOUVEMENT, PROCHE (≤ 3,2 km) et EN RAPPROCHEMENT — ce qui laisse passer le cas qui
   compte pour un site isolé : le petit, le lent et le très bas. Géométrie et cinématique, jamais
   d'identité.
+- TRANSPONDEUR COUPÉ PRÈS D'UN SITE : la piste mémoire était dessinée mais ne prévenait personne.
+  Un aéronef BAS qui cesse d'émettre à proximité d'un site protégé est précisément ce qu'un poste
+  doit voir — c'est le geste de qui ne veut pas être suivi. Alerte ÉLEVÉE, une fois par piste, avec
+  la durée du silence, l'altitude, la distance au site et le rayon d'incertitude (« ce n'est plus
+  une mesure »). Oubliée dès que la piste ré-émet.
+- ADRESSE ICAO PARTAGÉE (doublon) : deux émetteurs sur la même adresse ne se voient PAS par un
+  dédoublonnage par adresse — celui-ci garde simplement le dernier reçu. Ce qui les trahit, c'est
+  que leurs positions alternent : un relevé sur deux est physiquement impossible. Compter les refus
+  CONSÉCUTIFS ne marcherait pas (une bonne trame sur deux remettrait le compteur à zéro) : on compte
+  donc les relevés incohérents d'un même ÉPISODE, qui se referme 60 s après le dernier incident.
+  Au-delà de 3, le poste ne parle plus de « trame ratée » mais d'adresse vraisemblablement tenue par
+  deux émetteurs. Un relevé douteux isolé reste signalé pour ce qu'il est. Incohérence de signal,
+  jamais une identité : on ne dit pas qui ment, on dit que l'adresse ne tient pas debout.
 - Débruitage (touche D, ou « Pertinent » dans Peinture) : à large portée le scope se remplit de
   transit civil lointain. Le débruitage ne garde que ce qui compte pour la sûreté du site — urgence,
   militaire, GNSS dégradé (NIC < 5), et tout contact à moins de 300 km de FTTJ — plus la piste

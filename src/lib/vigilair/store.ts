@@ -38,7 +38,8 @@ import {
   type LivePicture,
 } from "./live-adsb";
 import { sampleCpa } from "./acoustics";
-import { siteApproach } from "./site-approach";
+import { DUP_ADDR_RUN } from "./coast";
+import { DEFAULT_APPROACH_CFG, siteApproach } from "./site-approach";
 import { indexTape, rejeuClock, tapeAt, type RejeuTape, type TapeIndex } from "./rejeu";
 import { treatContact } from "./treat";
 import { preloadAoTiles, preloadAt, SAT_CREDIT, tileRef } from "./tiles";
@@ -376,6 +377,9 @@ let loopStarted = false;
 let liveTracks: Track[] = [];
 let spawned = 0;
 const raidWarned = new Set<string>();
+/** Pistes déjà signalées muettes / incohérentes : on prévient une fois, pas à chaque relevé. */
+const coastWarned = new Set<string>();
+const jumpWarned = new Set<string>();
 const zoneWarned = new Set<string>();
 const phenomWarned = new Set<string>();
 const snaps: Snap[] = [];
@@ -1591,6 +1595,49 @@ function applySim(dt: number) {
         });
       }
     }
+  }
+
+  // TRANSPONDEUR COUPÉ PRÈS D'UN SITE. C'était toute la raison d'être de la piste mémoire, et elle
+  // restait muette : on la dessinait, sans jamais prévenir. Un aéronef BAS qui cesse d'émettre à
+  // proximité d'un site protégé est précisément ce qu'un poste doit voir — c'est le geste de qui ne
+  // veut pas être suivi. On prévient une fois par piste, et on oublie dès qu'elle ré-émet.
+  for (const t of liveTracks) {
+    if (!t.coast || t.altM > DEFAULT_APPROACH_CFG.ceilingM || !t.cpa || t.cpa.distKm > DEFAULT_APPROACH_CFG.watchKm) {
+      coastWarned.delete(t.id);
+      continue;
+    }
+    if (coastWarned.has(t.id)) continue;
+    coastWarned.add(t.id);
+    alerts.push({
+      id: `al-${t.id}-coast`,
+      trackId: t.id,
+      at: now,
+      level: "elevee",
+      title: `${t.callsign} · transpondeur muet près de ${t.cpa.name}`,
+      body: `Plus de relevé depuis ${t.coast.silentS} s à ${Math.round(t.altM)} m, ${t.cpa.distKm.toFixed(1)} km du site. Position estimée à ±${t.coast.radiusKm.toFixed(1)} km — ce n'est plus une mesure.`,
+      acked: false,
+    });
+  }
+  // RELEVÉ INVRAISEMBLABLE : détecté depuis le lot précédent, mais jamais remonté à l'opérateur.
+  for (const t of liveTracks) {
+    if (!t.suspectJump) {
+      jumpWarned.delete(t.id);
+      continue;
+    }
+    if (jumpWarned.has(t.id)) continue;
+    jumpWarned.add(t.id);
+    const dup = (t.suspect?.run ?? 0) >= DUP_ADDR_RUN;
+    alerts.push({
+      id: `al-${t.id}-jump`,
+      trackId: t.id,
+      at: now,
+      level: dup ? "elevee" : "moderee",
+      title: dup
+        ? `${t.callsign} · adresse ICAO douteuse`
+        : `${t.callsign} · relevé incohérent`,
+      body: `${t.suspectJump}. Position refusée, piste tenue à l'estime. Incohérence du signal — aucune identité n'est mise en cause.`,
+      acked: false,
+    });
   }
 
   const raids = detectRaids(liveTracks);

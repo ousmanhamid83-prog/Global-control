@@ -118,6 +118,69 @@ export function checkJump(
   return { ok: true, impliedKmh };
 }
 
+/**
+ * Relevés refusés d'affilée au-delà desquels ce n'est plus une trame ratée mais, très probablement,
+ * DEUX ÉMETTEURS sur la même adresse ICAO : leurs positions alternent, donc chaque relevé contredit
+ * le précédent. Un dédoublonnage par adresse ne peut pas le voir — il garde simplement le dernier.
+ */
+export const DUP_ADDR_RUN = 3;
+
+/**
+ * Fenêtre sur laquelle on compte les relevés refusés. Compter les refus CONSÉCUTIFS ne marche pas :
+ * deux émetteurs qui alternent donnent « faux refusé, vrai accepté, faux refusé… », et un compteur
+ * remis à zéro à chaque bonne trame ne dépasse jamais 1 — précisément sur le cas qu'il vise.
+ * Ce qui trahit une adresse partagée, c'est la RÉPÉTITION dans le temps, pas l'enchaînement.
+ */
+export const DUP_ADDR_WINDOW_MS = 60_000;
+
+export type SuspectState = {
+  /** Relevés refusés comptés dans l'épisode courant. */
+  run: number;
+  /** Début de l'épisode (ms) : sert à dire sur quelle durée les incidents se sont produits. */
+  since: number;
+  /** Dernier incident (ms). L'épisode se ferme `windowMs` après LUI, pas après le premier. */
+  at: number;
+};
+
+/**
+ * L'épisode est-il encore ouvert ? On mesure depuis le DERNIER incident : tant que les relevés
+ * incohérents continuent d'arriver, l'anomalie reste vivante. L'ancrer sur le premier la ferait
+ * expirer au milieu d'un brouillage toujours en cours, et l'alerte clignoterait à chaque fenêtre.
+ */
+export function suspectActive(
+  s: { at: number } | null | undefined,
+  now: number,
+  windowMs = DUP_ADDR_WINDOW_MS,
+): boolean {
+  return !!s && now - s.at <= windowMs;
+}
+
+/**
+ * Enregistre un relevé refusé. Tant que l'épisode est ouvert on cumule ; sinon on en ouvre un neuf.
+ * Une trame ratée isolée garde son motif physique ; la répétition devient une adresse ICAO
+ * vraisemblablement tenue par deux émetteurs.
+ */
+export function noteJump(
+  prev: SuspectState | null | undefined,
+  now: number,
+  reason: string,
+  windowMs = DUP_ADDR_WINDOW_MS,
+): SuspectState & { label: string; dupAddr: boolean } {
+  const open = suspectActive(prev, now, windowMs);
+  const run = open ? prev!.run + 1 : 1;
+  const since = open ? prev!.since : now;
+  const dupAddr = run >= DUP_ADDR_RUN;
+  return {
+    run,
+    since,
+    at: now,
+    dupAddr,
+    label: dupAddr
+      ? `adresse ICAO partagée ? ${run} relevés incohérents en ${Math.round((now - since) / 1000)} s`
+      : reason,
+  };
+}
+
 export type CoastState = {
   /** Depuis combien de secondes la piste n'a plus rien émis. */
   silentS: number;

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mergeLiveTracks, type LiveAc } from "./live-adsb.ts";
-import { DEFAULT_COAST_CFG } from "./coast.ts";
+import { DEFAULT_COAST_CFG, DUP_ADDR_WINDOW_MS } from "./coast.ts";
 import { haversineKm } from "./geo.ts";
 import type { Track } from "./types.ts";
 
@@ -117,4 +117,37 @@ test("SAUT NORMAL : un déplacement crédible est accepté tel quel", () => {
   assert.equal(t.suspectJump, undefined);
   assert.equal(t.coast, undefined);
   assert.ok(Math.abs(t.lon - 15.018) < 1e-6, "la position mesurée est adoptée");
+});
+
+test("DOUBLON ICAO : deux émetteurs qui ALTERNENT sont démasqués", () => {
+  // Le cas réel : l'émetteur légitime (lat 12) et un second sur la même adresse (lat 14.7) parlent
+  // à tour de rôle. La piste se cale sur le légitime et refuse l'autre une fois sur deux — donc un
+  // compteur de refus CONSÉCUTIFS ne dépasserait jamais 1. C'est la répétition qui trahit.
+  let etat = premier();
+  let t = etat.find((x) => x.feed === "adsb")!;
+  let lon = 15.0;
+  for (let i = 1; i <= 8; i++) {
+    const faux = i % 2 === 1;
+    lon += 0.018; // l'émetteur légitime avance normalement vers l'est
+    etat = mergeLiveTracks(
+      etat,
+      [faux ? avion({ lat: 14.7, lon }) : avion({ lon })],
+      T0 + i * 10_000,
+    ).tracks;
+    t = etat.find((x) => x.feed === "adsb")!;
+  }
+  assert.ok((t.suspect?.run ?? 0) >= 3, `attendu >= 3 refus comptés, obtenu ${t.suspect?.run}`);
+  assert.match(t.suspectJump ?? "", /adresse ICAO partagée/);
+});
+
+test("DOUBLON ICAO : l'anomalie s'oublie une fois la fenêtre passée sans incident", () => {
+  const apresFaux = mergeLiveTracks(premier(), [avion({ lat: 14.7 })], T0 + 10_000).tracks;
+  assert.ok(apresFaux.find((x) => x.feed === "adsb")!.suspectJump);
+  // Rien d'anormal pendant toute la fenêtre : la piste redevient saine.
+  const tard = T0 + 10_000 + DUP_ADDR_WINDOW_MS + 1000;
+  // 71 s a 720 km/h = ~14 km : un deplacement credible, sinon le relevé serait refusé lui aussi.
+  const propre = mergeLiveTracks(apresFaux, [avion({ lon: 15.13 })], tard).tracks;
+  const t = propre.find((x) => x.feed === "adsb")!;
+  assert.equal(t.suspectJump, undefined);
+  assert.equal(t.suspect, undefined);
 });
