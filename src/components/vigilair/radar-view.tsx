@@ -5,12 +5,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PLATFORM_BY_ID, classLabel, originLabel } from "@/lib/vigilair/catalog";
 import { AO, formatCoord, haversineKm, headingBetween } from "@/lib/vigilair/geo";
-import { iffModesLine, m4Label, m4Tone } from "@/lib/vigilair/iff";
+import { iffModesLine, m4Label, m4Tone, passesPaintFilter } from "@/lib/vigilair/iff";
 import { PPI_RANGES, TIME_VECTORS, prfHz, type PpiRangeKm } from "@/lib/vigilair/ppi";
 import { useStaff } from "@/lib/vigilair/staff-context";
 import { affiliationLabel, affiliationOf } from "@/lib/vigilair/app6";
 import { rejeuClock } from "@/lib/vigilair/rejeu";
-import { trackVisible, threatOf, useVigilair } from "@/lib/vigilair/store";
+import { threatOf, useVigilair } from "@/lib/vigilair/store";
 import type { Track } from "@/lib/vigilair/types";
 import { cn } from "@/lib/utils";
 import { Crosshair, EyeOff, Fingerprint } from "lucide-react";
@@ -30,11 +30,14 @@ export function RadarView() {
   const iffFilter = useVigilair((s) => s.iffFilter);
   const showFriends = useVigilair((s) => s.showFriends);
   const showLive = useVigilair((s) => s.showLive);
+  // On applique le filtre de peinture avec les valeurs NOMMÉES plutôt que via trackVisible, qui les
+  // relit par getState : la dépendance devient réelle au lieu d'être masquée, donc la liste se
+  // recalcule bien au basculement d'un filtre, sans avoir à museler la règle des dépendances.
   const live = useMemo(
-    () => tracks.filter((t) => trackVisible(t, selectedId)),
-    // trackVisible lit ces filtres via getState ; ESLint ne voit pas la dépendance, mais elle est
-    // nécessaire pour recalculer la liste au basculement d'un filtre.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    () =>
+      tracks.filter((t) =>
+        passesPaintFilter(t, { declutter, threatFloor, iffFilter, showFriends, showLive, selectedId }),
+      ),
     [tracks, selectedId, declutter, threatFloor, iffFilter, showFriends, showLive],
   );
   const { isSuperadmin } = useStaff();

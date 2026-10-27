@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Compass, Crosshair, Download, Eraser, FolderOpen, Mountain, Navigation, Plus, RotateCcw, Route, Save, Trash2, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -297,15 +297,25 @@ export function NavPanel() {
   }, [start, dest, waypoints]);
   const ready = pts.length >= 2;
 
-  // Déclinaison auto-estimée depuis le départ (éditable).
+  /** Déclinaison saisie, tenue à jour après chaque rendu (déclaré AVANT l'effet qui la lit). */
+  const declRef = useRef(decl);
   useEffect(() => {
-    const a = toLL(start);
-    if (decl.trim() === "" && a) {
-      const d = declinationEstimate(a.lat, a.lon);
+    declRef.current = decl;
+  });
+
+  // Déclinaison auto-estimée depuis le DÉPART, et seulement si l'opérateur n'en a pas saisi une.
+  // On lit la saisie par référence : en dépendre ferait rejouer l'effet dès qu'on vide le champ, qui
+  // se re-remplirait aussitôt tout seul — impossible d'effacer une déclinaison.
+  const startLat = start.lat;
+  const startLon = start.lon;
+  useEffect(() => {
+    const lat = num(startLat);
+    const lon = num(startLon);
+    if (declRef.current.trim() === "" && lat != null && lon != null) {
+      const d = declinationEstimate(lat, lon);
       if (d != null) setDecl(String(d));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [start.lat, start.lon]);
+  }, [startLat, startLon]);
 
   const hazList: Hazard[] = useMemo(
     () => phenomena.map((p) => ({ id: p.id, kind: p.kind, level: p.level, lat: p.lat, lon: p.lon, title: p.title })),
@@ -539,7 +549,7 @@ export function NavPanel() {
           </label>
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             Déclinaison °E (approchée)
-            <Input className="w-20" inputMode="decimal" value={decl} onChange={(e) => setDecl(e.target.value)} />
+            <Input data-nav="decl" className="w-20" inputMode="decimal" value={decl} onChange={(e) => setDecl(e.target.value)} />
           </label>
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <input type="checkbox" checked={navAlarm} onChange={(e) => setNavAlarm(e.target.checked)} />
