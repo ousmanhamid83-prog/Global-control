@@ -55,3 +55,33 @@ export function siteApproach(
   if (t.speedKmh < cfg.minSpeedKmh) return { relevant: false, reason: "au sol ou à l'arrêt" };
   return { relevant: true };
 }
+
+/**
+ * TRANSPONDEUR MUET PRÈS D'UN SITE : faut-il PRÉVENIR, ou seulement afficher ?
+ *
+ * Deux seuils différents, et c'est tout le point. Le scope signale dès qu'une position est
+ * ESTIMÉE (quelques secondes d'âge suffisent) parce que l'opérateur a le droit de savoir que le
+ * symbole n'est pas une mesure. Mais mesuré sur du trafic réel, un agrégateur livre 7 % de ses
+ * positions avec plus de 5 s de retard : prévenir là-dessus noierait le poste sous des alertes de
+ * latence. On ne parle donc qu'au-delà d'un silence FRANC, hors de portée de la latence ordinaire.
+ *
+ * On n'exige pas que la piste « se rapproche » : son rapprochement est lui-même extrapolé, et une
+ * piste qui vient de se taire est précisément celle dont on ne sait plus où elle va.
+ */
+export function silentAlarm(
+  t: { altM: number; coast?: { silentS: number } },
+  cpa: { distKm: number } | null,
+  silentAlertS: number,
+  cfg: ApproachCfg = DEFAULT_APPROACH_CFG,
+): ApproachVerdict {
+  if (!t.coast) return { relevant: false, reason: "la piste émet normalement" };
+  if (t.coast.silentS < silentAlertS) {
+    return { relevant: false, reason: `âge du relevé : ${t.coast.silentS} s, latence ordinaire` };
+  }
+  if (!cpa) return { relevant: false, reason: "pas de site à portée" };
+  if (cpa.distKm > cfg.watchKm) return { relevant: false, reason: "site hors de portée" };
+  if (t.altM > cfg.ceilingM) {
+    return { relevant: false, reason: `survol à ${Math.round(t.altM)} m, pas une approche` };
+  }
+  return { relevant: true };
+}

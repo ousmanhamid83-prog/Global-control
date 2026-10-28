@@ -193,6 +193,27 @@ Symbologie APP-6 et radar
   doit voir — c'est le geste de qui ne veut pas être suivi. Alerte ÉLEVÉE, une fois par piste, avec
   la durée du silence, l'altitude, la distance au site et le rayon d'incertitude (« ce n'est plus
   une mesure »). Oubliée dès que la piste ré-émet.
+- RECALAGE D'ÂGE DES POSITIONS (la plus grosse marge d'erreur du radar) : un agrégateur réseau
+  livre des positions DÉJÀ VIEILLES — il indique leur âge dans chaque relevé (champ « seen ») — et
+  AfriControl prenait l'heure de RÉCEPTION pour l'heure d'OBSERVATION. Autrement dit le poste
+  dessinait « vu à l'instant » une position qui pouvait avoir une minute. Mesuré sur 881 avions
+  réels : l'âge est de 0,1 s en médiane (l'agrégateur est bon), mais 6,7 % des positions dépassent
+  5 s, 3,1 % dépassent 30 s, et la pire était à 2,65 km de là où le symbole était peint. La moyenne
+  rassurait, la QUEUE mentait. Désormais chaque relevé garde sa MESURE BRUTE avec son heure réelle
+  d'observation, et le scope affiche le meilleur ESTIMÉ pour MAINTENANT (la piste est avancée à
+  l'estime de son propre âge) ; au-delà de 5 s d'âge, le symbole le dit (« MÉM »), parce que
+  l'opérateur a le droit de savoir que ce point est prédit et non mesuré. Trois conséquences :
+    • une piste déjà en retard à la réception est tenue en mémoire DÈS son premier relevé — un
+      transpondeur coupé ne peut plus se cacher derrière « l'agrégateur me liste encore » ;
+    • la plausibilité compare enfin les positions MESURÉES sur leur VRAI intervalle d'observation.
+      Elle comparait des mesures distantes de 40 s sur un intervalle de réception de 10 s, et lisait
+      2876 km/h là où l'avion en tenait 719 : du BON trafic était refusé comme « saut de position ».
+      Vérifié chiffre en main, c'est le faux positif que ce lot supprime ;
+    • l'extrapolation repart de la MESURE, jamais de la position déjà affichée — sinon l'âge était
+      compté deux fois et le symbole s'éjectait un peu plus loin à chaque tour.
+  AFFICHER N'EST PAS PRÉVENIR : le scope signale dès 5 s, l'alerte « transpondeur muet près d'un
+  site » n'ouvre la bouche qu'au-delà de 30 s de silence franc. Sans ce second seuil, la latence
+  ordinaire de l'agrégateur (7 % des relevés) aurait noyé le poste sous des alertes de sûreté.
 - ADRESSE ICAO PARTAGÉE (doublon) : deux émetteurs sur la même adresse ne se voient PAS par un
   dédoublonnage par adresse — celui-ci garde simplement le dernier reçu. Ce qui les trahit, c'est
   que leurs positions alternent : un relevé sur deux est physiquement impossible. Compter les refus

@@ -2,7 +2,7 @@
 
 import type { Phenomenon } from "./capture";
 import { PLATFORM_BY_ID } from "./catalog.ts";
-import { checkJump, noteJump, stepCoast, suspectActive } from "./coast.ts";
+import { checkJump, coastRadiusKm, deadReckon, FRESH_S, noteJump, stepCoast, suspectActive } from "./coast.ts";
 import { FRIEND_BY_ID } from "./catalog-friends.ts";
 import { AO, haversineKm, theaterOf } from "./geo.ts";
 import { M4_ABSENT_CIVIL } from "./iff.ts";
@@ -342,6 +342,14 @@ function classFromCategory(cat: string | null): UasClass | null {
 }
 
 export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
+  // RECALAGE D'ÂGE. Un agrégateur réseau livre des positions déjà vieilles (champ `seen`), et le
+  // relevé lui-même n'a lieu que toutes les ~20 s. Prendre l'heure de réception pour l'heure
+  // d'observation plaçait le symbole jusqu'à plusieurs kilomètres à côté, sans rien en dire : à
+  // 800 km/h, 20 s valent 4,4 km. On garde donc la mesure BRUTE avec son heure réelle, et on
+  // affiche le meilleur estimé pour MAINTENANT en avançant la piste à l'estime.
+  const ageS = Math.max(0, ac.seenS);
+  const posAt = now - ageS * 1000;
+  const est = deadReckon({ lat: ac.lat, lon: ac.lon, heading: ac.track, speedKmh: ac.gsKmh }, ageS);
   const uav = ac.category?.toUpperCase() === "B6";
   const platId = uav ? "adsb-uav" : platformIdForType(ac.icaoType);
   const plat =
@@ -349,7 +357,7 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
   const trail = prev
     ? [...prev.trail, { lat: ac.lat, lon: ac.lon }].slice(-80)
     : [{ lat: ac.lat, lon: ac.lon }];
-  const dist = haversineKm(ac.lat, ac.lon, AO.centerLat, AO.centerLon);
+  const dist = haversineKm(est.lat, est.lon, AO.centerLat, AO.centerLon);
   const corridor =
     dist <= 120
       ? "Volume ident FTTJ · 1090ES"
@@ -360,8 +368,11 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
   return {
     id: `live-${ac.hex}`,
     callsign: ac.flight,
-    lat: ac.lat,
-    lon: ac.lon,
+    // Meilleur estimé pour MAINTENANT (mesure recalée de son âge), pas la mesure telle quelle.
+    lat: est.lat,
+    lon: est.lon,
+    // La mesure BRUTE et son heure réelle : c'est elle qui sert à comparer deux relevés.
+    fix: { lat: ac.lat, lon: ac.lon, at: posAt },
     altM: ac.altM,
     heading: ac.track,
     speedKmh: ac.gsKmh,
@@ -375,7 +386,8 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
     hypotheses: [{ platformId: plat.id, score: uav ? 72 : 99 }],
     sensors: [],
     firstSeen: prev?.firstSeen ?? now,
-    lastUpdate: now,
+    // Heure RÉELLE de l'observation : c'est elle qui dit si la piste est fraîche ou muette.
+    lastUpdate: posAt,
     dwellS: prev ? prev.dwellS + Math.max(0, (now - prev.lastUpdate) / 1000) : 0,
     confirmedAt: prev?.confirmedAt ?? (uav ? null : now),
     motion: ac.onGround ? "loiter" : "transit",
@@ -385,6 +397,7 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
     turnRate: 0,
     acoustic: null,
     pilotFix: null,
+    coast: ageS >= FRESH_S ? { silentS: Math.round(ageS), radiusKm: coastRadiusKm(ac.gsKmh, ageS) } : undefined,
     // Le CPA site est calculé par le store après la fusion (il lui faut les zones vivantes).
     cpa: prev?.cpa ?? null,
     // Verrou « déjà prévenu », à PRÉSERVER d'un relevé à l'autre : la piste est reconstruite à
@@ -424,6 +437,18 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
   };
 }
 
+/**
+ * Extrapole une piste depuis sa dernière MESURE. Partir de `lat`/`lon` — qui sont déjà un estimé
+ * avancé de l'âge du relevé — compterait cet âge deux fois et éloignerait le symbole à chaque tour.
+ */
+function coastFrom(t: Track, now: number) {
+  const f = t.fix ?? { lat: t.lat, lon: t.lon, at: t.lastUpdate };
+  return stepCoast(
+    { lat: f.lat, lon: f.lon, heading: t.heading, speedKmh: t.speedKmh, lastUpdate: f.at },
+    now,
+  );
+}
+
 export function mergeLiveTracks(
   existing: Track[],
   incoming: LiveAc[],
@@ -446,10 +471,14 @@ export function mergeLiveTracks(
     // dans le temps écoulé. Sinon la trame est fausse (brouillage, décodage raté, falsification) :
     // on REFUSE le saut, on garde la piste à l'estime et on le signale à l'opérateur.
     if (prev && prev.feed === "adsb") {
-      const dtS = (now - prev.lastUpdate) / 1000;
-      const v = checkJump(prev, t, dtS);
+      // On compare les positions MESURÉES sur leur VRAI intervalle d'observation. Comparer les
+      // estimés sur l'intervalle entre deux relevés mélangerait deux instants différents et
+      // fabriquerait des vitesses impliquées fausses — donc de faux « sauts ».
+      const a = prev.fix ?? { lat: prev.lat, lon: prev.lon, at: prev.lastUpdate };
+      const b = t.fix ?? { lat: t.lat, lon: t.lon, at: t.lastUpdate };
+      const v = checkJump({ ...a, altM: prev.altM }, { ...b, altM: t.altM }, (b.at - a.at) / 1000);
       if (!v.ok) {
-        const dr = stepCoast(prev, now);
+        const dr = coastFrom(prev, now);
         // Un relevé refusé isolé, c'est une trame ratée. Plusieurs d'affilée, c'est que la position
         // fait du ping-pong : deux émetteurs se partagent très probablement la même adresse ICAO.
         // Le dédoublonnage par adresse, en amont, ne peut pas le voir — il garde juste le dernier.
@@ -482,7 +511,7 @@ export function mergeLiveTracks(
   const stale: Track[] = [];
   for (const [hex, t] of prevByHex) {
     if (seen.has(hex)) continue;
-    const dr = stepCoast(t, now);
+    const dr = coastFrom(t, now);
     if (dr.drop) {
       stale.push({ ...t, idState: "perdu", lastUpdate: now });
     } else {

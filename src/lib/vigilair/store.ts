@@ -38,8 +38,8 @@ import {
   type LivePicture,
 } from "./live-adsb";
 import { sampleCpa } from "./acoustics";
-import { DUP_ADDR_RUN } from "./coast";
-import { DEFAULT_APPROACH_CFG, siteApproach } from "./site-approach";
+import { COAST_ALERT_S, DUP_ADDR_RUN } from "./coast";
+import { silentAlarm, siteApproach } from "./site-approach";
 import { indexTape, rejeuClock, tapeAt, type RejeuTape, type TapeIndex } from "./rejeu";
 import { treatContact } from "./treat";
 import { preloadAoTiles, preloadAt, SAT_CREDIT, tileRef } from "./tiles";
@@ -1601,8 +1601,12 @@ function applySim(dt: number) {
   // restait muette : on la dessinait, sans jamais prévenir. Un aéronef BAS qui cesse d'émettre à
   // proximité d'un site protégé est précisément ce qu'un poste doit voir — c'est le geste de qui ne
   // veut pas être suivi. On prévient une fois par piste, et on oublie dès qu'elle ré-émet.
+  // Le seuil n'est PAS celui de l'affichage : un agrégateur réseau livre couramment des positions
+  // vieilles de quelques secondes, et le scope le dit (MÉM). Prévenir là-dessus noierait l'opérateur
+  // sous des alertes de latence ordinaire ; on ne parle qu'au-delà d'un silence franc.
   for (const t of liveTracks) {
-    if (!t.coast || t.altM > DEFAULT_APPROACH_CFG.ceilingM || !t.cpa || t.cpa.distKm > DEFAULT_APPROACH_CFG.watchKm) {
+    const cpa = t.cpa;
+    if (!t.coast || !cpa || !silentAlarm(t, cpa, COAST_ALERT_S).relevant) {
       coastWarned.delete(t.id);
       continue;
     }
@@ -1613,8 +1617,8 @@ function applySim(dt: number) {
       trackId: t.id,
       at: now,
       level: "elevee",
-      title: `${t.callsign} · transpondeur muet près de ${t.cpa.name}`,
-      body: `Plus de relevé depuis ${t.coast.silentS} s à ${Math.round(t.altM)} m, ${t.cpa.distKm.toFixed(1)} km du site. Position estimée à ±${t.coast.radiusKm.toFixed(1)} km — ce n'est plus une mesure.`,
+      title: `${t.callsign} · transpondeur muet près de ${cpa.name}`,
+      body: `Plus de relevé depuis ${t.coast.silentS} s à ${Math.round(t.altM)} m, ${cpa.distKm.toFixed(1)} km du site. Position estimée à ±${t.coast.radiusKm.toFixed(1)} km — ce n'est plus une mesure.`,
       acked: false,
     });
   }

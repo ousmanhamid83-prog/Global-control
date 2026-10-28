@@ -291,6 +291,14 @@ export type Track = {
    * seulement une trame ratée. L'épisode se referme un délai après le dernier incident.
    */
   suspect?: { run: number; since: number; at: number };
+  /**
+   * Dernière position MESURÉE et son heure RÉELLE d'observation. Un agrégateur réseau livre des
+   * positions déjà vieilles de plusieurs dizaines de secondes (champ `seen`) : prendre l'heure de
+   * réception pour l'heure d'observation place le symbole des kilomètres à côté, en silence.
+   * `lat`/`lon` de la piste sont le meilleur ESTIMÉ pour maintenant ; `fix` est la mesure brute,
+   * qui seule permet de comparer deux relevés sur leur vrai intervalle.
+   */
+  fix?: { lat: number; lon: number; at: number };
   iff?: IffFix | null;
   /** Origine de la piste : sim COP, 1090ES live, Remote ID, ou rejeu de 1090ES réellement reçu. */
   feed?: "sim" | "adsb" | "rid" | "rejeu";

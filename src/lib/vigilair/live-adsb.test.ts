@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mergeLiveTracks, type LiveAc } from "./live-adsb.ts";
-import { DEFAULT_COAST_CFG, DUP_ADDR_WINDOW_MS } from "./coast.ts";
+import { DEFAULT_COAST_CFG, DUP_ADDR_WINDOW_MS, FRESH_S } from "./coast.ts";
 import { haversineKm } from "./geo.ts";
 import type { Track } from "./types.ts";
 
@@ -138,6 +138,63 @@ test("DOUBLON ICAO : deux émetteurs qui ALTERNENT sont démasqués", () => {
   }
   assert.ok((t.suspect?.run ?? 0) >= 3, `attendu >= 3 refus comptés, obtenu ${t.suspect?.run}`);
   assert.match(t.suspectJump ?? "", /adresse ICAO partagée/);
+});
+
+/* ── RECALAGE D'ÂGE ──────────────────────────────────────────────────────────────────────────────
+ * Mesuré sur 881 avions réels (api.adsb.lol) : l'âge des positions est de 0,1 s en médiane, mais
+ * 3,1 % des pistes dépassent 30 s et la pire était à 2,65 km de là où AfriControl la dessinait.
+ * La moyenne était donc rassurante et la QUEUE fausse — c'est elle qu'on corrige.
+ */
+
+test("RECALAGE D'ÂGE : une position vieille de 20 s est AVANCÉE, plus affichée telle quelle", () => {
+  const t = mergeLiveTracks([], [avion({ seenS: 20 })], T0).tracks[0]!;
+  // 720 km/h x 20 s = 4 km : c'est de cette distance que le symbole était faux, en silence.
+  const ecart = haversineKm(12, 15, t.lat, t.lon);
+  assert.ok(Math.abs(ecart - 4) < 0.1, `attendu ~4 km de recalage, obtenu ${ecart.toFixed(2)} km`);
+  // La mesure BRUTE est conservée : elle seule permet de comparer deux relevés.
+  assert.ok(t.fix, "la mesure brute doit être gardée");
+  assert.ok(Math.abs(t.fix!.lat - 12) < 1e-9 && Math.abs(t.fix!.lon - 15) < 1e-9);
+});
+
+test("RECALAGE D'ÂGE : lastUpdate est l'heure d'OBSERVATION, pas celle de réception", () => {
+  const t = mergeLiveTracks([], [avion({ seenS: 20 })], T0).tracks[0]!;
+  assert.equal(t.lastUpdate, T0 - 20_000);
+  assert.equal(t.fix!.at, T0 - 20_000);
+  // Une piste déjà vieille de 20 s est tenue en mémoire dès son premier relevé : c'est précisément
+  // ce qu'un transpondeur coupé produit, et ça passait pour un retour vivant.
+  assert.equal(t.coast?.silentS, 20);
+});
+
+test("RECALAGE D'ÂGE : une position fraîche est recalée aussi, mais sans mention au scope", () => {
+  const t = mergeLiveTracks([], [avion({ seenS: FRESH_S - 3 })], T0).tracks[0]!;
+  const ecart = haversineKm(12, 15, t.lat, t.lon);
+  assert.ok(Math.abs(ecart - 0.4) < 0.05, `2 s à 720 km/h = 0,4 km, obtenu ${ecart.toFixed(2)}`);
+  assert.equal(t.coast, undefined, "en deçà du seuil on n'encombre pas le scope");
+});
+
+test("RECALAGE D'ÂGE : l'âge n'est PAS compté deux fois d'un relevé à l'autre", () => {
+  // Deux relevés de même âge, 20 s d'écart, avion qui avance normalement de 4 km vers l'est.
+  const un = mergeLiveTracks([], [avion({ seenS: 20 })], T0).tracks;
+  const deux = mergeLiveTracks(un, [avion({ seenS: 20, lon: 15.03673 })], T0 + 20_000).tracks;
+  const t = deux.find((x) => x.feed === "adsb")!;
+  // Le symbole a avancé de 4 km (le vrai déplacement), pas de 8 : partir de la position AFFICHÉE
+  // au lieu de la mesure l'aurait éjecté en avant un peu plus à chaque tour.
+  const avance = haversineKm(un[0]!.lat, un[0]!.lon, t.lat, t.lon);
+  assert.ok(Math.abs(avance - 4) < 0.15, `attendu ~4 km d'avance, obtenu ${avance.toFixed(2)} km`);
+  assert.equal(t.coast?.silentS, 20, "le silence ne doit pas s'accumuler : l'âge est constant");
+  assert.equal(t.suspectJump, undefined, "un déplacement normal ne doit pas passer pour un saut");
+});
+
+test("PLAUSIBILITÉ : deux relevés d'ÂGES différents ne fabriquent pas un faux saut", () => {
+  // Le cas réel qui faisait refuser du bon trafic : premier relevé déjà vieux de 30 s, second tout
+  // frais 10 s plus tard. Vrai intervalle d'observation = 40 s, donc 8 km à 720 km/h : normal.
+  // En comparant sur l'intervalle entre RÉCEPTIONS (10 s), on lisait 2880 km/h — et on refusait.
+  const un = mergeLiveTracks([], [avion({ seenS: 30 })], T0).tracks;
+  const deux = mergeLiveTracks(un, [avion({ seenS: 0, lon: 15.07346 })], T0 + 10_000).tracks;
+  const t = deux.find((x) => x.feed === "adsb")!;
+  assert.equal(t.suspectJump, undefined, "ce relevé est crédible, il ne doit pas être refusé");
+  assert.ok(Math.abs(t.lon - 15.07346) < 1e-6, "la position mesurée doit être adoptée");
+  assert.equal(t.coast, undefined, "relevé frais : la piste n'est plus tenue en mémoire");
 });
 
 test("DOUBLON ICAO : l'anomalie s'oublie une fois la fenêtre passée sans incident", () => {

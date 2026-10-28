@@ -133,6 +133,18 @@ export const DUP_ADDR_RUN = 3;
  */
 export const DUP_ADDR_WINDOW_MS = 60_000;
 
+/**
+ * En deçà de cet âge, une position est considérée comme fraîche : le recalage est négligeable et on
+ * n'encombre pas le scope d'une mention. Au-delà, l'opérateur doit savoir que le point est estimé.
+ */
+export const FRESH_S = 5;
+
+/**
+ * Silence à partir duquel on PRÉVIENT (et plus seulement on affiche). Bien au-delà de la latence
+ * normale d'un agrégateur réseau, sinon chaque relevé ordinaire déclencherait une alerte.
+ */
+export const COAST_ALERT_S = 30;
+
 export type SuspectState = {
   /** Relevés refusés comptés dans l'épisode courant. */
   run: number;
