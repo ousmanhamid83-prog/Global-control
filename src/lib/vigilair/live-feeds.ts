@@ -36,6 +36,8 @@ import type { AtcSegment, AtcStatus } from "./atc.server";
 import type { RejeuTape } from "./rejeu";
 import type { ReceiverFeed, ReceiverStatus } from "./rx1090.server";
 
+import { couvertureVerdict, type CellOutcome } from "./portee";
+
 const UA = "AfriControl-COP/10.0 (C-UAS detection N'Djamena; read-only)";
 
 type Cell = { lat: number; lon: number; label: string };
@@ -311,6 +313,10 @@ async function pullAdsb(): Promise<{
       );
   if (!continentSweep) continentNext = (continentNext + CONTINENT_PER_PULL) % CONTINENT_CELLS.length;
   // Théâtre d'abord (prioritaire), séquentiel : peu de cellules, le cœur de la veille.
+  // On retient le SORT de chaque cellule, pas seulement son contenu : « on m'a refusé la requête »
+  // et « j'ai regardé, il n'y a personne » produisent le même scope vide, et les confondre déguise
+  // une panne de capteur en calme plat.
+  const theatre: CellOutcome[] = [];
   for (const c of THEATRE_CELLS) {
     const got = await pullCell(c);
     if (got.refused) refused += 1;
@@ -319,6 +325,12 @@ async function pullAdsb(): Promise<{
       ok += 1;
       merge(got.ac);
     }
+    theatre.push({
+      label: c.label,
+      repondu: got.ac != null,
+      refusee: got.refused,
+      avions: got.ac?.length ?? 0,
+    });
     await new Promise((r) => setTimeout(r, 150));
   }
   // Continent / monde : par lots parallèles bornés. La concurrence limitée tient lieu de courtoisie
@@ -351,13 +363,18 @@ async function pullAdsb(): Promise<{
   // Aucune cellule jointe : c'est une coupure de liaison, pas un ciel vide.
   else if (ok === 0 && lastErr) errors.push(`1090ES: ${lastErr}`);
   const ac = [...byHex.values()];
+  // Mesuré en réel : les agrégateurs répondent HTTP 200 avec ZÉRO avion dans un rayon de 463 km
+  // autour de N'Djamena, alors qu'ils en rendent 62 à Tunis et 960 à Paris. Le théâtre n'est pas un
+  // trou de logiciel, c'est un trou de RÉCEPTEURS — et le poste doit le DIRE, sinon l'opérateur
+  // cherche une panne chez lui là où il n'y en a pas.
+  const couv = couvertureVerdict(theatre);
   return {
     ac,
     errors: [...new Set(errors)].slice(0, 4),
     source:
       ok > 0
-        ? `1090ES adsb.lol / adsb.fi · théâtre ${THEATRE_CELLS.length} cellules · ${continentSweep ? `monde ${continentLive}/${CONTINENT_CELLS.length + WORLD_CELLS.length} · balayage total` : `continent ${continentLive}/${CONTINENT_CELLS.length}`} · ${ac.length} squitters`
-        : "1090ES indisponible",
+        ? `1090ES adsb.lol / adsb.fi · théâtre : ${couv.texte} · ${continentSweep ? `monde ${continentLive}/${CONTINENT_CELLS.length + WORLD_CELLS.length} · balayage total` : `continent ${continentLive}/${CONTINENT_CELLS.length}`} · ${ac.length} squitters`
+        : `1090ES indisponible — ${couv.texte}`,
     ok: ok > 0,
   };
 }

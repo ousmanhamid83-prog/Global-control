@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fetchReceiverFeed } from "@/lib/vigilair/live-feeds";
 import type { ReceiverFeed, ReceiverStatus } from "@/lib/vigilair/rx1090.server";
+import { porteeVerdict, rangeProfile } from "@/lib/vigilair/portee";
 import { formatAge, useWallClock } from "@/lib/vigilair/telemetry";
 import { cn } from "@/lib/utils";
 
@@ -63,6 +64,16 @@ export function AntennaPanel() {
 
   const live =
     status?.enabled && status.connected && status.lastLineAt != null && wall - status.lastLineAt < 60_000;
+  // Portée CONSTATÉE : ce que l'antenne a réellement entendu, et ce qu'on peut en conclure.
+  // L'échantillon est borné, donc son maximum peut avoir été remplacé : le vrai record est tenu à
+  // part par le décodeur, et c'est lui qui fait foi — sinon la portée annoncée RÉTRÉCIRAIT avec le
+  // temps, ce qui est exactement le contraire d'un record.
+  const echantillon = rangeProfile(status?.stats.rangeSample ?? []);
+  const portee = {
+    ...echantillon,
+    maxKm: Math.max(echantillon.maxKm, status?.stats.maxRangeKm ?? 0),
+  };
+  const verdict = porteeVerdict(portee, Boolean(status?.enabled));
   const tone = !status ? "default" : live ? "ok" : status.enabled ? "warn" : "default";
   const label = !status
     ? "…"
@@ -101,7 +112,20 @@ export function AntennaPanel() {
             v={status ? String(status.stats.rejectedPos) : "—"}
             warn={!!status?.stats.rejectedPos}
           />
+          {/* PORTÉE CONSTATÉE, pas la portée réglée : la distance des positions réellement reçues.
+              C'est le seul chiffre qui permette de dire si c'est l'installation qui limite, ou si
+              le ciel est simplement vide — sans lui, un scope désert reste inexplicable. */}
+          <Cell
+            k="Portée atteinte"
+            v={portee.n > 0 ? `${portee.maxKm.toFixed(0)} km` : "—"}
+            warn={verdict.alerte}
+          />
+          <Cell k="Distance médiane" v={portee.n > 0 ? `${portee.medKm.toFixed(0)} km` : "—"} />
         </dl>
+        <p className={cn("font-mono text-xs", verdict.alerte ? "text-warn" : "text-muted")}>
+          {verdict.texte}
+          {portee.n > 0 && !verdict.concluant ? " Échantillon encore trop maigre pour trancher." : ""}
+        </p>
         {status?.lastError ? <p className="font-mono text-xs text-warn">{status.lastError}</p> : null}
         {error ? <p className="font-mono text-xs text-crit">{error}</p> : null}
         {status && !live ? <Setup status={status} /> : null}

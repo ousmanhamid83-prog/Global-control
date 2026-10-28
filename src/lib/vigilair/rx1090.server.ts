@@ -221,7 +221,9 @@ export function receiverStatus(now = Date.now()): ReceiverStatus {
     msgPerS: Math.round((windowN / RATE_WINDOW_S) * 10) / 10,
     heard: st.table.ac.size,
     positioned: st.table.positioned(now, POS_MAX_AGE_MS).length,
-    stats: { ...st.table.stats },
+    // Copie PROFONDE de l'échantillon de portée : un spread laisserait le tableau partagé avec le
+    // décodeur, et l'instantané rendu au client continuerait de bouger sous lui.
+    stats: { ...st.table.stats, rangeSample: [...st.table.stats.rangeSample] },
     antenna: st.antenna,
   };
 }

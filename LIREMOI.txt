@@ -193,6 +193,23 @@ Symbologie APP-6 et radar
   doit voir — c'est le geste de qui ne veut pas être suivi. Alerte ÉLEVÉE, une fois par piste, avec
   la durée du silence, l'altitude, la distance au site et le rayon d'incertitude (« ce n'est plus
   une mesure »). Oubliée dès que la piste ré-émet.
+- POURQUOI LE SCOPE EST VIDE AU-DELÀ DE QUELQUES KILOMÈTRES (portée constatée) : un poste qui
+  annonce « portée 1200 km » et ne montre rien au-delà de 10 km laissait l'opérateur sans moyen de
+  trancher entre trois causes très différentes — le ciel est vide, personne n'écoute, ou le logiciel
+  coupe. AfriControl le dit maintenant, chiffres en main, et pour les DEUX sources.
+    • ANTENNE LOCALE. L'onglet CAPTEURS › Antenne affiche la PORTÉE CONSTATÉE (la plus lointaine
+      position réellement reçue) et la distance médiane — pas la portée réglée, qui ne prouve rien.
+      En dessous de 25 km, le poste écrit que le 1090 MHz porte à vue et que la limite vient de
+      l'INSTALLATION (antenne à l'intérieur, câble trop long, horizon bouché), pas du logiciel, qui
+      n'écarte aucune position en deçà de 800 km. Un échantillon vide ou trop maigre ne conclut
+      JAMAIS : « rien reçu » veut dire qu'on ne sait pas, pas que l'antenne est mauvaise.
+    • RÉSEAU. Mesuré en réel sur l'URL exacte du poste : HTTP 200 et ZÉRO avion dans un rayon de
+      463 km autour de N'Djamena, contre 62 à Tunis et 960 à Paris. Le théâtre n'est pas un trou de
+      logiciel, c'est un trou de RÉCEPTEURS : les agrégateurs n'ont quasiment personne au Tchad, et
+      seule une antenne locale y donne de vrais avions. Le bandeau de source le formule désormais
+      ainsi, et surtout il SÉPARE « j'ai regardé, il n'y a personne » de « on m'a refusé la requête »
+      (HTTP 429) et de « la liaison a échoué ». Les confondre déguisait une panne de capteur en
+      calme plat — un scope vide y ressemblait trait pour trait à un ciel calme.
 - RECALAGE D'ÂGE DES POSITIONS (la plus grosse marge d'erreur du radar) : un agrégateur réseau
   livre des positions DÉJÀ VIEILLES — il indique leur âge dans chaque relevé (champ « seen ») — et
   AfriControl prenait l'heure de RÉCEPTION pour l'heure d'OBSERVATION. Autrement dit le poste

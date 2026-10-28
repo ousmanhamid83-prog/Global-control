@@ -435,7 +435,19 @@ export type RxStats = {
   format: number;
   positions: number;
   rejectedPos: number;
+  /**
+   * PORTÉE CONSTATÉE. Un poste qui annonce « 1200 km » et ne montre rien au-delà de 10 km laissait
+   * l'opérateur sans moyen de savoir si le ciel est vide, si personne n'écoute, ou si le logiciel
+   * coupe. On garde donc les distances réellement reçues : la plus lointaine, et de quoi en tirer
+   * une médiane. La distance est déjà calculée pour le contrôle des 800 km — ça ne coûte rien.
+   */
+  maxRangeKm: number;
+  /** Échantillon borné des distances reçues (km), pour la médiane et les anneaux. */
+  rangeSample: number[];
 };
+
+/** Au-delà, on ne garde pas tout : un échantillon suffit pour une médiane et des anneaux. */
+const RANGE_SAMPLE_MAX = 500;
 
 /** Au-delà, aucune antenne au sol n'entend un avion : c'est un décodage faux, pas un contact. */
 const MAX_RANGE_KM = 800;
@@ -458,6 +470,8 @@ export class RxTable {
     format: 0,
     positions: 0,
     rejectedPos: 0,
+    maxRangeKm: 0,
+    rangeSample: [],
   };
 
   readonly ref: { lat: number; lon: number } | null;
@@ -578,7 +592,8 @@ export class RxTable {
     if (!fix) return `${tag} · en attente de la trame ${m.odd ? "paire" : "impaire"}`;
     const jumpKm = recent ? haversineKm(a.lat!, a.lon!, fix.lat, fix.lon) : 0;
     const maxKm = 2 + ((now - a.posAt) / 1000) * MAX_KM_PER_S;
-    const far = this.ref ? haversineKm(this.ref.lat, this.ref.lon, fix.lat, fix.lon) > MAX_RANGE_KM : false;
+    const porteeKm = this.ref ? haversineKm(this.ref.lat, this.ref.lon, fix.lat, fix.lon) : null;
+    const far = porteeKm != null ? porteeKm > MAX_RANGE_KM : false;
     if ((recent && jumpKm > maxKm) || far) {
       this.stats.rejectedPos += 1;
       // La dernière bonne position reste affichée ; la suivante devra se recaler en global.
@@ -592,6 +607,14 @@ export class RxTable {
     a.posAt = now;
     a.resync = false;
     this.stats.positions += 1;
+    // PORTÉE CONSTATÉE : on ne la note que sur une position ACCEPTÉE. Compter un relevé rejeté
+    // gonflerait la portée annoncée avec précisément les décodages qu'on vient de juger faux.
+    if (porteeKm != null) {
+      if (porteeKm > this.stats.maxRangeKm) this.stats.maxRangeKm = porteeKm;
+      const s = this.stats.rangeSample;
+      if (s.length < RANGE_SAMPLE_MAX) s.push(porteeKm);
+      else s[Math.floor(Math.random() * RANGE_SAMPLE_MAX)] = porteeKm;
+    }
     return `${tag} · ${fix.lat.toFixed(4)} ${fix.lon.toFixed(4)}`;
   }
 
