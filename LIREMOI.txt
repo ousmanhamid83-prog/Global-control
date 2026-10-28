@@ -214,6 +214,38 @@ Symbologie APP-6 et radar
   AFFICHER N'EST PAS PRÉVENIR : le scope signale dès 5 s, l'alerte « transpondeur muet près d'un
   site » n'ouvre la bouche qu'au-delà de 30 s de silence franc. Sans ce second seuil, la latence
   ordinaire de l'agrégateur (7 % des relevés) aurait noyé le poste sous des alertes de sûreté.
+- CE QUE L'AÉRONEF DÉCLARE DE SA PROPRE PRÉCISION : un aéronef coopératif ne dit pas seulement OÙ
+  il est, il dit AVEC QUELLE PRÉCISION il le sait (NIC, DO-260B), ce qui se traduit par un RAYON DE
+  CONFINEMENT — et l'agrégateur relaie même ce rayon tout cuit. AfriControl jetait cette information
+  et peignait toutes les pistes comme des points exacts. Mesuré sur 881 avions réels : 14 % déclarent
+  un rayon supérieur à 185 m, et deux d'entre eux 7,4 km. Un point exact à 7 km près, sur un scope de
+  sûreté, c'est un mensonge par omission. Le scope trace désormais un cercle d'incertitude À
+  L'ÉCHELLE, en composant en quadrature les DEUX causes indépendantes : ce que l'aéronef admet
+  ignorer, et ce que notre extrapolation ajoute quand il s'est tu. Vérifié de bout en bout par la
+  voie antenne (vraies trames DF17) : NIC 8 (185 m) → rien de tracé, car à 50 km de portée ce serait
+  un pixel et gonfler le cercle mentirait dans l'autre sens ; NIC 4 → cercle + « ±3.7 km » ; NIC 2 →
+  grand cercle + « ±14.8 km ». Sur le lot réel, 872 pistes sur 881 portent enfin une incertitude
+  (médiane ±186 m), et seules 92 dépassent 1 km — donc le scope reste lisible.
+- FAUSSE CARTE DE BROUILLAGE GNSS (corrigé) : le poste signalait des zones de brouillage qui
+  n'existaient pas. Le NIC est une propriété de la position ÉMISE par l'aéronef ; or une piste MLAT
+  n'émet AUCUNE position — elle est localisée par multilatération depuis le réseau de récepteurs, et
+  n'a donc pas de NIC à dégrader. En comptant son NIC absent comme « GNSS dégradé », AfriControl
+  affichait 9 cellules de « brouillage élevé » sur un relevé réel là où il n'y en avait aucune :
+  8 artefacts purs (89 pistes MLAT), plus une cellule tirée de 3 avions. Deux correctifs : seules
+  les pistes qui émettent réellement une position sont interrogées, et une cellule doit compter un
+  minimum d'aéronefs pour qu'un pourcentage veuille dire quelque chose (7 cellules sur 28 du lot
+  réel en comptaient moins de 10 — « 1 sur 2 » s'affichait « 50 % »). Résultat vérifié sur le même
+  lot : 9 cellules « élevé » → 0, le maximum restant étant 7 % sur un échantillon de 46 avions.
+  Le bandeau Radar compte désormais les « Positions calculées » (10 % du trafic réel), pour qu'elles
+  ne soient jamais confondues ni avec une mesure exacte, ni avec un brouillage.
+  Piège retenu au passage : « rc = 0 » de l'agrégateur signifie INCONNU, pas « rayon nul ». Les 102
+  pistes concernées sont les PIRES du lot ; le lire au pied de la lettre les aurait fait passer pour
+  les meilleures.
+- ALTITUDE RECALÉE DE L'ÂGE : l'altitude vieillit comme la position. L'enjeu est modeste (2 pistes
+  sur 881 fausses de plus de 150 m, la pire de 370 m) mais le plafond d'alerte site est à 1500 m,
+  donc une descente compte. Le taux de montée est BORNÉ avant d'être appliqué : certains relevés
+  réels annoncent +33 245 ft/min (169 m/s), et les appliquer tels quels AJOUTERAIT de l'erreur au
+  lieu d'en retirer.
 - ADRESSE ICAO PARTAGÉE (doublon) : deux émetteurs sur la même adresse ne se voient PAS par un
   dédoublonnage par adresse — celui-ci garde simplement le dernier reçu. Ce qui les trahit, c'est
   que leurs positions alternent : un relevé sur deux est physiquement impossible. Compter les refus

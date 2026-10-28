@@ -250,6 +250,10 @@ function toLiveAc(a: RxAircraft, now: number): LiveAc {
     nacp: null,
     sil: null,
     military: false,
+    // Position décodée d'un message DF17 entendu par NOTRE antenne : émise par l'aéronef, par
+    // définition. Le décodeur local ne produit pas de rayon annoncé ; le NIC qu'il extrait suffit.
+    posSource: "adsb",
+    rcM: null,
     via: "antenne",
   };
 }

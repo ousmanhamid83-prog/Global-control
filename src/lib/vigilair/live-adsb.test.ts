@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mergeLiveTracks, type LiveAc } from "./live-adsb.ts";
+import { jamFromAircraft, mergeLiveTracks, type LiveAc } from "./live-adsb.ts";
 import { DEFAULT_COAST_CFG, DUP_ADDR_WINDOW_MS, FRESH_S } from "./coast.ts";
 import { haversineKm } from "./geo.ts";
 import type { Track } from "./types.ts";
@@ -29,6 +29,8 @@ function avion(over: Partial<LiveAc> = {}): LiveAc {
     nacp: null,
     sil: null,
     military: false,
+    posSource: "adsb",
+    rcM: null,
     ...over,
   };
 }
@@ -195,6 +197,66 @@ test("PLAUSIBILITÉ : deux relevés d'ÂGES différents ne fabriquent pas un fau
   assert.equal(t.suspectJump, undefined, "ce relevé est crédible, il ne doit pas être refusé");
   assert.ok(Math.abs(t.lon - 15.07346) < 1e-6, "la position mesurée doit être adoptée");
   assert.equal(t.coast, undefined, "relevé frais : la piste n'est plus tenue en mémoire");
+});
+
+/* ── INTÉGRITÉ DE POSITION, BRANCHÉE SUR L'INGESTION ───────────────────────────────────────────── */
+
+test("INTÉGRITÉ : le rayon annoncé par l'aéronef arrive jusqu'à la piste", () => {
+  const t = mergeLiveTracks([], [avion({ rcM: 926, nic: 6 })], T0).tracks[0]!;
+  assert.ok(Math.abs((t.posRcKm ?? 0) - 0.926) < 1e-9, `obtenu ${t.posRcKm}`);
+  assert.match(t.posRcNote ?? "", /rayon annoncé/);
+  assert.equal(t.posSource, "adsb");
+});
+
+test("INTÉGRITÉ : une piste MLAT n'est pas peinte comme un point exact", () => {
+  // 102 pistes réelles annoncent rc = 0, dont 89 en MLAT. Les lire comme exactes inverserait
+  // le classement de précision du scope.
+  const t = mergeLiveTracks([], [avion({ posSource: "mlat", rcM: 0, nic: 0 })], T0).tracks[0]!;
+  assert.ok((t.posRcKm ?? 0) > 1, `une position calculée doit porter un rayon franc, obtenu ${t.posRcKm}`);
+  assert.match(t.posRcNote ?? "", /multilatération/);
+  assert.equal(t.posSource, "mlat");
+});
+
+test("INTÉGRITÉ : sans `rc`, le rayon est déduit du NIC", () => {
+  const t = mergeLiveTracks([], [avion({ rcM: null, nic: 7 })], T0).tracks[0]!;
+  assert.ok(Math.abs((t.posRcKm ?? 0) - 0.37) < 1e-9, `obtenu ${t.posRcKm}`);
+  assert.match(t.posRcNote ?? "", /NIC 7/);
+});
+
+test("ALTITUDE : recalée de l'âge du relevé, et bornée si le taux est aberrant", () => {
+  // Descente à 8,78 m/s vue avec 42 s de retard : l'avion est ~369 m plus bas qu'annoncé.
+  const bas = mergeLiveTracks([], [avion({ altM: 2000, climbMs: -8.78, seenS: 42 })], T0).tracks[0]!;
+  assert.ok(Math.abs(bas.altM - (2000 - 368.8)) < 2, `obtenu ${bas.altM}`);
+  // Taux aberrant relevé en vrai (+169 m/s) : borné, sinon on AJOUTERAIT de l'erreur.
+  const fou = mergeLiveTracks([], [avion({ altM: 900, climbMs: 169, seenS: 10 })], T0).tracks[0]!;
+  assert.ok(fou.altM <= 900 + 80 * 10, `le taux doit être borné, obtenu ${fou.altM}`);
+});
+
+test("FAUX BROUILLAGE : les pistes MLAT ne nourrissent plus la carte de brouillage", () => {
+  // Le bug mesuré : 89 pistes MLAT (nic = 0) produisaient 8 des 9 cellules de « brouillage élevé »
+  // d'un relevé réel. Ici une cellule entièrement MLAT ne doit produire aucune cellule du tout.
+  const mlat = Array.from({ length: 20 }, (_, i) =>
+    avion({ hex: `m${i.toString().padStart(5, "0")}`, posSource: "mlat", nic: 0, lat: 12.1, lon: 15.1 }),
+  );
+  assert.equal(jamFromAircraft(mlat).length, 0, "aucune cellule : rien n'a émis de position");
+  // Le même nombre d'ADS-B réellement dégradés, lui, doit bien ressortir.
+  const degrades = Array.from({ length: 20 }, (_, i) =>
+    avion({ hex: `a${i.toString().padStart(5, "0")}`, posSource: "adsb", nic: 2, lat: 12.1, lon: 15.1 }),
+  );
+  const cells = jamFromAircraft(degrades);
+  assert.equal(cells.length, 1);
+  assert.equal(cells[0]!.level, "high");
+  assert.equal(cells[0]!.bad, 20);
+});
+
+test("FAUX BROUILLAGE : un pourcentage tiré de 2 avions n'est plus publié", () => {
+  // « 1 dégradé sur 2 = 50 % de brouillage » est du bruit présenté comme un fait. 7 cellules sur
+  // 28 du lot réel comptent moins de 10 aéronefs.
+  const deux = [
+    avion({ hex: "aa0001", nic: 2, lat: 12.1, lon: 15.1 }),
+    avion({ hex: "aa0002", nic: 8, lat: 12.1, lon: 15.1 }),
+  ];
+  assert.equal(jamFromAircraft(deux).length, 0, "échantillon trop maigre : on se taît");
 });
 
 test("DOUBLON ICAO : l'anomalie s'oublie une fois la fenêtre passée sans incident", () => {

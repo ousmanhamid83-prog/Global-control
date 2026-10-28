@@ -1,3 +1,5 @@
+import type { PosSource } from "./integrity.ts";
+
 export type Origin = "CN" | "TR" | "RU" | "IR" | "XX";
 
 /** fatl / asecna : affiliation amie ; civil : trafic 1090ES coopératif hors zone ASECNA (neutre) ; drone : un de NOS drones inscrits. */
@@ -311,6 +313,20 @@ export type Track = {
   /** Navigation Integrity Category (ADS-B). Bas = GNSS dégradé / jamming. */
   nic?: number | null;
   nacp?: number | null;
+  /**
+   * Provenance de la POSITION : « adsb » = émise par l'aéronef (et donc porteuse d'un NIC),
+   * « mlat » = calculée par multilatération depuis le réseau de récepteurs (aucun NIC à dégrader).
+   * Sans cette distinction, l'absence de NIC d'une piste MLAT passait pour un GNSS brouillé.
+   */
+  posSource?: PosSource;
+  /**
+   * Rayon de confinement de la position (km) : ce que l'aéronef admet lui-même ignorer de sa
+   * position, ou le plancher retenu pour une position calculée. null = non annoncé. Le symbole
+   * ponctuel seul laissait croire à une précision métrique sur des pistes à plusieurs kilomètres.
+   */
+  posRcKm?: number | null;
+  /** D'où vient ce rayon (rayon annoncé, table NIC, multilatération) : à afficher, pas à taire. */
+  posRcNote?: string;
   military?: boolean;
   category?: string | null;
   /** Nationalité ICAO24 (allocation OACI, pas une simulation). */

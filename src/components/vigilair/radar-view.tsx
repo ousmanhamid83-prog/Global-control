@@ -177,6 +177,10 @@ export function RadarView() {
                 physiquement impossibles. L'opérateur doit savoir ce qui est mesuré et ce qui ne l'est pas. */}
             <Item label="Pistes mémoire" value={`${live.filter((t) => t.coast).length}`} />
             <Item label="Relevés douteux" value={`${live.filter((t) => t.suspectJump).length}`} />
+            {/* Positions CALCULÉES par multilatération : l'aéronef n'en émet aucune, c'est notre
+                réseau de récepteurs qui l'a située. Moins précis, et sans NIC — donc à ne jamais
+                confondre avec un GNSS brouillé. Mesuré : 10 % du trafic réel. */}
+            <Item label="Positions calculées" value={`${live.filter((t) => t.posSource === "mlat").length}`} />
           </dl>
 
           <div className="flex items-center gap-2">

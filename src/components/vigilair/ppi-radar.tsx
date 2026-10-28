@@ -7,6 +7,7 @@ import { detectRaids, raidTrackIds } from "@/lib/vigilair/raid";
 import { getLiveZones } from "@/lib/vigilair/zones";
 import { peekTracks, threatOf, trackVisible, useVigilair } from "@/lib/vigilair/store";
 import { isFriend } from "@/lib/vigilair/friends";
+import { totalUncertaintyKm } from "@/lib/vigilair/integrity";
 import { m4Short } from "@/lib/vigilair/iff";
 import type { Origin, Track, UasClass } from "@/lib/vigilair/types";
 import { cn } from "@/lib/utils";
@@ -484,23 +485,37 @@ function drawFrame(
     // à ce qui compte (sélection, verrou, urgence, piste non coopérative).
     const wide = params.rangeKm >= 2500;
     const quiet = wide && ami && !tr.locked && tr.id !== selectedId && !tr.emergency;
-    // PISTE MÉMOIRE : position EXTRAPOLÉE, pas mesurée. On trace le cercle d'incertitude (il grandit
-    // avec le silence) et on marque « MÉM » avec la durée, pour qu'elle ne puisse pas être confondue
-    // avec un retour vivant. Un transpondeur coupé doit SE VOIR, pas disparaître discrètement.
-    if (tr.coast) {
-      const rPx = Math.max(6, (tr.coast.radiusKm / params.rangeKm) * radius);
-      ctx.strokeStyle = hexAlpha(warn, 0.55);
+    // INCERTITUDE DE POSITION. Deux causes INDÉPENDANTES, donc composées en quadrature :
+    //  — ce que l'aéronef ADMET ignorer de sa propre position : son rayon de confinement annoncé
+    //    (ou déduit du NIC), et pour une position calculée par multilatération, un plancher prudent
+    //    puisque l'agrégateur n'annonce aucune précision. 14 % du trafic réel dépasse 185 m, et
+    //    certains 7,4 km : les peindre en points exacts était un mensonge par omission ;
+    //  — ce que NOTRE extrapolation ajoute quand la piste s'est tue (piste mémoire).
+    // Le cercle est tracé À L'ÉCHELLE. Gonfler un rayon de 200 m jusqu'à une taille « visible »
+    // mentirait dans l'autre sens, en inventant une incertitude de plusieurs kilomètres. S'il tient
+    // dans le symbole, on ne le trace pas — mais l'étiquette reste, car un point estimé doit se dire.
+    const incKm = totalUncertaintyKm(tr.posRcKm ?? null, tr.coast?.radiusKm ?? null);
+    const incPx = (incKm / params.rangeKm) * radius;
+    if (incPx >= 4) {
+      ctx.strokeStyle = hexAlpha(tr.coast ? warn : color, tr.coast ? 0.55 : 0.35);
       ctx.lineWidth = 1;
-      ctx.setLineDash([3, 3]);
+      ctx.setLineDash(tr.coast ? [3, 3] : [1, 4]);
       ctx.beginPath();
-      ctx.arc(p.x, p.y, rPx, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, incPx, 0, Math.PI * 2);
       ctx.stroke();
       ctx.setLineDash([]);
-      if (!quiet) {
-        ctx.fillStyle = hexAlpha(warn, 0.95);
-        ctx.font = "400 9px 'IBM Plex Mono', monospace";
-        ctx.fillText(`MÉM ${tr.coast.silentS}s`, p.x + rPx + 3, p.y - 3);
-      }
+    }
+    // Un transpondeur coupé doit SE VOIR, pas disparaître discrètement : « MÉM » et la durée du
+    // silence. Hors silence, on n'écrit le rayon que s'il est assez gros pour changer une décision.
+    if (!quiet && (tr.coast || incKm >= 1)) {
+      const dx = Math.max(incPx, 6) + 3;
+      ctx.fillStyle = hexAlpha(tr.coast ? warn : color, 0.95);
+      ctx.font = "400 9px 'IBM Plex Mono', monospace";
+      ctx.fillText(
+        tr.coast ? `MÉM ${tr.coast.silentS}s` : `±${incKm.toFixed(1)} km`,
+        p.x + dx,
+        p.y - 3,
+      );
     }
     if (params.symbols) {
       drawApp6Air(ctx, p.x, p.y, tr.locked ? 9 : wide ? 5 : 7, affil, tr.locked ? warn : color, hexAlpha(color, 0.12));

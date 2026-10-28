@@ -2,7 +2,15 @@
 
 import type { Phenomenon } from "./capture";
 import { PLATFORM_BY_ID } from "./catalog.ts";
-import { checkJump, coastRadiusKm, deadReckon, FRESH_S, noteJump, stepCoast, suspectActive } from "./coast.ts";
+import { checkJump, coastRadiusKm, deadReckon, DEFAULT_COAST_CFG, FRESH_S, noteJump, stepCoast, suspectActive } from "./coast.ts";
+import {
+  altAged,
+  declaredRcKm,
+  gnssDegraded,
+  JAM_MIN_SAMPLE,
+  posSourceOf,
+  type PosSource,
+} from "./integrity.ts";
 import { FRIEND_BY_ID } from "./catalog-friends.ts";
 import { AO, haversineKm, theaterOf } from "./geo.ts";
 import { M4_ABSENT_CIVIL } from "./iff.ts";
@@ -32,6 +40,14 @@ export type LiveAc = {
   nacp: number | null;
   sil: number | null;
   military: boolean;
+  /**
+   * Provenance de la POSITION : émise par l'aéronef (ADS-B, donc porteuse d'un NIC) ou calculée par
+   * multilatération depuis le réseau de récepteurs (aucun NIC). Sans cette distinction, l'absence
+   * de NIC d'une piste MLAT passait pour un GNSS dégradé — et fabriquait de faux brouillages.
+   */
+  posSource: PosSource;
+  /** Rayon de confinement annoncé (m), relayé tel quel par l'agrégateur. 0 ou absent = inconnu. */
+  rcM: number | null;
   /** « antenne » : entendu par le récepteur du poste ; sinon agrégateur réseau (adsb.fi / adsb.lol). */
   via?: "antenne" | "reseau";
 };
@@ -252,6 +268,8 @@ export function parseDump1090(ac: unknown[]): LiveAc[] {
       nacp: num(r.nac_p) ?? num(r.nacp),
       sil: num(r.sil),
       military: dbFlags % 2 === 1 || r.military === true,
+      posSource: posSourceOf(typeof r.type === "string" ? r.type : null),
+      rcM: num(r.rc),
     });
   }
   return out;
@@ -350,6 +368,14 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
   const ageS = Math.max(0, ac.seenS);
   const posAt = now - ageS * 1000;
   const est = deadReckon({ lat: ac.lat, lon: ac.lon, heading: ac.track, speedKmh: ac.gsKmh }, ageS);
+  // L'altitude vieillit comme la position. L'enjeu est modeste (2 pistes sur 881 fausses de plus de
+  // 150 m) mais le plafond d'alerte site est à 1500 m, donc une descente de 370 m compte. Le taux
+  // est BORNÉ : certains relevés annoncent +33 245 ft/min (169 m/s), et les appliquer tels quels
+  // ajouterait de l'erreur au lieu d'en retirer.
+  const altM = altAged(ac.altM, ac.climbMs, ageS, DEFAULT_COAST_CFG.maxClimbMs);
+  // Ce que l'aéronef admet ignorer de sa propre position : rayon annoncé, sinon table NIC, sinon
+  // plancher prudent pour une position calculée. Jamais un point exact par défaut.
+  const rc = declaredRcKm(ac);
   const uav = ac.category?.toUpperCase() === "B6";
   const platId = uav ? "adsb-uav" : platformIdForType(ac.icaoType);
   const plat =
@@ -373,7 +399,7 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
     lon: est.lon,
     // La mesure BRUTE et son heure réelle : c'est elle qui sert à comparer deux relevés.
     fix: { lat: ac.lat, lon: ac.lon, at: posAt },
-    altM: ac.altM,
+    altM,
     heading: ac.track,
     speedKmh: ac.gsKmh,
     climbMs: ac.climbMs,
@@ -431,6 +457,9 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
     rssi: ac.rssi,
     nic: ac.nic,
     nacp: ac.nacp,
+    posSource: ac.posSource,
+    posRcKm: rc.km,
+    posRcNote: rc.note,
     military: ac.military,
     category: ac.category,
     nation: icaoNation(ac.hex),
@@ -719,22 +748,36 @@ export function solarFttj(at = Date.now()): SolarDay {
   };
 }
 
+/**
+ * Indice de BROUILLAGE GNSS par cellule : la proportion d'aéronefs qui annoncent eux-mêmes une
+ * position dégradée. Deux corrections, l'une et l'autre mesurées sur un relevé réel de 881 avions :
+ *
+ *  1) Seules les pistes qui ÉMETTENT une position sont interrogées. Le NIC est une propriété du
+ *     message de position ADS-B ; une piste MLAT est localisée par nos récepteurs et n'en émet
+ *     aucun, donc son NIC absent ne dit rien de l'état de son GNSS. En les comptant, le poste
+ *     affichait 9 cellules de « brouillage élevé » là où il n'y en avait qu'une — 8 artefacts purs,
+ *     et une carte de brouillage fictive au-dessus de l'Europe.
+ *
+ *  2) Un effectif minimal. Sur le même lot, 7 cellules sur 28 comptent moins de 10 aéronefs :
+ *     « 1 dégradé sur 2 » s'affichait « 50 % », ce qui est du bruit présenté comme un fait.
+ */
 export function jamFromAircraft(ac: LiveAc[]): JamCell[] {
   const grid = new Map<string, { n: number; bad: number; lat: number; lon: number }>();
   for (const a of ac) {
+    // Pas de position émise : rien à conclure sur son GNSS, ni dans un sens ni dans l'autre.
     if (a.nic == null && a.nacp == null) continue;
+    if (a.posSource !== "adsb") continue;
     const gi = Math.round(a.lat / 2) * 2;
     const gj = Math.round(a.lon / 2) * 2;
     const k = `${gi}:${gj}`;
-    const bad = (a.nic != null && a.nic < 5) || (a.nacp != null && a.nacp < 5);
     const g = grid.get(k) ?? { n: 0, bad: 0, lat: gi, lon: gj };
     g.n += 1;
-    if (bad) g.bad += 1;
+    if (gnssDegraded(a)) g.bad += 1;
     grid.set(k, g);
   }
   const out: JamCell[] = [];
   for (const g of grid.values()) {
-    if (g.n < 2) continue;
+    if (g.n < JAM_MIN_SAMPLE) continue;
     const pct = (g.bad / g.n) * 100;
     const level: JamCell["level"] = pct > 10 ? "high" : pct >= 2 ? "medium" : "low";
     out.push({ lat: g.lat, lon: g.lon, n: g.n, bad: g.bad, pct, level });

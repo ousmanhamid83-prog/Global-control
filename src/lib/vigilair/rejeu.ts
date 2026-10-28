@@ -115,6 +115,10 @@ function toAc(meta: TapeMeta | undefined, row: TapeRow, lat: number, lon: number
     nacp: row[10],
     sil: null,
     military: meta?.[4] === 1,
+    // Du 1090ES réellement reçu : la position était bien ÉMISE par l'aéronef. La bande ne stocke
+    // pas le rayon annoncé, donc l'incertitude se déduira du NIC enregistré avec elle.
+    posSource: "adsb",
+    rcM: null,
     via: "reseau",
   };
 }
