@@ -6,6 +6,7 @@
 
 import { droneAdd, droneRemove, droneSetRoi, droneSetRule, droneSetZones, dronesList, onvifDiscover, registerCameras, scanRange, scanSource } from "./drones-api";
 import type { OwnDrone } from "./drones-core";
+import { registreVideServeur } from "./ssr-snapshot";
 
 export type { OwnDrone, SourceKind, ArmRule } from "./drones-core";
 export { effectiveUrl, matchOwnDrone, normIdent, sourceArmRule, sourceZones } from "./drones-core";
@@ -43,6 +44,15 @@ function set(list: OwnDrone[]): void {
 export function dronesSnapshot(): OwnDrone[] {
   if (!cache) cache = readMirror();
   return cache;
+}
+
+/**
+ * Instantané SERVEUR : vide et de référence stable. React appelle cette fonction au rendu
+ * serveur ET pendant l'hydratation du client ; lui donner l'instantané vivant ferait rendre
+ * au client le miroir `localStorage` que le HTML du serveur ne contenait pas.
+ */
+export function dronesServerSnapshot(): OwnDrone[] {
+  return registreVideServeur<OwnDrone>();
 }
 /** Lecture synchrone directe (store) — identique au snapshot mais au nom explicite côté moteur. */
 export function dronesPeek(): OwnDrone[] {

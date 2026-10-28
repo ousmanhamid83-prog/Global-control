@@ -6,6 +6,7 @@
 
 import { siteNetAdd, siteNetRecordScan, siteNetRemove, siteNetsList } from "./sitenets-api";
 import type { SiteNet } from "./sitenet-core";
+import { registreVideServeur } from "./ssr-snapshot";
 
 export type { SiteNet, SiteNetEvent } from "./sitenet-core";
 export { appendHistory, camKey, diffCameras, groupSites, perimeterSummaryLines, sectorHealth } from "./sitenet-core";
@@ -43,6 +44,15 @@ function set(list: SiteNet[]): void {
 export function siteNetsSnapshot(): SiteNet[] {
   if (!cache) cache = readMirror();
   return cache;
+}
+
+/**
+ * Instantané SERVEUR : vide et de référence stable. React appelle cette fonction au rendu
+ * serveur ET pendant l'hydratation du client ; lui donner l'instantané vivant ferait rendre
+ * au client le miroir `localStorage` que le HTML du serveur ne contenait pas.
+ */
+export function siteNetsServerSnapshot(): SiteNet[] {
+  return registreVideServeur<SiteNet>();
 }
 export function subscribeSiteNets(l: Listener): () => void {
   listeners.add(l);

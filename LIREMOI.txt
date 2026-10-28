@@ -193,6 +193,20 @@ Symbologie APP-6 et radar
   doit voir — c'est le geste de qui ne veut pas être suivi. Alerte ÉLEVÉE, une fois par piste, avec
   la durée du silence, l'altitude, la distance au site et le rayon d'incertitude (« ce n'est plus
   une mesure »). Oubliée dès que la piste ré-émet.
+- PIÈGE D'HYDRATATION SUR LES REGISTRES (fermé par précaution, pas par panne). Les registres du
+  poste — drones et caméras, sites de veille, capteurs sol, routes, secteurs réseau — gardent un
+  miroir dans le navigateur et le LISENT au premier appel de leur instantané. Or ce même instantané
+  servait aussi d'instantané SERVEUR à React, qui appelle cette fonction pendant l'hydratation du
+  client : le serveur rend une liste vide (il n'a pas accès au navigateur de l'opérateur) pendant
+  que le client lit un miroir déjà peuplé. C'est exactement le motif qui avait produit le défaut,
+  lui bien réel, de la barre d'état.
+  À DIRE FRANCHEMENT : ce défaut-ci ne se manifeste nulle part aujourd'hui, et c'est vérifié — sur
+  un poste configuré (drones, caméras, sites, routes et secteurs inscrits), 0 désynchronisation sur
+  8 rechargements. La raison : les composants qui lisent ces registres ne rendent AUCUN DOM (ce
+  sont des moteurs de veille, pas des vues) ou vivent derrière un onglet inactif, donc ne sont
+  jamais rendus par le serveur. Les onze points d'appel reçoivent désormais un instantané serveur
+  vide et stable : le jour où l'un de ces composants passe dans la coque permanente, la
+  désynchronisation n'aura pas lieu. Comportement inchangé par ailleurs, contrôlé des deux côtés.
 - LE CACHE RAJEUNISSAIT LES POSITIONS (corrigé). L'image réseau est gardée 20 s, et quand une
   antenne locale est branchée le poste peut même servir le DERNIER relevé connu, plus vieux encore,
   pour ne pas attendre un Internet lent. Or l'âge déclaré de chaque position (`seen`) n'était

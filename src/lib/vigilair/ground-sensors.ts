@@ -4,6 +4,7 @@
 
 import { sensorAdd, sensorRemove, sensorSetState, sensorsList } from "./ground-sensors-api";
 import type { GroundSensor, SensorType } from "./ground-sensors.server";
+import { registreVideServeur } from "./ssr-snapshot";
 
 export type { GroundSensor, SensorType, SensorState } from "./ground-sensors.server";
 
@@ -40,6 +41,15 @@ function set(list: GroundSensor[]): void {
 export function sensorsSnapshot(): GroundSensor[] {
   if (!cache) cache = readMirror();
   return cache;
+}
+
+/**
+ * Instantané SERVEUR : vide et de référence stable. React appelle cette fonction au rendu
+ * serveur ET pendant l'hydratation du client ; lui donner l'instantané vivant ferait rendre
+ * au client le miroir `localStorage` que le HTML du serveur ne contenait pas.
+ */
+export function sensorsServerSnapshot(): GroundSensor[] {
+  return registreVideServeur<GroundSensor>();
 }
 export function subscribeSensors(l: Listener): () => void {
   listeners.add(l);

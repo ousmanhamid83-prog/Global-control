@@ -13,6 +13,7 @@ import { MINES } from "./mines";
 import { nearestFrom, type NearWatch, type SiteInput, type WatchSite } from "./watch-sites-core";
 import { watchSiteAdd, watchSiteRemove, watchSitesList } from "./watch-sites-api";
 import type { ZoneRow } from "./zones";
+import { registreVideServeur } from "./ssr-snapshot";
 
 export type { NearWatch, SiteInput, WatchSite } from "./watch-sites-core";
 export { validateSite, nearestFrom } from "./watch-sites-core";
@@ -75,6 +76,15 @@ function set(list: WatchSite[]): void {
 /** Liste des sites (référence stable tant que rien ne change : OK pour useSyncExternalStore). */
 export function watchSitesSnapshot(): WatchSite[] {
   return read();
+}
+
+/**
+ * Instantané SERVEUR : vide et de référence stable. React appelle cette fonction au rendu
+ * serveur ET pendant l'hydratation du client ; lui donner l'instantané vivant ferait rendre
+ * au client le miroir `localStorage` que le HTML du serveur ne contenait pas.
+ */
+export function watchSitesServerSnapshot(): WatchSite[] {
+  return registreVideServeur<WatchSite>();
 }
 
 export function subscribeWatchSites(l: Listener): () => void {

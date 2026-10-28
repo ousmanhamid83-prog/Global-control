@@ -25,10 +25,10 @@ import {
   type NamedPoint,
 } from "@/lib/vigilair/nav";
 import { nearestPlace, searchPlaces, type Place } from "@/lib/vigilair/places";
-import { deleteRoute, routesSnapshot, saveRoute, subscribeRoutes } from "@/lib/vigilair/routes";
+import { deleteRoute, routesSnapshot, routesServerSnapshot, saveRoute, subscribeRoutes } from "@/lib/vigilair/routes";
 import { useVigilair } from "@/lib/vigilair/store";
 import type { Threat } from "@/lib/vigilair/types";
-import { addCustomSite, subscribeWatchSites, watchSitesSnapshot } from "@/lib/vigilair/watch-sites";
+import { addCustomSite, subscribeWatchSites, watchSitesSnapshot, watchSitesServerSnapshot } from "@/lib/vigilair/watch-sites";
 
 type Pt = { name: string; lat: string; lon: string };
 const EMPTY: Pt = { name: "", lat: "", lon: "" };
@@ -241,7 +241,7 @@ function TerrainProfile({ prof }: { prof: Extract<ElevationProfile, { ok: true }
  * tient un cap. Réception seule : ça aide un véhicule à tenir un cap, ça ne guide rien.
  */
 export function NavPanel() {
-  const custom = useSyncExternalStore(subscribeWatchSites, watchSitesSnapshot, watchSitesSnapshot);
+  const custom = useSyncExternalStore(subscribeWatchSites, watchSitesSnapshot, watchSitesServerSnapshot);
   const phenomena = useVigilair((s) => s.phenomena);
   const [start, setStart] = useState<Pt>(EMPTY);
   const [dest, setDest] = useState<Pt>(EMPTY);
@@ -254,7 +254,7 @@ export function NavPanel() {
   const setNavAlarm = useVigilair((s) => s.setNavAlarm);
   const [elev, setElev] = useState<ElevationProfile | null>(null);
   const [elevBusy, setElevBusy] = useState(false);
-  const savedRoutes = useSyncExternalStore(subscribeRoutes, routesSnapshot, routesSnapshot);
+  const savedRoutes = useSyncExternalStore(subscribeRoutes, routesSnapshot, routesServerSnapshot);
   const [road, setRoad] = useState<RoadRoute | null>(null);
   const [roadBusy, setRoadBusy] = useState(false);
   const [maxSlope, setMaxSlope] = useState("15");

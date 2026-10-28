@@ -4,9 +4,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { diffHeatmap } from "@/lib/vigilair/change-diff";
-import { addSensor, removeSensor, sensorsSnapshot, setSensorState, subscribeSensors, type SensorType } from "@/lib/vigilair/ground-sensors";
-import { addDrone, discoverOnvifClient, dronesSnapshot, registerCamerasClient, removeDrone, scanRangeClient, scanSourceClient, setDroneRule, setDroneZones, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
-import { addSiteNet, groupSites, hydrateSiteNets, perimeterSummaryLines, recordSiteScan, removeSiteNet, sectorHealth, siteNetsSnapshot, subscribeSiteNets } from "@/lib/vigilair/sitenets";
+import { addSensor, removeSensor, sensorsSnapshot, sensorsServerSnapshot, setSensorState, subscribeSensors, type SensorType } from "@/lib/vigilair/ground-sensors";
+import { addDrone, discoverOnvifClient, dronesSnapshot, dronesServerSnapshot, registerCamerasClient, removeDrone, scanRangeClient, scanSourceClient, setDroneRule, setDroneZones, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
+import { addSiteNet, groupSites, hydrateSiteNets, perimeterSummaryLines, recordSiteScan, removeSiteNet, sectorHealth, siteNetsSnapshot, siteNetsServerSnapshot, subscribeSiteNets } from "@/lib/vigilair/sitenets";
 import { requestRelearn } from "@/lib/vigilair/tamper-relearn";
 import { buildCapturePdf, buildTextPdf } from "@/lib/vigilair/capture-pdf";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
@@ -17,7 +17,7 @@ import {
   addCustomSite,
   removeCustomSite,
   subscribeWatchSites,
-  watchSitesSnapshot,
+  watchSitesSnapshot, watchSitesServerSnapshot,
 } from "@/lib/vigilair/watch-sites";
 
 type Pair = Awaited<ReturnType<typeof fetchChangePair>>;
@@ -36,7 +36,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
  *  incomplet). Chaque site ajouté sonne pour les phénomènes proches, est évalué pour l'intrusion
  *  drone, et devient sélectionnable dans le comparateur. Stockage local au poste. */
 function SiteManager() {
-  const custom = useSyncExternalStore(subscribeWatchSites, watchSitesSnapshot, watchSitesSnapshot);
+  const custom = useSyncExternalStore(subscribeWatchSites, watchSitesSnapshot, watchSitesServerSnapshot);
   const [name, setName] = useState("");
   const [lat, setLat] = useState("");
   const [lon, setLon] = useState("");
@@ -51,7 +51,7 @@ function SiteManager() {
   const setChangeWatch = useVigilair((s) => s.setChangeWatch);
   const changeThreshold = useVigilair((s) => s.changeThreshold);
   const setChangeThreshold = useVigilair((s) => s.setChangeThreshold);
-  const sensors = useSyncExternalStore(subscribeSensors, sensorsSnapshot, sensorsSnapshot);
+  const sensors = useSyncExternalStore(subscribeSensors, sensorsSnapshot, sensorsServerSnapshot);
   const [snSite, setSnSite] = useState("");
   const [snType, setSnType] = useState<SensorType>("camera");
   const [snName, setSnName] = useState("");
@@ -61,9 +61,9 @@ function SiteManager() {
   };
 
   // Nos drones : registre partagé + veille mouvement sur leur imagerie.
-  const drones = useSyncExternalStore(subscribeDrones, dronesSnapshot, dronesSnapshot);
+  const drones = useSyncExternalStore(subscribeDrones, dronesSnapshot, dronesServerSnapshot);
   // Sites distants : plages réseau mémorisées (au bout des liaisons antenne).
-  const siteNets = useSyncExternalStore(subscribeSiteNets, siteNetsSnapshot, siteNetsSnapshot);
+  const siteNets = useSyncExternalStore(subscribeSiteNets, siteNetsSnapshot, siteNetsServerSnapshot);
   useEffect(() => { void hydrateSiteNets(); }, []);
   const droneWatch = useVigilair((s) => s.droneWatch);
   const setDroneWatch = useVigilair((s) => s.setDroneWatch);
@@ -1261,7 +1261,7 @@ function SiteManager() {
  * c'est une différence d'image, pas une reconnaissance d'objet. Réception / lecture seule.
  */
 export function ChangeCompare() {
-  const custom = useSyncExternalStore(subscribeWatchSites, watchSitesSnapshot, watchSitesSnapshot);
+  const custom = useSyncExternalStore(subscribeWatchSites, watchSitesSnapshot, watchSitesServerSnapshot);
   const sites: SiteOpt[] = [
     ...MINES.map((m) => ({
       id: m.id,

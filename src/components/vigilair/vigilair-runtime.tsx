@@ -26,16 +26,16 @@ import { confirmedTracks, detectOcclusions, isStationary, stepTracker, type Trac
 import { inArmWindow, pointInPolygon } from "@/lib/vigilair/zones2d";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { fetchDroneFrame } from "@/lib/vigilair/drones-api";
-import { dronesSnapshot, effectiveUrl, hydrateDrones, scanRangeClient, sourceArmRule, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
-import { hydrateSiteNets, recordSiteScan, siteNetsSnapshot, subscribeSiteNets } from "@/lib/vigilair/sitenets";
+import { dronesSnapshot, dronesServerSnapshot, effectiveUrl, hydrateDrones, scanRangeClient, sourceArmRule, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
+import { hydrateSiteNets, recordSiteScan, siteNetsSnapshot, siteNetsServerSnapshot, subscribeSiteNets } from "@/lib/vigilair/sitenets";
 import { MINES } from "@/lib/vigilair/mines";
 import { routeHazards } from "@/lib/vigilair/nav";
 import { useVigilair } from "@/lib/vigilair/store";
 import { startTelemetry } from "@/lib/vigilair/telemetry";
 import type { Threat } from "@/lib/vigilair/types";
-import { hydrateSensors, sensorsSnapshot, subscribeSensors } from "@/lib/vigilair/ground-sensors";
+import { hydrateSensors, sensorsSnapshot, sensorsServerSnapshot, subscribeSensors } from "@/lib/vigilair/ground-sensors";
 import { hydrateRoutes } from "@/lib/vigilair/routes";
-import { hydrateFromServer, subscribeWatchSites, watchSitesSnapshot } from "@/lib/vigilair/watch-sites";
+import { hydrateFromServer, subscribeWatchSites, watchSitesSnapshot, watchSitesServerSnapshot } from "@/lib/vigilair/watch-sites";
 
 /** Survives les changements de route — AppShell se démonte, pas le 1090 ni le quart. */
 export function VigilairRuntime() {
@@ -72,7 +72,7 @@ function SiteNetWatch() {
   const cadenceMin = useVigilair((s) => s.siteNetCadenceMin);
   const sectorThreshold = useVigilair((s) => s.siteNetSectorThreshold);
   const pushAlert = useVigilair((s) => s.pushAlert);
-  const sites = useSyncExternalStore(subscribeSiteNets, siteNetsSnapshot, siteNetsSnapshot);
+  const sites = useSyncExternalStore(subscribeSiteNets, siteNetsSnapshot, siteNetsServerSnapshot);
   const sitesRef = useRef(sites);
   sitesRef.current = sites;
   useEffect(() => {
@@ -161,7 +161,7 @@ function DroneWatch() {
   const pushAlert = useVigilair((s) => s.pushAlert);
   const setDroneMotion = useVigilair((s) => s.setDroneMotion);
   const pushDroneLog = useVigilair((s) => s.pushDroneLog);
-  const drones = useSyncExternalStore(subscribeDrones, dronesSnapshot, dronesSnapshot);
+  const drones = useSyncExternalStore(subscribeDrones, dronesSnapshot, dronesServerSnapshot);
   const idx = useRef(0);
   /** Fond MULTI-TRAMES par drone (anneau de N trames → médiane) + nombre de trames vues (warmup). */
   const ringRef = useRef<Map<string, FrameRing>>(new Map());
@@ -577,7 +577,7 @@ function DroneWatch() {
 
 /** Capteurs sol : alerte quand un capteur passe en « alarme » (manuel aujourd'hui, matériel demain). */
 function SensorWatch() {
-  const sensors = useSyncExternalStore(subscribeSensors, sensorsSnapshot, sensorsSnapshot);
+  const sensors = useSyncExternalStore(subscribeSensors, sensorsSnapshot, sensorsServerSnapshot);
   const pushAlert = useVigilair((s) => s.pushAlert);
   const alarmed = useRef<Set<string>>(new Set());
   const seeded = useRef(false);
@@ -644,7 +644,7 @@ function ChangeWatch() {
   const on = useVigilair((s) => s.changeWatch);
   const threshold = useVigilair((s) => s.changeThreshold);
   const pushAlert = useVigilair((s) => s.pushAlert);
-  const custom = useSyncExternalStore(subscribeWatchSites, watchSitesSnapshot, watchSitesSnapshot);
+  const custom = useSyncExternalStore(subscribeWatchSites, watchSitesSnapshot, watchSitesServerSnapshot);
   const idx = useRef(0);
   const lastAlert = useRef<Map<string, number>>(new Map());
 

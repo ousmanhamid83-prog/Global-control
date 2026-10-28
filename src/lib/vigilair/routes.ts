@@ -6,6 +6,7 @@
 import type { NamedPoint } from "./nav";
 import { routeAdd, routeRemove, routesList } from "./routes-api";
 import type { SavedRoute } from "./routes.server";
+import { registreVideServeur } from "./ssr-snapshot";
 
 export type { SavedRoute } from "./routes.server";
 
@@ -44,6 +45,15 @@ function set(list: SavedRoute[]): void {
 export function routesSnapshot(): SavedRoute[] {
   if (!cache) cache = readMirror();
   return cache;
+}
+
+/**
+ * Instantané SERVEUR : vide et de référence stable. React appelle cette fonction au rendu
+ * serveur ET pendant l'hydratation du client ; lui donner l'instantané vivant ferait rendre
+ * au client le miroir `localStorage` que le HTML du serveur ne contenait pas.
+ */
+export function routesServerSnapshot(): SavedRoute[] {
+  return registreVideServeur<SavedRoute>();
 }
 
 export function subscribeRoutes(l: Listener): () => void {
