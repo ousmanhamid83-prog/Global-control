@@ -193,6 +193,23 @@ Symbologie APP-6 et radar
   doit voir — c'est le geste de qui ne veut pas être suivi. Alerte ÉLEVÉE, une fois par piste, avec
   la durée du silence, l'altitude, la distance au site et le rayon d'incertitude (« ce n'est plus
   une mesure »). Oubliée dès que la piste ré-émet.
+- LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
+  de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
+  pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée
+  à 3 puis 20 — l'opérateur regardait donc un chiffre faux de 159 pistes, présenté comme vivant.
+  Les tuiles affichent désormais l'état COURANT (« 1090 maintenant », « FTTJ maintenant ») et le
+  relevé d'ouverture devient ce qu'il aurait toujours dû être : un REPÈRE, écrit sous la valeur
+  (« prise 162 · -142 »), qui dit le chemin parcouru depuis la prise. La fiche de quart conserve le
+  relevé d'ouverture intact : l'AAR, le delta de relève et la traçabilité ne perdent rien — c'est
+  l'affichage qui change, pas l'archive. Les textes de l'écran, qui promettaient un gel, ont été
+  mis en accord avec ce qui se passe vraiment.
+- IMAGERIE, SUITE : la règle « absente vs injoignable » ne couvrait que la couche visible. Mesuré
+  ensuite : /api/tile?l=th (thermique) au zoom 2 renvoyait encore 404 par intermittence. Les
+  couches thermique, infrarouge, nocturne, relief et Sentinel-2 suivent maintenant la même règle.
+  Au passage, un défaut introduit par le correctif précédent a été corrigé : le motif de l'échec
+  était gardé dans une variable partagée, si bien que deux tuiles demandées EN MÊME TEMPS — ce qui
+  est la règle sur une carte — pouvaient se voler leur motif et déguiser une panne en terrain vide.
+  Chaque requête a désormais son propre contexte.
 - PIÈGE D'HYDRATATION SUR LES REGISTRES (fermé par précaution, pas par panne). Les registres du
   poste — drones et caméras, sites de veille, capteurs sol, routes, secteurs réseau — gardent un
   miroir dans le navigateur et le LISENT au premier appel de leur instantané. Or ce même instantané

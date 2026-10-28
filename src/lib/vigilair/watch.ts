@@ -194,6 +194,27 @@ function delta(a: number, b: number): string {
   return d > 0 ? `+${d}` : String(d);
 }
 
+/**
+ * Rappel de ce qu'une valeur capteur valait À LA PRISE, et de son écart depuis.
+ *
+ * Le tableau de quart affichait la valeur GELÉE à l'ouverture comme si c'était l'état courant :
+ * « 1090 au gel · 205 » restait à 205 des heures durant, pendant que le ciel changeait. Un poste de
+ * surveillance ne doit rien montrer de figé — il montre le vivant, et le gel devient ce qu'il aurait
+ * toujours dû être : un REPÈRE pour mesurer le chemin parcouru depuis la prise de poste.
+ *
+ * Le gel reste conservé tel quel dans la fiche de quart (`snapIn`), donc l'AAR et le delta de
+ * relève sont intacts : c'est l'AFFICHAGE qui change, pas la traçabilité.
+ */
+export function rappelPrise(aLaPrise: number, maintenant: number): string {
+  return `prise ${aLaPrise} · ${delta(aLaPrise, maintenant)}`;
+}
+
+/** Même rappel pour une valeur textuelle (catégorie METAR) : inchangée, ou ce qu'elle était. */
+export function rappelPriseTexte(aLaPrise: string | null, maintenant: string | null): string {
+  const p = aLaPrise ?? "—";
+  return (aLaPrise ?? null) === (maintenant ?? null) ? `prise ${p} · inchangé` : `prise ${p}`;
+}
+
 export function composeAar(opts: {
   openedLabel: string;
   openedRole: string;

@@ -16,6 +16,8 @@ import {
 } from "@/lib/vigilair/watch-ops";
 import {
   formatWatchDuration,
+  rappelPrise,
+  rappelPriseTexte,
   snapFromPicture,
   snapLine,
   type WatchShiftRow,
@@ -128,9 +130,12 @@ export function QuartView() {
             Prise de poste · Relève · AAR réel
           </h1>
           <p className="max-w-3xl text-sm text-muted-foreground">
-            Un quart ouvert à la fois. À la prise, AfriControl gele le tableau
-            capteurs réel (1090ES, METAR FTTJ, SIGMET, Kp, RWY, soleil WAT).
-            La relève clôture l'AAR du sortant et ouvre le gel du rentrant.
+            Un quart ouvert à la fois. Le tableau capteurs reste VIVANT pendant
+            tout le quart — un poste de surveillance ne montre rien de figé. À
+            la prise, AfriControl enregistre un relevé d'ouverture (1090ES,
+            METAR FTTJ, SIGMET, Kp, RWY, soleil WAT) qui sert de REPÈRE : il dit
+            le chemin parcouru depuis, et nourrit l'AAR.
+            La relève clôture l'AAR du sortant et ouvre le relevé du rentrant.
             Le mode veille du COP (bouton Veille) est distinct : il garde le
             poste live sans gel idle, imagerie ≤ 50 m, réveil auto. Pas de
             piste inventée : un silence 1090 sur N'Djamena est le réel.
@@ -152,23 +157,30 @@ export function QuartView() {
             tone={watch ? "ok" : "warn"}
           />
           <Stat k="Titulaire" v={watch ? watch.openedLabel : "—"} />
+          {/* VIVANT, pas gelé. Ces deux tuiles affichaient la valeur figée à la prise de quart :
+              « 1090 au gel · 205 » restait à 205 des heures durant pendant que le ciel changeait.
+              Un poste de surveillance montre l'état COURANT ; le gel de prise devient le repère
+              qui dit le chemin parcouru. La fiche de quart garde `snapIn` intact, donc l'AAR et le
+              delta de relève ne perdent rien. */}
           <Stat
-            k="1090 au gel"
-            v={watch ? String(watch.snapIn.ac) : "—"}
-            tone={watch && watch.snapIn.emergency ? "crit" : "default"}
+            k="1090 maintenant"
+            v={watch ? String(liveSnap.ac) : "—"}
+            tone={watch && liveSnap.emergency ? "crit" : "default"}
+            sous={watch ? rappelPrise(watch.snapIn.ac, liveSnap.ac) : undefined}
           />
           <Stat
-            k="FTTJ au gel"
-            v={watch?.snapIn.cat ?? (watch ? "sans METAR" : "—")}
+            k="FTTJ maintenant"
+            v={liveSnap.cat ?? (watch ? "sans METAR" : "—")}
             tone={
-              watch?.snapIn.cat === "VFR"
+              liveSnap.cat === "VFR"
                 ? "ok"
-                : watch?.snapIn.cat === "MVFR"
+                : liveSnap.cat === "MVFR"
                   ? "warn"
-                  : watch?.snapIn.cat
+                  : liveSnap.cat
                     ? "crit"
                     : "default"
             }
+            sous={watch ? rappelPriseTexte(watch.snapIn.cat, liveSnap.cat) : undefined}
           />
         </div>
 
@@ -210,7 +222,7 @@ export function QuartView() {
                 </p>
               ) : null}
               <div className="grid gap-4 grid-cols-2">
-                <SnapCard title="Gel d'ouverture" snap={watch.snapIn} />
+                <SnapCard title="Relevé d'ouverture (repère)" snap={watch.snapIn} />
                 <SnapCard title="Capteurs maintenant" snap={liveSnap} live />
               </div>
             </div>
@@ -346,7 +358,7 @@ export function QuartView() {
 }
 
 function LiveNow({ snap }: { snap: WatchSnap }) {
-  return <SnapCard title="Capteurs maintenant (pas encore gelés)" snap={snap} live />;
+  return <SnapCard title="Capteurs maintenant (aucun quart ouvert)" snap={snap} live />;
 }
 
 function SnapCard({
@@ -404,10 +416,13 @@ function Stat({
   k,
   v,
   tone = "default",
+  sous,
 }: {
   k: string;
   v: string;
   tone?: "default" | "ok" | "warn" | "crit";
+  /** Ligne de rappel sous la valeur : ce qu'elle valait à la prise, et l'écart depuis. */
+  sous?: string;
 }) {
   return (
     <div className="rounded-md border border-border bg-surface p-3 hud">
@@ -422,6 +437,9 @@ function Stat({
       >
         {v}
       </p>
+      {sous ? (
+        <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{sous}</p>
+      ) : null}
     </div>
   );
 }

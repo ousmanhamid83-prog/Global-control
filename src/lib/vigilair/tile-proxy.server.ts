@@ -1,5 +1,6 @@
 /** Proxy tuiles same-origin : NASA / EUMETSAT voient l'IP serveur, jamais celle du poste. */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { tileToLat, tileToLon } from "./geo";
@@ -164,12 +165,43 @@ function usable(bytes: Uint8Array): boolean {
 }
 
 /**
- * Dernière raison pour laquelle `fetchImg` est revenu les mains vides. Un `null` seul écrasait
- * « il a répondu qu'il n'a rien » et « je n'ai pas pu le joindre » — or peindre la seconde en
- * terrain vide rend la carte aveugle sans le dire. On retient donc le motif à côté du résultat,
- * sans changer la signature que tout le fichier utilise.
+ * Pourquoi la tuile demandée n'a rien donné. Un `null` seul écrasait « il a répondu qu'il n'a
+ * rien » et « je n'ai pas pu le joindre » — or peindre la seconde en terrain vide rend la carte
+ * aveugle sans le dire.
+ *
+ * Le motif vit dans un CONTEXTE ASYNCHRONE propre à chaque requête, pas dans une variable de
+ * module : `serveTile` attend plusieurs fournisseurs, donc deux tuiles demandées en même temps
+ * s'entrelacent et se voleraient leur motif. Au passage, aucune signature n'a besoin de changer
+ * dans les huit fonctions qui descendent jusqu'à `fetchImg`.
  */
-let dernierEchec: TileMiss = "absente";
+const motifTuile = new AsyncLocalStorage<{ why: TileMiss }>();
+
+/**
+ * Note un motif d'échec. « injoignable » ne redescend JAMAIS à « absente » : il suffit qu'un seul
+ * fournisseur ait été hors d'atteinte pour qu'on refuse d'affirmer qu'il n'y a rien ici.
+ */
+function noteMiss(why: TileMiss): void {
+  const box = motifTuile.getStore();
+  // La règle « un seul injoignable suffit » vit dans une seule fonction pure, testée à part.
+  if (box) box.why = verdictTuile([box.why, why]);
+}
+
+/** Verdict de la requête en cours. */
+function motifCourant(): TileMiss {
+  return motifTuile.getStore()?.why ?? "absente";
+}
+
+/**
+ * Réponse quand aucun fournisseur n'a rendu d'imagerie : tuile vide si tous ont répondu « rien
+ * ici » (fait de terrain, et pas de 404 par dizaines dans la console du poste), erreur visible si
+ * l'un d'eux était injoignable (fait sur NOUS, que l'opérateur doit voir).
+ */
+function sansImagerie(): Response {
+  if (motifCourant() === "injoignable") {
+    return new Response(null, { status: 502, headers: { "X-AfriControl-Tile": "INJOIGNABLE" } });
+  }
+  return emptyTile();
+}
 
 async function fetchImg(
   url: string,
@@ -184,14 +216,14 @@ async function fetchImg(
       redirect: "follow",
     });
     if (!res.ok) {
-      dernierEchec = missFromStatus(res.status);
+      noteMiss(missFromStatus(res.status));
       return null;
     }
     const buf = new Uint8Array(await res.arrayBuffer());
     if (!usable(buf)) {
       // Réponse reçue mais inexploitable (page d'erreur, corps vide) : le fournisseur a parlé,
       // il n'a simplement pas d'image ici.
-      dernierEchec = "absente";
+      noteMiss("absente");
       return null;
     }
     const warning = res.headers.get("warning") ?? "";
@@ -202,7 +234,7 @@ async function fetchImg(
     return { bytes: buf, scene };
   } catch {
     // Réseau coupé, délai dépassé, TLS refusé : nous n'avons PAS pu regarder.
-    dernierEchec = "injoignable";
+    noteMiss("injoignable");
     return null;
   } finally {
     clearTimeout(t);
@@ -339,13 +371,13 @@ async function gibsDaily(layer: string, matrix: string, z: number, x: number, y:
  */
 async function esriTile(z: number, x: number, y: number) {
   if (!zoomFinServable(z)) {
-    dernierEchec = "absente";
+    noteMiss("absente");
     return null;
   }
   const got = await fetchImg(`${ESRI}/${z}/${y}/${x}`, 12000);
   if (!got) return null;
   if (estTuileGrise(got.bytes.byteLength)) {
-    dernierEchec = "absente";
+    noteMiss("absente");
     return null;
   }
   return got;
@@ -353,13 +385,13 @@ async function esriTile(z: number, x: number, y: number) {
 
 async function clarityTile(z: number, x: number, y: number) {
   if (!zoomFinServable(z)) {
-    dernierEchec = "absente";
+    noteMiss("absente");
     return null;
   }
   const got = await fetchImg(`${CLARITY}/${z}/${y}/${x}`, 10000);
   if (!got) return null;
   if (estTuileGrise(got.bytes.byteLength)) {
-    dernierEchec = "absente";
+    noteMiss("absente");
     return null;
   }
   return got;
@@ -560,12 +592,27 @@ export function satStatus(): SatMeta {
   return { ...meta };
 }
 
-export async function serveTile(
+/**
+ * Chaque requête de tuile reçoit SON contexte de motif. Sans cette enveloppe, deux tuiles
+ * demandées en même temps — ce qui est la règle sur une carte — s'entrelaceraient sur un état
+ * partagé et se voleraient la raison de leur échec, au point de déguiser une panne en terrain vide.
+ */
+export function serveTile(
   z: number,
   x: number,
   y: number,
   layer: SatLayer = "vis",
 ): Promise<Response> {
+  return motifTuile.run({ why: "absente" }, () => serveTileInner(z, x, y, layer));
+}
+
+async function serveTileInner(
+  z: number,
+  x: number,
+  y: number,
+  layer: SatLayer,
+): Promise<Response> {
+  // Tuile hors du monde : la requête elle-même est fausse, ce n'est pas une absence d'imagerie.
   if (!inWorld(z, x, y)) return new Response(null, { status: 404 });
   const key = `${layer}/${z}/${x}/${y}`;
   const hit = cache.get(key);
@@ -585,14 +632,12 @@ export async function serveTile(
         ["ESRI", esriTile],
         ["CLARITY", clarityTile],
       ];
-      const echecs: TileMiss[] = [];
       for (const [via, fetchTile] of order) {
         const sharp = await fetchTile(z, x, y);
         if (sharp) {
           remember(key, sharp.bytes, via, "mosaic");
           return img(sharp.bytes, via, "mosaic");
         }
-        echecs.push(dernierEchec);
       }
       // Aucun fournisseur n'a rendu d'imagerie. Deux cas, qui ne doivent PAS se ressembler :
       //  — tous ont répondu « rien ici » (404, ou leur tuile grise de remplissage) : c'est un fait
@@ -601,13 +646,7 @@ export async function serveTile(
       //  — l'un d'eux était INJOIGNABLE : on ne peut pas affirmer qu'il n'y a rien à un endroit
       //    qu'on n'a pas pu regarder, donc on laisse une erreur visible plutôt qu'une carte
       //    proprement aveugle.
-      if (verdictTuile(echecs) === "injoignable") {
-        return new Response(null, {
-          status: 502,
-          headers: { "X-AfriControl-Tile": "INJOIGNABLE" },
-        });
-      }
-      return emptyTile();
+      return sansImagerie();
     }
     const geo = await geoVisible(z, x, y, slots);
     if (geo) {
@@ -644,7 +683,8 @@ export async function serveTile(
       meta.s2Src = "clé Copernicus requise (Capteurs > Outils)";
       return new Response(null, { status: 404 });
     }
-    if (z < 6 || z > 15) return new Response(null, { status: 404 });
+    // Zoom hors de ce que Sentinel-2 sert : il n'y a pas d'imagerie ici, ce n'est pas une panne.
+    if (z < 6 || z > 15) return emptyTile();
     try {
       const s2 = await sentinelTile(z, x, y);
       if (s2) {
@@ -660,7 +700,7 @@ export async function serveTile(
       meta.s2Src = `Sentinel-2 · ${e instanceof Error ? e.message : "échec"}`;
       return new Response(null, { status: e instanceof Error && e.message === "429" ? 429 : 502 });
     }
-    return (await offline()) ?? new Response(null, { status: 404 });
+    return (await offline()) ?? sansImagerie();
   }
 
   if (layer === "ir") {
@@ -680,7 +720,9 @@ export async function serveTile(
       remember(key, b31.bytes, "B31", b31.slot);
       return img(b31.bytes, "B31", b31.slot);
     }
-    return new Response(null, { status: 404 });
+    // Aucun fournisseur thermique n'a rendu cette tuile : vide si tous ont répondu « rien ici »,
+    // erreur visible si l'un d'eux était injoignable.
+    return sansImagerie();
   }
 
   if (layer === "nv") {
@@ -699,7 +741,7 @@ export async function serveTile(
       remember(key, night.bytes, via, night.slot || night.scene);
       return img(night.bytes, via, night.slot || night.scene);
     }
-    return new Response(null, { status: 404 });
+    return sansImagerie();
   }
 
   if (layer === "rel") {
@@ -709,7 +751,7 @@ export async function serveTile(
       remember(key, rel.bytes, "GDEM", rel.slot || rel.scene);
       return img(rel.bytes, "GDEM", rel.slot || rel.scene);
     }
-    return new Response(null, { status: 404 });
+    return sansImagerie();
   }
 
   const geoTh = await geoInfrared(z, x, y, slots);
@@ -740,7 +782,9 @@ export async function serveTile(
     remember(key, lst.bytes, "LST", lst.slot);
     return img(lst.bytes, "LST", lst.slot);
   }
-  return new Response(null, { status: 404 });
+  // Couche thermique : mesuré en réel, /api/tile?l=th&z=2 n'existe tout simplement pas chez les
+  // fournisseurs — ce n'est pas une panne, et ça n'a rien à faire en 404 dans la console du poste.
+  return sansImagerie();
 }
 
 function img(bytes: Uint8Array, via: string, scene: string, mime?: string): Response {
