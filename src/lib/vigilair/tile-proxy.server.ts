@@ -3,6 +3,13 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { tileToLat, tileToLon } from "./geo";
+import {
+  estTuileGrise,
+  missFromStatus,
+  verdictTuile,
+  zoomFinServable,
+  type TileMiss,
+} from "./tile-verdict";
 import type { SatLayer, SatMeta } from "./sat";
 
 const UA = "AfriControl-COP/21 (C-UAS tiles; no operator identity)";
@@ -156,6 +163,14 @@ function usable(bytes: Uint8Array): boolean {
   return true;
 }
 
+/**
+ * Dernière raison pour laquelle `fetchImg` est revenu les mains vides. Un `null` seul écrasait
+ * « il a répondu qu'il n'a rien » et « je n'ai pas pu le joindre » — or peindre la seconde en
+ * terrain vide rend la carte aveugle sans le dire. On retient donc le motif à côté du résultat,
+ * sans changer la signature que tout le fichier utilise.
+ */
+let dernierEchec: TileMiss = "absente";
+
 async function fetchImg(
   url: string,
   ms = 9000,
@@ -168,9 +183,17 @@ async function fetchImg(
       headers: { Accept: "image/jpeg,image/png,image/*", "User-Agent": UA },
       redirect: "follow",
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      dernierEchec = missFromStatus(res.status);
+      return null;
+    }
     const buf = new Uint8Array(await res.arrayBuffer());
-    if (!usable(buf)) return null;
+    if (!usable(buf)) {
+      // Réponse reçue mais inexploitable (page d'erreur, corps vide) : le fournisseur a parlé,
+      // il n'a simplement pas d'image ici.
+      dernierEchec = "absente";
+      return null;
+    }
     const warning = res.headers.get("warning") ?? "";
     const fromWarn = warning.match(/time=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/);
     const scene =
@@ -178,6 +201,8 @@ async function fetchImg(
       (fromWarn ? `${fromWarn[1]}Z` : "");
     return { bytes: buf, scene };
   } catch {
+    // Réseau coupé, délai dépassé, TLS refusé : nous n'avons PAS pu regarder.
+    dernierEchec = "injoignable";
     return null;
   } finally {
     clearTimeout(t);
@@ -305,18 +330,38 @@ async function gibsDaily(layer: string, matrix: string, z: number, x: number, y:
   return null;
 }
 
+/**
+ * Tuile d'imagerie fine, avec le MOTIF de l'échec. Les fournisseurs annoncent « je n'ai rien ici »
+ * de deux façons — un 404, ou une tuile grise « Map data not yet available » de quelques kilo-
+ * octets — et il ne faut peindre ni l'une ni l'autre comme du 30 cm. Mesuré sur N'Djamena :
+ * 2 521 octets au zoom 19 et 5 153 au zoom 18 pour le gris, contre 15 237 pour de la vraie imagerie
+ * au même zoom sur le centre-ville.
+ */
 async function esriTile(z: number, x: number, y: number) {
-  if (z < 11 || z > 19) return null;
+  if (!zoomFinServable(z)) {
+    dernierEchec = "absente";
+    return null;
+  }
   const got = await fetchImg(`${ESRI}/${z}/${y}/${x}`, 12000);
-  // Tuile grise « Map data not yet available » (~2.5 ko) — ne pas la peindre comme du 30 cm.
-  if (!got || got.bytes.byteLength < 6000) return null;
+  if (!got) return null;
+  if (estTuileGrise(got.bytes.byteLength)) {
+    dernierEchec = "absente";
+    return null;
+  }
   return got;
 }
 
 async function clarityTile(z: number, x: number, y: number) {
-  if (z < 11 || z > 19) return null;
+  if (!zoomFinServable(z)) {
+    dernierEchec = "absente";
+    return null;
+  }
   const got = await fetchImg(`${CLARITY}/${z}/${y}/${x}`, 10000);
-  if (!got || got.bytes.byteLength < 6000) return null;
+  if (!got) return null;
+  if (estTuileGrise(got.bytes.byteLength)) {
+    dernierEchec = "absente";
+    return null;
+  }
   return got;
 }
 
@@ -540,14 +585,29 @@ export async function serveTile(
         ["ESRI", esriTile],
         ["CLARITY", clarityTile],
       ];
+      const echecs: TileMiss[] = [];
       for (const [via, fetchTile] of order) {
         const sharp = await fetchTile(z, x, y);
         if (sharp) {
           remember(key, sharp.bytes, via, "mosaic");
           return img(sharp.bytes, via, "mosaic");
         }
+        echecs.push(dernierEchec);
       }
-      return new Response(null, { status: 404 });
+      // Aucun fournisseur n'a rendu d'imagerie. Deux cas, qui ne doivent PAS se ressembler :
+      //  — tous ont répondu « rien ici » (404, ou leur tuile grise de remplissage) : c'est un fait
+      //    de terrain, la tuile vide le dit sans polluer la console de dizaines de 404 à chaque
+      //    rafraîchissement — c'est la convention déjà retenue plus bas pour le géostationnaire ;
+      //  — l'un d'eux était INJOIGNABLE : on ne peut pas affirmer qu'il n'y a rien à un endroit
+      //    qu'on n'a pas pu regarder, donc on laisse une erreur visible plutôt qu'une carte
+      //    proprement aveugle.
+      if (verdictTuile(echecs) === "injoignable") {
+        return new Response(null, {
+          status: 502,
+          headers: { "X-AfriControl-Tile": "INJOIGNABLE" },
+        });
+      }
+      return emptyTile();
     }
     const geo = await geoVisible(z, x, y, slots);
     if (geo) {

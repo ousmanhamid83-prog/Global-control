@@ -111,8 +111,28 @@ export function telemetrySnapshot(): Telemetry {
   return snapshot;
 }
 
+/**
+ * Instantané SERVEUR, délibérément VIDE — et c'est tout le correctif.
+ *
+ * React appelle cette fonction au rendu serveur ET pendant l'hydratation du client. Lui donner
+ * l'instantané VIVANT faisait rendre au client, au moment de l'hydratation, une télémétrie que le
+ * HTML du serveur ne contenait pas : le serveur écrivait « Aucun événement », le client peignait
+ * déjà une pastille d'événement. React jetait alors tout l'arbre et le refabriquait.
+ *
+ * Mesuré : 1 chargement sur 8 de l'accueil, dès qu'une antenne alimente la télémétrie — donc
+ * précisément en configuration opérateur, et jamais sur un poste sans capteur, ce qui explique que
+ * le défaut soit passé inaperçu si longtemps.
+ *
+ * La référence doit rester la MÊME à chaque appel : un objet neuf ferait boucler React.
+ */
+const TELEMETRIE_SERVEUR: Telemetry = { lastOk: {}, samples: [], events: [] };
+
+export function telemetryServerSnapshot(): Telemetry {
+  return TELEMETRIE_SERVEUR;
+}
+
 export function useTelemetry(): Telemetry {
-  return useSyncExternalStore(subscribeTelemetry, telemetrySnapshot, telemetrySnapshot);
+  return useSyncExternalStore(subscribeTelemetry, telemetrySnapshot, telemetryServerSnapshot);
 }
 
 /** Horloge murale qui avance même quand le flux est en pause : les âges de données défilent. */

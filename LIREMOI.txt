@@ -193,6 +193,27 @@ Symbologie APP-6 et radar
   doit voir — c'est le geste de qui ne veut pas être suivi. Alerte ÉLEVÉE, une fois par piste, avec
   la durée du silence, l'altitude, la distance au site et le rayon d'incertitude (« ce n'est plus
   une mesure »). Oubliée dès que la piste ré-émet.
+- IMAGERIE : « PAS D'IMAGERIE ICI » N'EST PAS « JE N'AI PAS PU REGARDER ». Dès qu'une piste
+  apparaissait, la carte zoomait dessus et le poste crachait des dizaines de 404 d'imagerie (24
+  mesurées en un passage). Diagnostic : le fournisseur répond HTTP 200 au zoom 19 avec 2 521 octets
+  — sa tuile grise « Map data not yet available » — et AfriControl refusait à juste titre de la
+  peindre comme du 30 cm, puis renvoyait 404. Ce n'était donc ni une panne ni une limite de zoom :
+  l'imagerie fine existe bien (15 237 octets au même zoom sur le centre de N'Djamena), elle manque
+  juste à cet endroit. Le proxy distingue maintenant TROIS issues là où il n'en avait qu'une :
+  tuile servie ; « absente » (404 du fournisseur, ou sa tuile grise) → tuile vide, propre et
+  silencieuse, comme déjà fait pour le géostationnaire ; « injoignable » (réseau coupé, délai
+  dépassé, 5xx, 429, 403) → erreur VISIBLE, parce qu'on ne peut pas affirmer qu'il n'y a rien à un
+  endroit qu'on n'a pas pu regarder. Il suffit qu'UN fournisseur ait été injoignable pour refuser
+  de conclure au vide : sinon la panne du premier se cacherait derrière l'absence du second, et la
+  carte deviendrait proprement aveugle sans le dire. Vérifié : 24 tuiles 404 → 0.
+- ACCUEIL : DÉSYNCHRONISATION D'HYDRATATION (corrigée). Le serveur écrivait « Aucun événement » et
+  le client peignait déjà une pastille, si bien que React jetait tout l'arbre et le refabriquait.
+  Cause : l'instantané SERVEUR de la télémétrie était l'instantané VIVANT — or React appelle cette
+  fonction au rendu serveur ET pendant l'hydratation du client, où la télémétrie a déjà tourné. Le
+  rendu serveur reçoit désormais un instantané vide et STABLE ; la donnée vivante arrive juste
+  après l'hydratation. Le défaut n'apparaissait qu'avec une antenne branchée — donc en
+  configuration opérateur seulement, ce qui explique qu'il soit passé inaperçu. Mesuré sur
+  24 chargements : 1 désynchronisation avant, 0 après.
 - POURQUOI LE SCOPE EST VIDE AU-DELÀ DE QUELQUES KILOMÈTRES (portée constatée) : un poste qui
   annonce « portée 1200 km » et ne montre rien au-delà de 10 km laissait l'opérateur sans moyen de
   trancher entre trois causes très différentes — le ciel est vide, personne n'écoute, ou le logiciel
