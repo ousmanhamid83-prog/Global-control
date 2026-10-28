@@ -14,6 +14,7 @@ import {
 } from "./capture";
 import { theaterOf } from "./geo";
 import {
+  ageLiveAc,
   gpsTime,
   jamFromAircraft,
   parseDump1090,
@@ -1072,16 +1073,22 @@ export const fetchLivePicture = createServerFn({ method: "GET" })
         (await Promise.race([pending, new Promise<null>((r) => setTimeout(() => r(null), 1500))])) ??
         emptyPicture("relevé Internet en cours");
     }
-    const pic = withReceiver(net, status, rx.receiverAircraft());
-    // Bande du poste pour l'inject REJEU RÉEL : seulement ce qui a vraiment été reçu. Une position
-    // réseau en cache vieillit de l'âge du cache, pour être rejouée à sa vraie heure.
+    // L'image réseau peut venir du cache (20 s) ou du dernier relevé gardé en secours quand
+    // l'antenne est branchée — donc être VIEILLE. La resservir telle quelle annonçait des positions
+    // plus fraîches qu'elles ne sont, et le recalage d'âge, qui lit précisément ce champ,
+    // sous-corrigeait d'autant : jusqu'à 4,4 km à 800 km/h. On vieillit ICI, au seul endroit où
+    // toutes les provenances de `net` se rejoignent, donc exactement une fois.
     const now = Date.now();
-    const age = Math.max(0, now - net.at) / 1000;
-    const rec = await import("./rejeu.server");
-    rec.recordFrame(
-      now,
-      pic.aircraft.map((a) => (a.via === "antenne" ? a : { ...a, seenS: a.seenS + age })),
+    const netAge = Math.max(0, now - net.at) / 1000;
+    const pic = withReceiver(
+      { ...net, aircraft: ageLiveAc(net.aircraft, netAge) },
+      status,
+      rx.receiverAircraft(),
     );
+    // Bande du poste pour l'inject REJEU RÉEL : seulement ce qui a vraiment été reçu. L'âge du
+    // cache est déjà porté par `pic` ci-dessus — le rajouter ici le compterait deux fois.
+    const rec = await import("./rejeu.server");
+    rec.recordFrame(now, pic.aircraft);
     // Archivage automatique périodique de la bande réelle (si activé, bande ≥ 3 min).
     const arch = await import("./archive.server");
     void arch.maybeAutoArchive(rec.currentPosteTape());

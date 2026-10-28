@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { jamFromAircraft, mergeLiveTracks, type LiveAc } from "./live-adsb.ts";
+import { ageLiveAc, jamFromAircraft, mergeLiveTracks, type LiveAc } from "./live-adsb.ts";
 import { DEFAULT_COAST_CFG, DUP_ADDR_WINDOW_MS, FRESH_S } from "./coast.ts";
 import { haversineKm } from "./geo.ts";
 import type { Track } from "./types.ts";
@@ -197,6 +197,43 @@ test("PLAUSIBILITÉ : deux relevés d'ÂGES différents ne fabriquent pas un fau
   assert.equal(t.suspectJump, undefined, "ce relevé est crédible, il ne doit pas être refusé");
   assert.ok(Math.abs(t.lon - 15.07346) < 1e-6, "la position mesurée doit être adoptée");
   assert.equal(t.coast, undefined, "relevé frais : la piste n'est plus tenue en mémoire");
+});
+
+/* ── CACHE : une image resservie ne doit pas RAJEUNIR ses positions ───────────────────────────── */
+
+test("CACHE : l'âge de l'image s'ajoute à l'âge déclaré des positions", () => {
+  // L'image réseau est gardée 20 s. La resservir telle quelle annoncerait « vu à l'instant » une
+  // position qui a en réalité 20 s de plus — et le recalage d'âge sous-corrigerait d'autant.
+  const avant = [avion({ seenS: 3 }), avion({ hex: "abc123", seenS: 0 })];
+  const apres = ageLiveAc(avant, 20);
+  assert.equal(apres[0]!.seenS, 23);
+  assert.equal(apres[1]!.seenS, 20);
+  // Le lot d'origine n'est pas modifié : un cache partagé ne doit pas vieillir à chaque lecture.
+  assert.equal(avant[0]!.seenS, 3);
+});
+
+test("CACHE : les avions de NOTRE antenne ne vieillissent pas avec le cache réseau", () => {
+  // Ils sont relevés à chaque appel : les vieillir les rejetterait dans le passé sans raison.
+  const lot = [avion({ via: "antenne", seenS: 2 }), avion({ hex: "abc123", via: "reseau", seenS: 2 })];
+  const apres = ageLiveAc(lot, 20);
+  assert.equal(apres[0]!.seenS, 2, "antenne : inchangé");
+  assert.equal(apres[1]!.seenS, 22, "réseau : vieilli");
+});
+
+test("CACHE : une image fraîche ne change rien", () => {
+  const lot = [avion({ seenS: 4 })];
+  assert.equal(ageLiveAc(lot, 0), lot, "même référence : aucune copie inutile");
+  assert.equal(ageLiveAc(lot, -1), lot, "un âge négatif ne rajeunit personne");
+});
+
+test("CACHE : le recalage de position tient compte de l'âge du cache", () => {
+  // Bout en bout : position relevée il y a 0 s, mais servie depuis un cache de 20 s. Le symbole
+  // doit avancer de 4 km (720 km/h × 20 s), pas rester sur la mesure.
+  const [vieilli] = ageLiveAc([avion({ seenS: 0 })], 20);
+  const t = mergeLiveTracks([], [vieilli!], T0).tracks[0]!;
+  const ecart = haversineKm(12, 15, t.lat, t.lon);
+  assert.ok(Math.abs(ecart - 4) < 0.1, `attendu ~4 km, obtenu ${ecart.toFixed(2)} km`);
+  assert.equal(t.lastUpdate, T0 - 20_000, "l'heure d'observation remonte à avant le cache");
 });
 
 /* ── INTÉGRITÉ DE POSITION, BRANCHÉE SUR L'INGESTION ───────────────────────────────────────────── */

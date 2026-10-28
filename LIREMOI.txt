@@ -193,6 +193,17 @@ Symbologie APP-6 et radar
   doit voir — c'est le geste de qui ne veut pas être suivi. Alerte ÉLEVÉE, une fois par piste, avec
   la durée du silence, l'altitude, la distance au site et le rayon d'incertitude (« ce n'est plus
   une mesure »). Oubliée dès que la piste ré-émet.
+- LE CACHE RAJEUNISSAIT LES POSITIONS (corrigé). L'image réseau est gardée 20 s, et quand une
+  antenne locale est branchée le poste peut même servir le DERNIER relevé connu, plus vieux encore,
+  pour ne pas attendre un Internet lent. Or l'âge déclaré de chaque position (`seen`) n'était
+  vieilli que pour l'enregistrement du REJEU — jamais pour l'image servie à l'opérateur. Le poste
+  annonçait donc « vu à l'instant » des positions qui portaient en plus l'âge du cache, et le
+  recalage d'âge, qui lit précisément ce champ, sous-corrigeait d'autant : jusqu'à 4,4 km à
+  800 km/h. C'est exactement l'erreur corrigée à l'ingestion, qui se réintroduisait une couche plus
+  haut. Le vieillissement se fait désormais UNE SEULE FOIS, au point où toutes les provenances de
+  l'image se rejoignent (cache, relevé frais, dernier relevé de secours) ; celui du rejeu, devenu
+  redondant, a été retiré pour ne pas compter l'âge deux fois. Les avions entendus par NOTRE
+  antenne sont relevés à chaque appel et ne vieillissent pas avec le cache réseau.
 - IMAGERIE : « PAS D'IMAGERIE ICI » N'EST PAS « JE N'AI PAS PU REGARDER ». Dès qu'une piste
   apparaissait, la carte zoomait dessus et le poste crachait des dizaines de 404 d'imagerie (24
   mesurées en un passage). Diagnostic : le fournisseur répond HTTP 200 au zoom 19 avec 2 521 octets

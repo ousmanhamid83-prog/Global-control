@@ -359,6 +359,23 @@ function classFromCategory(cat: string | null): UasClass | null {
   return null;
 }
 
+/**
+ * Vieillit l'âge déclaré d'un lot de positions RESSERVI depuis un cache.
+ *
+ * Une image gardée puis rendue telle quelle annonce des positions « vues à l'instant » qui portent
+ * en réalité l'âge du cache en plus. Le recalage d'âge appliqué à l'ingestion lit précisément ce
+ * champ : il sous-corrige alors d'autant, et le symbole reste en arrière — jusqu'à 4,4 km à
+ * 800 km/h pour un cache de 20 s. C'est la même erreur que celle corrigée à l'ingestion, qui se
+ * réintroduit une couche plus haut si on n'y prend pas garde.
+ *
+ * Les avions entendus par NOTRE antenne sont relevés à chaque appel et ne vieillissent donc pas
+ * avec le cache réseau : les vieillir aussi les rejetterait dans le passé sans raison.
+ */
+export function ageLiveAc(list: LiveAc[], ageS: number): LiveAc[] {
+  if (!(ageS > 0)) return list;
+  return list.map((a) => (a.via === "antenne" ? a : { ...a, seenS: a.seenS + ageS }));
+}
+
 export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
   // RECALAGE D'ÂGE. Un agrégateur réseau livre des positions déjà vieilles (champ `seen`), et le
   // relevé lui-même n'a lieu que toutes les ~20 s. Prendre l'heure de réception pour l'heure
