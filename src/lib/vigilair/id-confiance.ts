@@ -22,6 +22,11 @@
  *     classique d'un pisteur (M relevés sur N) : un relevé isolé peut être un fantôme de décodage,
  *     deux relevés cohérents font une piste réelle, et la confiance mûrit avec les suivants. Un
  *     rapport que l'agrégateur resert à l'identique n'est pas un relevé de plus ;
+ *   — combien de MESSAGES la source a-t-elle déjà reçus de cette adresse ? Un rapport d'agrégateur
+ *     résume des milliers de réceptions (médiane mesurée 10 809, minimum 217) ; notre décodeur
+ *     compte les siennes. Au-delà du seuil, l'adresse ne peut pas être un fantôme de décodage : la
+ *     piste est établie dès le premier relevé, au lieu d'attendre le prochain passage de sa
+ *     cellule — 58 s en médiane, mesuré ;
  *   — un épisode de relevés incohérents pèse-t-il sur l'adresse ?
  *
  * Ce qui en est délibérément EXCLU : la qualité de position (MLAT, rayon de confinement, piste
@@ -54,6 +59,11 @@ export type IdPreuves = {
    * rapport resservi (voir `observationNouvelle`).
    */
   observations: number;
+  /**
+   * Messages reçus de cette adresse par la source : tous les récepteurs de l'agrégateur, ou notre
+   * décodeur pour l'antenne. 0 si la source ne le dit pas (rejeu).
+   */
+  messages: number;
   /** Relevés incohérents de l'épisode en cours sur cette adresse (0 s'il est refermé). */
   incoherences: number;
   /** Au-delà, l'adresse est vraisemblablement tenue par deux émetteurs. */
@@ -92,22 +102,25 @@ export const PENALITE_INCOHERENCE = 15;
 /** Adresse vraisemblablement partagée : on ne sait plus QUEL émetteur on regarde. */
 export const PLAFOND_DOUBLON = 30;
 /**
- * En deçà, une MÊME position est le même rapport resservi, pas une observation nouvelle. Mesuré sur
- * six relevés réels successifs (364 présences) : un rapport resservi revient à 4 ms au plus de son
- * heure, une vraie nouvelle observation au moins 0,8 s plus tard (médiane 19,8 s).
+ * Messages reçus de l'adresse au-delà desquels elle ne peut pas être un fantôme de décodage (une
+ * trame corrompue qui passe le contrôle n'en produit qu'une ou deux) : la piste est établie dès son
+ * premier relevé. Mesuré sur 364 présences réseau réelles : jamais moins de 217. Une antenne en
+ * entend une cinquantaine en quelques secondes d'un avion à portée.
  */
-export const MEME_RAPPORT_MS = 2000;
-
-type Releve = { lat: number; lon: number; at: number };
+export const MESSAGES_CORROBORATION = 50;
 
 /**
- * Ce relevé apporte-t-il une observation NOUVELLE ? Oui si la position a changé, ou si la même
- * position a été émise de nouveau (appareil immobile au sol). Non si c'est le même rapport resservi.
+ * Ce relevé apporte-t-il une observation NOUVELLE, c'est-à-dire une nouvelle POSITION ? Un rapport
+ * resservi garde exactement la sienne ; son heure, elle, glissait de 2 à 4 s à chaque rafraîchissement
+ * réseau (mesuré), assez pour passer pour une observation neuve sous un critère horaire. La position
+ * ne glisse pas. Un appareil immobile au sol reste donc UN plot : c'est le nombre de messages qui
+ * l'établit (voir `MESSAGES_CORROBORATION`), pas la répétition de la même position.
  */
-export function observationNouvelle(avant: Releve | undefined, apres: Releve): boolean {
-  if (!avant) return true;
-  if (avant.lat !== apres.lat || avant.lon !== apres.lon) return true;
-  return Math.abs(apres.at - avant.at) >= MEME_RAPPORT_MS;
+export function observationNouvelle(
+  avant: { lat: number; lon: number } | undefined,
+  apres: { lat: number; lon: number },
+): boolean {
+  return !avant || avant.lat !== apres.lat || avant.lon !== apres.lon;
 }
 
 /** Catégorie de type à partir de la plate-forme retenue pour la piste. */
@@ -143,10 +156,13 @@ export function idStatut(p: IdPreuves): IdStatut {
     score += BONUS_INDICATIF;
     elements.push("indicatif émis");
   }
-  // Maturité : la confiance se gagne relevé après relevé, elle ne se décrète pas.
-  const maturite = Math.min(1, Math.max(0, (obs - 1) / (MATURITE_OBS - 1)));
+  // Maturité : la confiance se gagne relevé après relevé, elle ne se décrète pas — sauf quand la
+  // source a déjà entendu l'adresse assez souvent pour qu'elle soit établie.
+  const etablie = p.messages >= MESSAGES_CORROBORATION;
+  const maturite = etablie ? 1 : Math.min(1, Math.max(0, (obs - 1) / (MATURITE_OBS - 1)));
   score -= Math.round(PENALITE_JEUNESSE * (1 - maturite));
   elements.push(`${obs} relevé${obs > 1 ? "s" : ""} cohérent${obs > 1 ? "s" : ""}`);
+  if (etablie) elements.push(`${p.messages.toLocaleString("fr-FR")} messages reçus de l'adresse`);
 
   // Un doublon d'adresse ruine l'identité tirée de l'adresse, quel que soit le reste.
   if (p.incoherences >= p.seuilDoublon) {
@@ -164,7 +180,7 @@ export function idStatut(p: IdPreuves): IdStatut {
   }
 
   let etat: IdEtat;
-  if (obs < CONFIRMATION_OBS) etat = "detecte";
+  if (obs < CONFIRMATION_OBS && !etablie) etat = "detecte";
   else if (p.type === "declare" && p.incoherences === 0) etat = "confirme";
   else etat = "candidat";
 

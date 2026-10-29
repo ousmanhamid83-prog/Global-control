@@ -1,5 +1,5 @@
 import { requireCopOpen } from "./cop-lock";
-import { createServerFn } from "@tanstack/react-start";
+import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql } from "@/lib/db";
 import { sanitizeMachineLabel, scrubSessionIps, stripIps } from "./privacy";
@@ -178,7 +178,13 @@ export type BindResult =
   | { ok: true; first: boolean; label: string }
   | { ok: false; reason: "moved"; label: string };
 
-export async function bindOrRejectDevice(opts: {
+/**
+ * Serveur SEULEMENT. Ce module est aussi chargé par le navigateur (fournisseur de session) et cette
+ * fonction importe un module `.server` : sans ce marquage, le bundle client l'embarquait, et la
+ * protection d'imports le signalait à chaque démarrage depuis l'import d'origine. Côté serveur,
+ * `createServerOnlyFn` rend la fonction telle quelle ; côté client, elle ne peut que refuser.
+ */
+export const bindOrRejectDevice = createServerOnlyFn(async (opts: {
   userId: string;
   keyId?: string | null;
   actor: string;
@@ -186,7 +192,7 @@ export async function bindOrRejectDevice(opts: {
   team: string;
   fingerprint: string;
   machineLabel: string;
-}): Promise<BindResult> {
+}): Promise<BindResult> => {
   const fp = opts.fingerprint.replace(/[^a-f0-9]/gi, "").toLowerCase();
   const label = sanitizeMachineLabel(opts.machineLabel);
   if (fp.length !== 64) return { ok: true, first: false, label };
@@ -272,7 +278,7 @@ export async function bindOrRejectDevice(opts: {
     level: "critique",
   });
   return { ok: false, reason: "moved", label: row.label };
-}
+});
 
 export async function insertOpsLog(row: {
   userId: string;

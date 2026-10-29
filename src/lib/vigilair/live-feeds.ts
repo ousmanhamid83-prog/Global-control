@@ -38,6 +38,7 @@ import type { RejeuTape } from "./rejeu";
 import type { ReceiverFeed, ReceiverStatus } from "./rx1090.server";
 
 import { couvertureVerdict, type CellOutcome } from "./portee";
+import { cellulesDuReleve, reunirLots, vieCellule, type Lot } from "./releve-reseau";
 
 const UA = "AfriControl-COP/10.0 (C-UAS detection N'Djamena; read-only)";
 
@@ -63,8 +64,9 @@ const THEATRE_CELLS: Cell[] = [
  * Continent : maillage de TOUT le continent africain — Maghreb, Égypte, Sahel/Ouest, Golfe de Guinée,
  * Centre, Corne, Est et Australe. Là où un agrégateur a un récepteur, de vrais avions remontent ;
  * ailleurs la cellule est prête pour le jour où un récepteur apparaît (même logique que le théâtre).
- * Interrogées en rotation, trois par relevé, pour rester sous les limites de débit des API ; chaque
- * cellule reste affichée 100 s. Le chef peut activer le « balayage total » (toutes à chaque relevé).
+ * Interrogées en rotation, trois par relevé, pour rester sous les limites de débit des API — sauf au
+ * démarrage, où tout ce qui manque est relevé d'un coup ; chaque cellule reste affichée jusqu'à son
+ * prochain passage. Le chef peut activer le « balayage total » (toutes à chaque relevé).
  */
 const CONTINENT_CELLS: Cell[] = [
   // Maghreb + Égypte
@@ -113,9 +115,15 @@ const WORLD_CELLS: Cell[] = [
   { lat: 19.1, lon: 72.9, label: "Mumbai" },
   { lat: -33.95, lon: 151.18, label: "Sydney" },
 ];
+/** Image réseau gardée 20 s : c'est aussi la cadence nominale d'un relevé. */
+const TTL_MS = 20_000;
 const CONTINENT_PER_PULL = 3;
-const CONTINENT_TTL_MS = 100_000;
-let continentNext = 0;
+/**
+ * Une cellule reste servie deux tours de rotation (2 × 7 relevés de 20 s). L'expirer avant son
+ * prochain passage (100 s pour un tour de ~168 s, mesuré) la faisait disparaître ~40 % du temps —
+ * avec ses pistes, perdues puis renées.
+ */
+const CONTINENT_TTL_MS = vieCellule(CONTINENT_CELLS.length, CONTINENT_PER_PULL, TTL_MS);
 const continentCache = new Map<string, { at: number; ac: LiveAc[] }>();
 
 /**
@@ -133,7 +141,6 @@ export function setContinentSweepFlag(on: boolean): void {
 
 let cache: { at: number; data: LivePicture } | null = null;
 let lastGood: LivePicture | null = null;
-const TTL_MS = 20_000;
 
 async function fetchText(url: string, ms: number): Promise<string> {
   const ctrl = new AbortController();
@@ -281,38 +288,31 @@ async function pullCell(c: Cell): Promise<{ ac: LiveAc[] | null; refused: boolea
 
 async function pullAdsb(): Promise<{
   ac: LiveAc[];
+  /** Heure à laquelle les âges `seenS` de `ac` sont exacts. */
+  refAt: number;
   errors: string[];
   source: string;
   ok: boolean;
 }> {
   const errors: string[] = [];
-  const byHex = new Map<string, LiveAc>();
+  const lots: Lot[] = [];
   let ok = 0;
   let refused = 0;
   let lastErr = "";
-  const merge = (list: LiveAc[]) => {
-    for (const ac of list) {
-      const prev = byHex.get(ac.hex);
-      if (!prev || ac.seenS <= prev.seenS) {
-        byHex.set(ac.hex, {
-          ...ac,
-          emergency: ac.emergency ?? prev?.emergency ?? null,
-          military: ac.military || Boolean(prev?.military),
-        });
-      } else if (!prev.emergency && ac.emergency) {
-        byHex.set(ac.hex, { ...prev, emergency: ac.emergency });
-      }
-    }
-  };
+  // Une cellule expirée est une cellule MANQUANTE : elle repasse en tête de la rotation.
+  for (const [label, hit] of continentCache) {
+    if (Date.now() - hit.at > CONTINENT_TTL_MS) continentCache.delete(label);
+  }
   // Balayage total (chef) : toutes les cellules Afrique + ancres mondiales à chaque relevé, pour un
-  // radar « tous continents » avec de vrais contacts. Sinon rotation de 3, par courtoisie API.
+  // radar « tous continents » avec de vrais contacts. Sinon les 3 cellules les plus anciennes, par
+  // courtoisie API — et, au démarrage, tout ce qui manque d'un coup.
   const rotation = continentSweep
     ? [...CONTINENT_CELLS, ...WORLD_CELLS]
-    : Array.from(
-        { length: CONTINENT_PER_PULL },
-        (_, i) => CONTINENT_CELLS[(continentNext + i) % CONTINENT_CELLS.length]!,
+    : cellulesDuReleve(
+        CONTINENT_CELLS,
+        new Map([...continentCache].map(([label, hit]) => [label, hit.at])),
+        CONTINENT_PER_PULL,
       );
-  if (!continentSweep) continentNext = (continentNext + CONTINENT_PER_PULL) % CONTINENT_CELLS.length;
   // Théâtre d'abord (prioritaire), séquentiel : peu de cellules, le cœur de la veille.
   // On retient le SORT de chaque cellule, pas seulement son contenu : « on m'a refusé la requête »
   // et « j'ai regardé, il n'y a personne » produisent le même scope vide, et les confondre déguise
@@ -324,7 +324,7 @@ async function pullAdsb(): Promise<{
     if (got.err) lastErr = got.err;
     if (got.ac) {
       ok += 1;
-      merge(got.ac);
+      lots.push({ ac: got.ac, at: Date.now() });
     }
     theatre.push({
       label: c.label,
@@ -349,28 +349,23 @@ async function pullAdsb(): Promise<{
       }
     });
   }
-  let continentLive = 0;
-  for (const [label, hit] of continentCache) {
-    const age = Date.now() - hit.at;
-    if (age > CONTINENT_TTL_MS) {
-      continentCache.delete(label);
-      continue;
-    }
-    continentLive += 1;
-    // L'âge du cache s'ajoute à celui de la position : rien ne paraît plus frais qu'il n'est.
-    merge(hit.ac.map((a) => ({ ...a, seenS: a.seenS + age / 1000 })));
-  }
+  for (const hit of continentCache.values()) lots.push(hit);
   if (refused > 0 && ok === 0) errors.push("1090ES refusé (429)");
   // Aucune cellule jointe : c'est une coupure de liaison, pas un ciel vide.
   else if (ok === 0 && lastErr) errors.push(`1090ES: ${lastErr}`);
-  const ac = [...byHex.values()];
+  // UNE heure de référence pour tout le relevé : chaque lot est vieilli depuis son propre relevé
+  // jusqu'à elle. Rien ne paraît plus frais qu'il n'est, et un rapport resservi garde son heure.
+  const refAt = Date.now();
+  const ac = reunirLots(lots, refAt);
   // Mesuré en réel : les agrégateurs répondent HTTP 200 avec ZÉRO avion dans un rayon de 463 km
   // autour de N'Djamena, alors qu'ils en rendent 62 à Tunis et 960 à Paris. Le théâtre n'est pas un
   // trou de logiciel, c'est un trou de RÉCEPTEURS — et le poste doit le DIRE, sinon l'opérateur
   // cherche une panne chez lui là où il n'y en a pas.
   const couv = couvertureVerdict(theatre);
+  const continentLive = continentCache.size;
   return {
     ac,
+    refAt,
     errors: [...new Set(errors)].slice(0, 4),
     source:
       ok > 0
@@ -686,6 +681,8 @@ function withReceiver(net: LivePicture, rx: ReceiverStatus, rxAc: LiveAc[]): Liv
             // deux cas il a été émis par l'appareil, entendu par un autre récepteur.
             flight: a.flightTx ? a.flight : n.flight,
             flightTx: a.flightTx || n.flightTx,
+            // L'une ou l'autre source suffit à établir l'adresse : on garde la plus parlante.
+            messages: Math.max(a.messages ?? 0, n.messages ?? 0) || null,
             icaoType: n.icaoType,
             reg: n.reg,
             military: n.military,
@@ -886,8 +883,13 @@ async function pullNetwork(): Promise<LivePicture> {
           pullAlerts(),
           pullPhenomena(),
         ]);
-        const jam: JamCell[] = jamFromAircraft(adsb.ac);
-        const emergencies = adsb.ac.filter((a) => Boolean(a.emergency));
+        // L'image est tamponnée quand le DERNIER flux a répondu ; les âges des avions valaient au
+        // relevé 1090, quelques secondes plus tôt. On les ramène à l'heure de l'image : sans cela,
+        // l'heure d'observation glissait de 2 à 4 s à chaque rafraîchissement (mesuré).
+        const at = Date.now();
+        const aircraft = ageLiveAc(adsb.ac, (at - adsb.refAt) / 1000);
+        const jam: JamCell[] = jamFromAircraft(aircraft);
+        const emergencies = aircraft.filter((a) => Boolean(a.emergency));
         const solar = solarFttj();
         const sources: SourceHealth[] = [
           health(
@@ -895,7 +897,7 @@ async function pullNetwork(): Promise<LivePicture> {
             "1090ES adsb.lol",
             adsb.ok,
             adsb.ok
-              ? `${adsb.ac.length} squitters · ${adsb.source}`
+              ? `${aircraft.length} squitters · ${adsb.source}`
               : adsb.errors[0] ?? "silence",
           ),
           health(
@@ -928,7 +930,7 @@ async function pullNetwork(): Promise<LivePicture> {
             space.kpTime != null || space.xrayFlux != null,
             `Kp ${space.kp} · GOES ${space.xrayClass}`,
           ),
-          nicHealth(adsb.ac, jam),
+          nicHealth(aircraft, jam),
           health(
             "fttj",
             "FTTJ AWC",
@@ -973,11 +975,11 @@ async function pullNetwork(): Promise<LivePicture> {
           sigmetsAsPhenomena(sig.rows),
         ]).slice(0, 120);
         return {
-          at: Date.now(),
+          at,
           source: adsb.source,
-          aircraft: adsb.ac,
-          localN: localN(adsb.ac),
-          sahelN: sahelCount(adsb.ac),
+          aircraft,
+          localN: localN(aircraft),
+          sahelN: sahelCount(aircraft),
           emergencies,
           metar: wx.metar,
           taf: wx.taf,
@@ -1013,12 +1015,15 @@ async function pullNetwork(): Promise<LivePicture> {
       Date.now() - lastGood.at < 180_000 &&
       rateLimited
     ) {
+      // Les avions du dernier bon relevé, sous l'heure de la NOUVELLE image : il faut les vieillir
+      // d'autant, sinon ils paraissent jusqu'à 3 min plus frais qu'ils ne sont.
+      const aircraft = ageLiveAc(lastGood.aircraft, (data.at - lastGood.at) / 1000);
       next = {
         ...data,
-        aircraft: lastGood.aircraft,
+        aircraft,
         localN: lastGood.localN,
         sahelN: lastGood.sahelN,
-        emergencies: lastGood.emergencies,
+        emergencies: aircraft.filter((a) => Boolean(a.emergency)),
         jam: lastGood.jam,
         source: `${lastGood.source} · cache 1090`,
       };

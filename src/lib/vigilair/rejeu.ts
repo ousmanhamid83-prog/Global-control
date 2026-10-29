@@ -113,6 +113,8 @@ function toAc(meta: TapeMeta | undefined, row: TapeRow, lat: number, lon: number
     hex,
     flight: libelle,
     flightTx: libelle !== hex.toUpperCase() && libelle !== repli,
+    // La bande ne garde pas le compte de messages : le statut se fonde sur ses relevés réels (`vus`).
+    messages: null,
     lat,
     lon,
     altM: row[3],

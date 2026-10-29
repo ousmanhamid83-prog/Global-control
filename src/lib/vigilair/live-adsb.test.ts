@@ -18,6 +18,7 @@ function avion(over: Partial<LiveAc> = {}): LiveAc {
     hex: "3c6444",
     flight: "TEST123",
     flightTx: true,
+    messages: null,
     lat: 12.0,
     lon: 15.0,
     altM: 9000,
@@ -347,16 +348,59 @@ test("RESSERVI : le même rapport rendu de nouveau par l'agrégateur ne confirme
   assert.equal(t.trail.length, 2);
 });
 
-test("IMMOBILE : un appareil au sol entendu chaque seconde par l'antenne finit confirmé", () => {
-  // Même position à chaque relevé, moins de 2 s d'écart : comparer au relevé PRÉCÉDENT ne l'aurait
-  // jamais vu « de nouveau ». On compare à la dernière observation comptée.
-  const sol = { icaoType: "A388", onGround: true, gsKmh: 0, altM: 0, via: "antenne" as const };
-  let etat: Track[] = [];
-  for (let i = 0; i <= 4; i++) etat = mergeLiveTracks(etat, [avion(sol)], T0 + i * 1000).tracks;
+test("RESSERVI : l'heure qui GLISSE d'un rafraîchissement à l'autre ne fabrique pas d'observation", () => {
+  // Mesuré sur 5 min de vraies images : à chaque rafraîchissement réseau, l'heure d'observation des
+  // rapports resservis glissait de 2,2 à 3,7 s — et un critère horaire en faisait 172 confirmations
+  // d'un coup, toutes fausses. Même position, heure décalée de 3,7 s : c'est le même rapport.
+  let etat = mergeLiveTracks([], [avion({ icaoType: "A388", seenS: 10 })], T0).tracks;
+  etat = mergeLiveTracks(etat, [avion({ icaoType: "A388", seenS: 26.3 })], T0 + 20_000).tracks;
   const t = etat.find((x) => x.feed === "adsb")!;
-  assert.equal(t.fixes, 3, "une observation nouvelle toutes les 2 s : T0, T0+2 s, T0+4 s");
+  assert.equal(t.fixes, 1);
+  assert.equal(t.idState, "detecte");
+});
+
+test("IMMOBILE : un avion au sol reste UN plot, et ce sont ses messages qui l'établissent", () => {
+  // Même position à chaque relevé : aucun plot de plus. Notre décodeur compte les messages reçus de
+  // l'adresse — au-delà du seuil, la piste est établie sans attendre qu'il bouge.
+  const sol = { icaoType: "A388", onGround: true, gsKmh: 0, altM: 0, via: "antenne" as const };
+  let etat = mergeLiveTracks([], [avion({ ...sol, messages: 8 })], T0).tracks;
+  assert.equal(etat[0]!.idState, "detecte", "8 messages : trop peu pour écarter un fantôme");
+  for (let i = 1; i <= 4; i++) {
+    etat = mergeLiveTracks(etat, [avion({ ...sol, messages: 8 + 30 * i })], T0 + i * 3000).tracks;
+  }
+  const t = etat.find((x) => x.feed === "adsb")!;
+  assert.equal(t.fixes, 1, "toujours la même position : un seul plot");
+  assert.equal(t.trail.length, 1);
+  assert.equal(t.idState, "confirme", "128 messages reçus : adresse établie");
+  assert.equal(t.fix!.at, T0 + 12_000, "silencieux depuis son DERNIER relevé, pas son premier");
+});
+
+test("MESSAGES : un rapport réseau entendu des milliers de fois est confirmé dès sa première image", () => {
+  // Le délai médian avant confirmation était de 58 s (mesuré, 5 min à froid) : le temps que la
+  // cellule repasse. Le rapport disait pourtant déjà 10 809 messages reçus de l'adresse.
+  const [ac] = parseDump1090([
+    { hex: "3c6444", flight: "DLH4AB", r: "D-AIZZ", t: "A20N", lat: 12, lon: 15, alt_baro: 35000, messages: 10_809 },
+  ]);
+  assert.equal(ac!.messages, 10_809);
+  const t = mergeLiveTracks([], [ac!], T0).tracks[0]!;
   assert.equal(t.idState, "confirme");
-  assert.equal(t.fix!.at, T0 + 4000, "la dernière observation comptée");
+  assert.equal(t.confirmedAt, T0);
+  assert.match(t.confidenceNote ?? "", /messages reçus de l'adresse/);
+});
+
+test("PLAUSIBILITÉ : un rapport resservi n'est pas un « saut d'altitude », même quand l'avion monte", () => {
+  // Mesuré sur 5 min de vraies images : 294 refus à tort, tous « saut d'altitude ». Le contrôle
+  // comparait les altitudes EXTRAPOLÉES (qui suivent l'âge du rapport) sur l'intervalle quasi nul
+  // séparant deux copies du même rapport. Même rapport, gigue de 0,1 s, avion à +10 m/s :
+  let etat = mergeLiveTracks([], [avion({ climbMs: 10, seenS: 2 })], T0).tracks;
+  etat = mergeLiveTracks(etat, [avion({ climbMs: 10, seenS: 14.9 })], T0 + 13_000).tracks;
+  let t = etat.find((x) => x.feed === "adsb")!;
+  assert.equal(t.suspectJump, undefined, "le même rapport n'est pas un saut");
+  assert.equal(t.suspect, undefined);
+  // Un VRAI saut d'altitude reste refusé : +3 000 m mesurés en 10 s.
+  etat = mergeLiveTracks(etat, [avion({ climbMs: 10, lon: 15.02, altM: 12_000 })], T0 + 23_000).tracks;
+  t = etat.find((x) => x.feed === "adsb")!;
+  assert.match(t.suspectJump ?? "", /saut d'altitude/);
 });
 
 test("RESSERVI : un relevé refusé n'est pas compté comme observation", () => {

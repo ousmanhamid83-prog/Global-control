@@ -309,16 +309,17 @@ export type Track = {
    * positions déjà vieilles de plusieurs dizaines de secondes (champ `seen`) : prendre l'heure de
    * réception pour l'heure d'observation place le symbole des kilomètres à côté, en silence.
    * `lat`/`lon` de la piste sont le meilleur ESTIMÉ pour maintenant ; `fix` est la mesure brute,
-   * qui seule permet de comparer deux relevés sur leur vrai intervalle. C'est la dernière
-   * observation COMPTÉE (voir `fixes`) : une même position revue à moins de 2 s ne la remplace pas.
+   * qui seule permet de comparer deux relevés sur leur vrai intervalle.
    */
-  fix?: { lat: number; lon: number; at: number };
+  fix?: { lat: number; lon: number; at: number; altM: number };
   /**
-   * Observations DISTINCTES acceptées sur la piste. Un agrégateur qui resservait le même rapport
-   * (même position, même heure à quelques millisecondes) comptait comme une observation de plus :
-   * des pistes vues une seule fois passaient « confirmées ». Les relevés refusés n'y entrent pas.
+   * Positions DISTINCTES acceptées sur la piste. Un agrégateur qui resservait le même rapport
+   * comptait comme une observation de plus : des pistes vues une seule fois passaient « confirmées ».
+   * Les relevés refusés n'y entrent pas.
    */
   fixes?: number;
+  /** Messages reçus de l'adresse par la source au dernier relevé (réseau ou notre décodeur). */
+  messages?: number | null;
   iff?: IffFix | null;
   /** Origine de la piste : sim COP, 1090ES live, Remote ID, ou rejeu de 1090ES réellement reçu. */
   feed?: "sim" | "adsb" | "rid" | "rejeu";

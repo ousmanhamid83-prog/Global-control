@@ -217,24 +217,30 @@ Symbologie APP-6 et radar
 - STATUT D'IDENTIFICATION PRÉCIS : PLUS DE « CONFIRMÉ » D'OFFICE. Toute piste 1090ES réelle naissait
   « confirmée » dès sa première trame, d'où des contradictions affichées telles quelles (« Confirmé ·
   confiance 60 % · type inconnu ») et des tableaux de bord qui comptaient tout le trafic comme
-  confirmé. Le statut suit désormais la même preuve que la confiance, comme la confirmation « M sur
-  N » d'un pisteur : DÉTECTÉ tant qu'une seule observation existe (ce peut être un fantôme de
-  décodage), CONFIRMÉ à la deuxième observation cohérente si le type est déclaré et l'adresse saine,
-  CANDIDAT sinon (type inconnu, drone au modèle non déclaré, incohérence en cours). L'heure de
+  confirmé. Le statut suit désormais la même preuve que la confiance : DÉTECTÉ tant que rien n'écarte
+  un fantôme de décodage, CONFIRMÉ dès que la piste est ÉTABLIE si le type est déclaré et l'adresse
+  saine, CANDIDAT sinon (type inconnu, drone au modèle non déclaré, incohérence en cours). Une piste
+  est établie par deux positions cohérentes (la confirmation « M sur N » d'un pisteur) OU, d'emblée,
+  par au moins 50 messages reçus de son adresse : un rapport d'agrégateur en résume des milliers
+  (médiane mesurée 10 809, jamais moins de 217), notre décodeur compte les siens. L'heure de
   confirmation est celle où la piste l'est réellement devenue — plus celle de sa naissance, ni celle
   d'un statut provisoire qui ignorait une incohérence en cours.
-  Conséquence voulue : une piste vue une seule fois ne peut pas être versée au journal de preuve
-  avant sa deuxième observation — ~1 s à l'antenne, ~20 s sur les cellules du théâtre (relevées à
-  chaque passage), davantage sur les cellules continentales relevées en rotation (3 par relevé).
+  Mesuré à froid sur 5 min de vraies images : il fallait 58 s en médiane pour qu'une piste réseau
+  soit confirmée — le temps que sa cellule repasse, alors que son rapport disait déjà des milliers
+  de messages. C'est maintenant 0 s : confirmée dès la première image. Seule une piste sans assez de
+  messages ni deuxième position reste « détectée », et ne peut pas encore être versée au journal de
+  preuve : c'est voulu.
 - UNE OBSERVATION, C'EST UNE OBSERVATION. Trois façons de compter de trop, mesurées sur du trafic
   réel puis corrigées :
-  · le RAPPORT RESSERVI : l'agrégateur, et le cache des cellules continentales du poste (jusqu'à
-    100 s), rendent le même rapport plusieurs fois — même position, même heure à 4 ms près. Chaque
-    image fusionnée comptait comme un relevé de plus : sur 100 s de vraies images de l'application,
-    9,7 fusions par avion pour 2,0 observations réelles, et 88 pistes « confirmées » sans avoir été
-    vues deux fois (235 confirmées à l'ancien compte, 147 au juste). Compte désormais une position
-    nouvelle, ou la même réémise au moins 2 s plus tard (avion immobile au sol) ; le compteur
-    « N plots » des vues Trace et Ident dit enfin la même chose.
+  · le RAPPORT RESSERVI : l'agrégateur, et le cache des cellules continentales du poste, rendent le
+    même rapport plusieurs fois. Chaque image fusionnée comptait comme un relevé de plus : sur 100 s
+    de vraies images de l'application, 9,7 fusions par avion pour 2,0 observations réelles, et 88
+    pistes « confirmées » sans avoir été vues deux fois. Un premier correctif reconnaissait le
+    rapport resservi à sa position ET à son heure (même position à moins de 2 s) — et se faisait
+    encore tromper : sans antenne, l'heure de ces rapports glissait de 2,2 à 3,7 s à chaque
+    rafraîchissement réseau, d'où 172 fausses confirmations d'un coup (mesuré). C'est désormais la
+    POSITION seule qui dit si un relevé est neuf ; un avion immobile au sol reste un plot, établi par
+    ses messages. Le compteur « N plots » des vues Trace et Ident dit la même chose.
   · le FAUX INDICATIF : quand un avion n'émet pas d'indicatif, le libellé affiché se replie sur son
     immatriculation, et ce repli passait pour un indicatif émis (+3) — 5 avions crédités à tort sur
     7 mesurés. Chaque source porte maintenant le fait d'émission (agrégateur, antenne, rejeu).
@@ -249,6 +255,44 @@ Symbologie APP-6 et radar
   Seule, son heure restait identique tant que rien ne survenait et se lisait comme une horloge
   arrêtée — c'est ainsi que le balayage « rien de figé » de /zones l'a fait remonter ; le reste de
   /zones est sain (ses autres heures sont des faits datés, pas des horloges).
+- LE CONTINENT NE DISPARAÎT PLUS. Les 21 cellules continentales étaient relevées trois par relevé :
+  un tour de ~168 s, mais une cellule n'était gardée que 100 s. Mesuré sur 5 min à froid : l'image
+  est montée à 215 avions puis retombée à 20 — le théâtre seul — pendant ~40 s, et 186 pistes ont
+  été perdues puis renées, leur confirmation repartant de zéro à chaque fois. Désormais une cellule
+  reste servie jusqu'à ce que la rotation repasse (deux tours), la rotation prend toujours les plus
+  anciennes, et au démarrage tout ce qui manque est relevé d'un coup. Même mesure après : image
+  stable entre 228 et 233 avions de bout en bout, 0 piste perdue puis renée. À froid, la première
+  image arrive au même moment (~10 s) mais complète : 189 avions au lieu de 91, presque tous déjà
+  confirmés au lieu d'aucun. Toujours de la lecture passive : la rafale du démarrage n'a lieu
+  qu'une fois, et la rotation reste à trois cellules par relevé ensuite.
+- UNE SEULE HEURE POUR TOUT LE RELEVÉ RÉSEAU. Chaque cellule gardait l'âge de son propre relevé, et
+  l'image était tamponnée quand le DERNIER flux (METAR, SIGMET, phénomènes…) avait répondu : l'heure
+  d'observation des avions glissait de 2,2 à 3,7 s à chaque rafraîchissement — à 800 km/h, un
+  symbole qui sautille de 0,5 à 0,8 km. Tous les lots sont maintenant ramenés à une heure de
+  référence unique, puis à celle de l'image : plus aucun glissement mesuré. Même famille, sur un
+  chemin rare : quand l'agrégateur refusait (429), les avions du dernier bon relevé étaient
+  resservis sous l'heure de la nouvelle image sans être vieillis — jusqu'à 3 min plus frais qu'ils
+  n'étaient. Corrigé aussi.
+- PLAUSIBILITÉ : L'ALTITUDE MESURÉE, PAS L'ALTITUDE ESTIMÉE. Le contrôle des sauts comparait les
+  positions mesurées mais les altitudes EXTRAPOLÉES (qui suivent l'âge du rapport). Sur deux copies
+  du même rapport, séparées de quelques dixièmes de seconde, quelques mètres d'extrapolation
+  faisaient plus de 80 m/s : « saut d'altitude », relevé refusé, puis « adresse ICAO partagée »
+  après trois refus. Défaut latent (10 refus à tort en 5 min), qui a éclaté à 294 dès que les heures
+  sont devenues exactes — trouvé à la mesure avant d'être livré. Le contrôle compare maintenant
+  l'altitude mesurée : 0 refus à tort sur les mêmes images, et un vrai saut (+3 000 m en 10 s) reste
+  refusé.
+- CODE SERVEUR DANS LE CODE NAVIGATEUR (hérité de l'import d'origine). Le module de session du
+  personnel, chargé aussi par le navigateur, importait un module serveur : la protection d'imports le
+  signalait à chaque démarrage. La fonction concernée (liaison d'un poste à sa clé) est maintenant
+  marquée « serveur seulement » : identique côté serveur, absente du code envoyé au navigateur
+  (vérifié dans le build de production). L'avertissement a disparu.
+- CONNU, HORS AFRICONTROL. `npm test` lance aussi les tests de l'outillage de la plateforme d'origine
+  (dossier scripts/) : 13 sur 195 échouent depuis l'import d'origine (17 à l'import, aucun nouveau) —
+  fichiers `.grok/skills/og/…` jamais livrés, greffon PWA et ses balises de partage, invariant
+  d'auth du gabarit. Ils ne testent pas AfriControl, dont la suite (`npm run test:app`) passe en
+  entier. Le serveur de DÉVELOPPEMENT écrit aussi « Error: aborted … unhandled » chaque fois qu'un
+  navigateur abandonne une requête (changement de page pendant un chargement) : bruit de
+  l'adaptateur HTTP du framework, avant tout code du poste, sans effet sur les données.
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
   pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée

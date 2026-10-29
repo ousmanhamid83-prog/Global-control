@@ -5,7 +5,7 @@ import {
   CONFIRMATION_OBS,
   idStatut,
   MATURITE_OBS,
-  MEME_RAPPORT_MS,
+  MESSAGES_CORROBORATION,
   observationNouvelle,
   PLAFOND_DOUBLON,
   typeConnuDe,
@@ -17,6 +17,7 @@ const P = (o: Partial<IdPreuves> = {}): IdPreuves => ({
   immatriculation: false,
   indicatif: false,
   observations: MATURITE_OBS,
+  messages: 0,
   incoherences: 0,
   seuilDoublon: 3,
   ...o,
@@ -106,28 +107,51 @@ test("BORNES : jamais 100, jamais 0, quelles que soient les preuves", () => {
 
 /* ── OBSERVATION : un rapport resservi n'est pas une preuve de plus ─────────────────────────────── */
 
-const R = { lat: 12.1331, lon: 15.0339, at: 1_700_000_000_000 };
+const R = { lat: 12.1331, lon: 15.0339 };
 
 test("OBSERVATION : le même rapport resservi n'est PAS une observation nouvelle", () => {
-  // Valeurs mesurées sur de vrais relevés successifs : un rapport resservi revient à 4 ms au plus
-  // de son heure d'observation, dans un sens comme dans l'autre.
-  assert.equal(observationNouvelle(R, { ...R, at: R.at + 4 }), false);
-  assert.equal(observationNouvelle(R, { ...R, at: R.at - 3 }), false);
-  assert.equal(observationNouvelle(R, { ...R, at: R.at + MEME_RAPPORT_MS - 1 }), false);
+  // Une position identique est le même rapport, quelle que soit l'heure qu'on lui prête : mesuré,
+  // l'heure des rapports resservis glissait de 2,2 à 3,7 s à chaque rafraîchissement réseau, et un
+  // critère horaire comptait 188 rapports resservis sur 191 comme des observations neuves.
+  assert.equal(observationNouvelle(R, { ...R }), false);
 });
 
-test("OBSERVATION : une position qui change est nouvelle, même 0,8 s après (le plus court mesuré)", () => {
-  assert.equal(observationNouvelle(R, { lat: R.lat, lon: R.lon + 0.0002, at: R.at + 797 }), true);
-});
-
-test("OBSERVATION : un appareil immobile qui réémet sa position est observé de nouveau", () => {
-  // Au sol, la position ne bouge pas ; c'est l'heure qui prouve qu'il a émis de nouveau.
-  assert.equal(observationNouvelle(R, { ...R, at: R.at + MEME_RAPPORT_MS }), true);
-  assert.equal(observationNouvelle(R, { ...R, at: R.at + 20_000 }), true);
+test("OBSERVATION : une position qui change est une observation nouvelle", () => {
+  assert.equal(observationNouvelle(R, { lat: R.lat, lon: R.lon + 0.0002 }), true);
+  assert.equal(observationNouvelle(R, { lat: R.lat - 0.0001, lon: R.lon }), true);
 });
 
 test("OBSERVATION : la toute première est nouvelle", () => {
   assert.equal(observationNouvelle(undefined, R), true);
+});
+
+/* ── PREUVE PAR LES MESSAGES : établie dès le premier relevé ────────────────────────────────────── */
+
+test("MESSAGES : une adresse entendue des milliers de fois est confirmée dès son premier relevé", () => {
+  // Médiane mesurée sur de vrais rapports d'agrégateur : 10 809 messages par adresse. Attendre le
+  // prochain passage de la cellule (58 s en médiane, mesuré) n'apprenait rien de plus.
+  const v = idStatut(P({ observations: 1, messages: 10_809 }));
+  assert.equal(v.etat, "confirme");
+  assert.equal(v.score, BASE_TYPE_DECLARE, "établie : plus de pénalité de jeunesse");
+  assert.match(v.motif, /10\s809 messages reçus de l'adresse/);
+});
+
+test("MESSAGES : sous le seuil, rien ne change — un fantôme de décodage reste « détecté »", () => {
+  const v = idStatut(P({ observations: 1, messages: MESSAGES_CORROBORATION - 1 }));
+  assert.equal(v.etat, "detecte");
+  assert.ok(v.score < BASE_TYPE_DECLARE);
+  assert.doesNotMatch(v.motif, /messages/);
+});
+
+test("MESSAGES : ils établissent la piste, pas son TYPE — un type inconnu reste candidat", () => {
+  assert.equal(idStatut(P({ type: "inconnu", observations: 1, messages: 5000 })).etat, "candidat");
+});
+
+test("MESSAGES : ils ne blanchissent pas une adresse douteuse", () => {
+  // Deux émetteurs sur la même adresse font aussi beaucoup de messages : le doublon prime.
+  const v = idStatut(P({ observations: 1, messages: 5000, incoherences: 3 }));
+  assert.equal(v.etat, "candidat");
+  assert.ok(v.score <= PLAFOND_DOUBLON);
 });
 
 test("CATÉGORIE : déduite de la plate-forme retenue pour la piste", () => {

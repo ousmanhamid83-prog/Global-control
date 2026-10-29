@@ -38,6 +38,11 @@ export type LiveAc = {
    * l'adresse, pour l'affichage : sans ce drapeau, le repli passait pour un indicatif émis.
    */
   flightTx: boolean;
+  /**
+   * Messages reçus de cette adresse par la source : tous les récepteurs de l'agrégateur, ou notre
+   * décodeur pour l'antenne. Preuve qu'elle n'est pas un fantôme de décodage. null = inconnu.
+   */
+  messages: number | null;
   lat: number;
   lon: number;
   altM: number;
@@ -267,6 +272,7 @@ export function parseDump1090(ac: unknown[]): LiveAc[] {
       hex,
       flight: flight || hex.toUpperCase(),
       flightTx: emis !== "",
+      messages: num(r.messages),
       lat,
       lon,
       altM: onGround ? 0 : altFt * 0.3048,
@@ -414,15 +420,13 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
   const platId = uav ? "adsb-uav" : platformIdForType(ac.icaoType);
   const plat =
     PLATFORM_BY_ID[platId] ?? FRIEND_BY_ID[platId] ?? FRIEND_BY_ID["asecna-unk"]!;
-  // La mesure BRUTE et son heure réelle : c'est elle qui sert à comparer deux relevés.
-  const mesure = { lat: ac.lat, lon: ac.lon, at: posAt };
-  // Un relevé ne compte que s'il est NOUVEAU : un agrégateur qui resert le même rapport n'ajoute
-  // ni un plot à la trace, ni une preuve à la confirmation (6 % des présences, mesuré).
-  const nouvelle = observationNouvelle(prev?.fix, mesure);
-  // `fix` reste la dernière observation COMPTÉE. Comparer au relevé précédent plutôt qu'à elle
-  // ferait qu'un appareil immobile au sol, entendu chaque seconde par l'antenne (même position,
-  // moins de 2 s d'écart à chaque fois), ne serait jamais observé « de nouveau ».
-  const fix = nouvelle || !prev?.fix ? mesure : prev.fix;
+  // La mesure BRUTE et son heure réelle : c'est elle qui sert à comparer deux relevés. Toujours la
+  // plus récente : un avion immobile qui se tait doit être compté silencieux depuis son DERNIER
+  // relevé, pas depuis son premier à cette position.
+  const fix = { lat: ac.lat, lon: ac.lon, at: posAt, altM: ac.altM };
+  // Un relevé ne compte que s'il apporte une position NOUVELLE : un agrégateur qui resert le même
+  // rapport n'ajoute ni un plot à la trace, ni une preuve à la confirmation.
+  const nouvelle = observationNouvelle(prev?.fix, fix);
   const trail = !prev
     ? [{ lat: ac.lat, lon: ac.lon }]
     : nouvelle
@@ -443,6 +447,7 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
     immatriculation: Boolean(ac.reg),
     indicatif: callsignTx,
     observations: fixes,
+    messages: ac.messages ?? 0,
     incoherences: 0,
     seuilDoublon: DUP_ADDR_RUN,
   });
@@ -462,6 +467,7 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
     lon: est.lon,
     fix,
     fixes,
+    messages: ac.messages,
     altM,
     heading: ac.track,
     speedKmh: ac.gsKmh,
@@ -571,12 +577,14 @@ export function mergeLiveTracks(
     // dans le temps écoulé. Sinon la trame est fausse (brouillage, décodage raté, falsification) :
     // on REFUSE le saut, on garde la piste à l'estime et on le signale à l'opérateur.
     if (prev && prev.feed === "adsb") {
-      // On compare les positions MESURÉES sur leur VRAI intervalle d'observation. Comparer les
-      // estimés sur l'intervalle entre deux relevés mélangerait deux instants différents et
-      // fabriquerait des vitesses impliquées fausses — donc de faux « sauts ».
-      const a = prev.fix ?? { lat: prev.lat, lon: prev.lon, at: prev.lastUpdate };
-      const b = t.fix ?? { lat: t.lat, lon: t.lon, at: t.lastUpdate };
-      const v = checkJump({ ...a, altM: prev.altM }, { ...b, altM: t.altM }, (b.at - a.at) / 1000);
+      // On compare les positions ET les altitudes MESURÉES sur leur VRAI intervalle d'observation.
+      // Comparer les estimés mélangerait deux instants différents et fabriquerait de faux « sauts » :
+      // l'altitude extrapolée d'un rapport resservi bouge avec son âge, et sur l'intervalle quasi nul
+      // entre deux copies du même rapport, quelques mètres faisaient plus de 80 m/s — 294 refus à
+      // tort en 5 min sur trafic réel, puis autant d'adresses ICAO déclarées douteuses.
+      const a = prev.fix ?? { lat: prev.lat, lon: prev.lon, at: prev.lastUpdate, altM: prev.altM };
+      const b = t.fix ?? { lat: t.lat, lon: t.lon, at: t.lastUpdate, altM: t.altM };
+      const v = checkJump(a, b, (b.at - a.at) / 1000);
       if (!v.ok) {
         const dr = coastFrom(prev, now);
         // Un relevé refusé isolé, c'est une trame ratée. Plusieurs d'affilée, c'est que la position
@@ -652,6 +660,7 @@ export function avecStatutId(t: Track, now: number): Track {
     immatriculation: Boolean(t.reg),
     indicatif: t.callsignTx === true,
     observations: t.fixes ?? 1,
+    messages: t.messages ?? 0,
     incoherences,
     seuilDoublon: DUP_ADDR_RUN,
   });
