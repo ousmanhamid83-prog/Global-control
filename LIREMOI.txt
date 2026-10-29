@@ -224,7 +224,8 @@ Symbologie APP-6 et radar
   confirmation est celle où la piste l'est réellement devenue — plus celle de sa naissance, ni celle
   d'un statut provisoire qui ignorait une incohérence en cours.
   Conséquence voulue : une piste vue une seule fois ne peut pas être versée au journal de preuve
-  avant sa deuxième observation (~1 s à l'antenne, ~20 s au réseau).
+  avant sa deuxième observation — ~1 s à l'antenne, ~20 s sur les cellules du théâtre (relevées à
+  chaque passage), davantage sur les cellules continentales relevées en rotation (3 par relevé).
 - UNE OBSERVATION, C'EST UNE OBSERVATION. Trois façons de compter de trop, mesurées sur du trafic
   réel puis corrigées :
   · le RAPPORT RESSERVI : l'agrégateur, et le cache des cellules continentales du poste (jusqu'à
