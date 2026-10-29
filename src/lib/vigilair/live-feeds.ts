@@ -682,7 +682,10 @@ function withReceiver(net: LivePicture, rx: ReceiverStatus, rxAc: LiveAc[]): Liv
       n
         ? {
             ...a,
-            flight: a.flight !== a.hex.toUpperCase() ? a.flight : n.flight,
+            // L'indicatif du réseau ne supplée que si l'antenne ne l'a pas encore décodé : dans les
+            // deux cas il a été émis par l'appareil, entendu par un autre récepteur.
+            flight: a.flightTx ? a.flight : n.flight,
+            flightTx: a.flightTx || n.flightTx,
             icaoType: n.icaoType,
             reg: n.reg,
             military: n.military,

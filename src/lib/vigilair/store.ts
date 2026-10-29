@@ -31,6 +31,7 @@ import {
 } from "./replay";
 import { spawnTrack, stepTrack } from "./simulate";
 import {
+  avecStatutId,
   emergencyLabel,
   isLiveFeed,
   liveAcToTrack,
@@ -1363,7 +1364,8 @@ function stepRejeu(now: number, force = false) {
     const id = `rej-${p.ac.hex}`;
     const prev = prevById.get(id);
     const ac = { ...p.ac, emergency: emergencyLabel(p.ac.emergency) };
-    const base = liveAcToTrack(ac, now, prev);
+    // Le statut se fonde sur les relevés RÉELS de la bande, pas sur les pas d'interpolation (1 Hz).
+    const base = avecStatutId({ ...liveAcToTrack(ac, now, prev), fixes: p.vus }, now);
     const trailAt = prev?.rejeu?.trailAt ?? 0;
     const moveTrail = !prev || now - trailAt >= 8000;
     next.push({

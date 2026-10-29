@@ -42,7 +42,16 @@ export type RejeuTape = {
   frames: { at: number; rows: TapeRow[] }[];
 };
 
-export type RejeuPoint = { ac: LiveAc; /** Heure d'origine de la position (ms). */ posAt: number };
+export type RejeuPoint = {
+  ac: LiveAc;
+  /** Heure d'origine de la position (ms). */
+  posAt: number;
+  /**
+   * Relevés RÉELS de la bande pour cet avion jusqu'à cet instant. L'interpolation entre deux
+   * relevés n'en ajoute aucun : compter ses pas confirmerait une piste sur des positions calculées.
+   */
+  vus: number;
+};
 
 /** Une bande ne vaut rejeu qu'à partir de 3 minutes et 6 images. */
 export const REJEU_MIN_SPAN_MS = 3 * 60_000;
@@ -94,9 +103,16 @@ function coast(lat: number, lon: number, trackDeg: number, gsKmh: number, dtMs: 
 
 function toAc(meta: TapeMeta | undefined, row: TapeRow, lat: number, lon: number, seenS: number): LiveAc {
   const hex = row[0];
+  // La bande garde le LIBELLÉ affiché, pas le fait qu'il ait été émis. Un libellé égal à l'adresse
+  // ou à l'immatriculation est le repli d'affichage (27 avions sur 366 dans l'archive livrée) :
+  // il ne compte pas comme indicatif émis. Prudent : un appareil qui émettrait exactement son
+  // immatriculation sans tiret n'est pas crédité.
+  const libelle = meta?.[0] ?? hex.toUpperCase();
+  const repli = (meta?.[2] ?? "").trim().toUpperCase().slice(0, 8);
   return {
     hex,
-    flight: meta?.[0] ?? hex.toUpperCase(),
+    flight: libelle,
+    flightTx: libelle !== hex.toUpperCase() && libelle !== repli,
     lat,
     lon,
     altM: row[3],
@@ -194,14 +210,14 @@ export function tapeAt(tape: RejeuTape, t: number, index: TapeIndex = indexTape(
       mixed[11] = late ? n[11] : r[11];
       const lat = r[1] + (n[1] - r[1]) * f;
       const lon = r[2] + (n[2] - r[2]) * f;
-      out.push({ ac: toAc(meta, mixed, lat, lon, 0), posAt: Math.round(t) });
+      out.push({ ac: toAc(meta, mixed, lat, lon, 0), posAt: Math.round(t), vus: k + 1 });
       continue;
     }
     const dt = t - a.posAt;
     if (dt > COAST_MS) continue;
     const r = a.row;
     const p = r[11] === 1 ? { lat: r[1], lon: r[2] } : coast(r[1], r[2], r[5], r[4], dt);
-    out.push({ ac: toAc(meta, r, p.lat, p.lon, dt / 1000), posAt: a.posAt });
+    out.push({ ac: toAc(meta, r, p.lat, p.lon, dt / 1000), posAt: a.posAt, vus: k + 1 });
   }
   return out;
 }

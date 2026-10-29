@@ -1,66 +1,114 @@
 /**
- * CONFIANCE D'IDENTIFICATION DU TRAFIC RÉEL — cœur PUR, testable.
+ * STATUT ET CONFIANCE D'IDENTIFICATION DU TRAFIC RÉEL — cœur PUR, testable.
  *
- * La « confiance » d'une piste dit à quel point le poste sait CE QU'ELLE EST. Pour la simulation,
- * elle monte avec le temps et le nombre de capteurs qui corroborent. Pour le trafic 1090ES réel,
- * elle était TAPÉE EN DUR : `confidence: uav ? 72 : 99`. Mesuré sur l'écran d'accueil : 131 pistes
- * réelles, toutes à 99 %, identiques d'une minute à l'autre — y compris des pistes dont le type est
- * inconnu et des adresses ICAO soupçonnées d'être tenues par deux émetteurs. Un chiffre inventé,
- * présenté comme une mesure, et recopié tel quel dans le journal de preuve chaîné.
+ * Deux défauts, corrigés ensemble parce qu'ils disent la même chose de deux façons :
  *
- * Ce module la dérive des PREUVES D'IDENTITÉ réellement portées par la piste, et de rien d'autre :
+ *  1) Le STATUT. Toute piste 1090ES réelle naissait « confirmée » dès sa première trame
+ *     (`idState: uav ? "candidat" : "confirme"`). Le dossier affichait donc des contradictions comme
+ *     « Identification : Confirmé · confiance 60 % (type inconnu) », et les tableaux de bord
+ *     comptaient tout le trafic comme confirmé. Un statut qui ne dépend d'aucune preuve.
  *
- *   — le type est-il DÉCLARÉ par le registre pour cette adresse ICAO, ou inconnu ?
- *   — l'adresse est-elle saine, ou un épisode de relevés incohérents la met-il en doute ?
+ *  2) La CONFIANCE. Tapée en dur à 99 % à l'origine, puis ramenée à trois paliers — si bien que
+ *     120 pistes affichaient exactement 95 %. Moins faux, mais pas PRÉCIS : deux avions dont l'un
+ *     émet son indicatif et a une immatriculation connue, et l'autre rien, recevaient le même score.
  *
- * Ce qu'il refuse délibérément de mélanger : la QUALITÉ DE POSITION (rayon de confinement, MLAT,
- * piste muette). Elle a déjà son cercle d'incertitude au scope. Une piste MLAT à ±2 km n'est pas
- * moins bien IDENTIFIÉE — son adresse est décodée sous CRC comme les autres — elle est moins bien
- * PLACÉE. Confondre les deux, c'est le défaut même qu'on vient de corriger sur le brouillage.
+ * Un seul calcul produit désormais les deux, depuis les PREUVES D'IDENTITÉ réellement portées :
  *
- * Les paliers sont des CATÉGORIES de preuve documentées, pas une probabilité mesurée : on le dit.
- * Ce qui change, c'est qu'ils BOUGENT avec la preuve — un doublon d'adresse fait chuter la
- * confiance, sa disparition la rétablit, un type complété par le registre la relève.
+ *   — le type est-il déclaré par le registre pour cette adresse ICAO ?
+ *   — l'immatriculation est-elle connue (fiche registre complète pour cette adresse) ?
+ *   — l'appareil émet-il lui-même un indicatif ? (Le libellé affiché se replie sur l'immatriculation
+ *     quand rien n'est émis : ce repli n'est PAS un indicatif, et ne rapporte rien.)
+ *   — combien de relevés COHÉRENTS et DISTINCTS la piste a-t-elle accumulés ? C'est la confirmation
+ *     classique d'un pisteur (M relevés sur N) : un relevé isolé peut être un fantôme de décodage,
+ *     deux relevés cohérents font une piste réelle, et la confiance mûrit avec les suivants. Un
+ *     rapport que l'agrégateur resert à l'identique n'est pas un relevé de plus ;
+ *   — un épisode de relevés incohérents pèse-t-il sur l'adresse ?
  *
- * Analyse de cohérence du signal, jamais d'identité nominative : on ne dit pas QUI est à bord, on
- * dit ce que le poste sait de la nature de l'appareil, et pourquoi.
+ * Ce qui en est délibérément EXCLU : la qualité de position (MLAT, rayon de confinement, piste
+ * muette). Elle a son propre cercle au scope ; une piste mal placée n'est pas mal identifiée.
+ *
+ * Les poids sont des CATÉGORIES de preuve documentées, pas une probabilité mesurée. Ce qui change
+ * tout : chaque point du score a une raison écrite dans le motif, et le score évolue avec la preuve.
+ *
+ * Cohérence du signal, jamais d'identité nominative : on dit ce que le poste sait de la NATURE de
+ * l'appareil et pourquoi, pas qui est à bord.
  */
 
 /** Ce que le poste sait de la nature de l'appareil. */
 export type TypeConnu =
-  /** Le registre donne le type pour cette adresse ICAO : l'appareil est identifié. */
+  /** Le registre donne le type pour cette adresse ICAO. */
   | "declare"
   /** Aéronef coopératif dont le type est inconnu : on sait QU'il vole, pas CE QU'il est. */
   | "inconnu"
-  /** Drone coopératif (catégorie B6 émise par l'appareil) : la nature est déclarée, pas le modèle. */
+  /** Drone coopératif (catégorie B6 émise par l'appareil) : le genre est déclaré, pas le modèle. */
   | "drone";
 
 export type IdPreuves = {
   type: TypeConnu;
-  /** Un épisode de relevés incohérents est-il ouvert sur cette adresse ? Combien de refus ? */
+  /** Immatriculation connue du registre pour cette adresse. */
+  immatriculation: boolean;
+  /** Indicatif ÉMIS par l'appareil lui-même — pas le repli d'affichage sur l'immatriculation. */
+  indicatif: boolean;
+  /**
+   * Relevés COHÉRENTS et DISTINCTS accumulés par la piste : ni les relevés refusés, ni un même
+   * rapport resservi (voir `observationNouvelle`).
+   */
+  observations: number;
+  /** Relevés incohérents de l'épisode en cours sur cette adresse (0 s'il est refermé). */
   incoherences: number;
-  /** Au-delà de ce nombre, l'adresse est vraisemblablement tenue par deux émetteurs. */
+  /** Au-delà, l'adresse est vraisemblablement tenue par deux émetteurs. */
   seuilDoublon: number;
 };
 
-export type IdConfiance = {
+export type IdEtat = "detecte" | "candidat" | "confirme";
+
+export type IdStatut = {
+  etat: IdEtat;
   /** Score 0–100, catégoriel et documenté — pas une probabilité mesurée. */
   score: number;
-  /** Pourquoi ce score : à afficher, pas à taire. */
+  /** Chaque élément qui a compté, en clair : à afficher, pas à taire. */
   motif: string;
 };
 
-/** Paliers de base, par nature de la preuve. */
-export const CONFIANCE_TYPE_DECLARE = 95;
-export const CONFIANCE_TYPE_INCONNU = 60;
-export const CONFIANCE_DRONE = 72;
-/** Un relevé incohérent isolé : une trame ratée, probablement — mais on le compte. */
-export const PENALITE_INCOHERENCE = 15;
+/** Paliers de base, par nature de la preuve de type. */
+export const BASE_TYPE_DECLARE = 90;
+export const BASE_DRONE = 70;
+export const BASE_TYPE_INCONNU = 55;
+/** Fiche registre complète pour cette adresse : corrobore le rapprochement adresse → type. */
+export const BONUS_IMMATRICULATION = 4;
+/** L'appareil énonce lui-même son identité. */
+export const BONUS_INDICATIF = 3;
 /**
- * Adresse ICAO vraisemblablement partagée : on ne sait plus QUEL émetteur on regarde. L'identité
- * tirée de l'adresse ne vaut plus grand-chose, quel que soit le type déclaré.
+ * Confirmation « M sur N » : il faut AU MOINS deux relevés cohérents pour qu'une piste soit réelle.
+ * Un relevé isolé peut être un fantôme — une trame mal décodée qui ne reviendra jamais.
  */
+export const CONFIRMATION_OBS = 2;
+/** Relevés cohérents au-delà desquels la piste est mûre : la pénalité de jeunesse s'éteint. */
+export const MATURITE_OBS = 6;
+/** Pénalité d'une piste qui n'a qu'un relevé, décroissant jusqu'à 0 à maturité. */
+export const PENALITE_JEUNESSE = 12;
+/** Un relevé incohérent isolé : probablement une trame ratée — mais il compte. */
+export const PENALITE_INCOHERENCE = 15;
+/** Adresse vraisemblablement partagée : on ne sait plus QUEL émetteur on regarde. */
 export const PLAFOND_DOUBLON = 30;
+/**
+ * En deçà, une MÊME position est le même rapport resservi, pas une observation nouvelle. Mesuré sur
+ * six relevés réels successifs (364 présences) : un rapport resservi revient à 4 ms au plus de son
+ * heure, une vraie nouvelle observation au moins 0,8 s plus tard (médiane 19,8 s).
+ */
+export const MEME_RAPPORT_MS = 2000;
+
+type Releve = { lat: number; lon: number; at: number };
+
+/**
+ * Ce relevé apporte-t-il une observation NOUVELLE ? Oui si la position a changé, ou si la même
+ * position a été émise de nouveau (appareil immobile au sol). Non si c'est le même rapport resservi.
+ */
+export function observationNouvelle(avant: Releve | undefined, apres: Releve): boolean {
+  if (!avant) return true;
+  if (avant.lat !== apres.lat || avant.lon !== apres.lon) return true;
+  return Math.abs(apres.at - avant.at) >= MEME_RAPPORT_MS;
+}
 
 /** Catégorie de type à partir de la plate-forme retenue pour la piste. */
 export function typeConnuDe(platformId: string): TypeConnu {
@@ -70,36 +118,57 @@ export function typeConnuDe(platformId: string): TypeConnu {
 }
 
 /**
- * Confiance d'identification d'une piste 1090ES réelle, avec son motif. Bornée à [5, 99] : jamais
- * 100 (rien d'un signal reçu n'est certain), jamais 0 (une adresse décodée sous CRC n'est pas rien).
+ * Statut, score et motif d'identification d'une piste 1090ES réelle. Score borné à [5, 99] :
+ * jamais 100 (rien d'un signal reçu n'est certain), jamais 0 (une adresse décodée sous CRC n'est
+ * pas rien).
  */
-export function idConfiance(p: IdPreuves): IdConfiance {
-  const base =
-    p.type === "declare"
-      ? CONFIANCE_TYPE_DECLARE
-      : p.type === "drone"
-        ? CONFIANCE_DRONE
-        : CONFIANCE_TYPE_INCONNU;
-  const motifBase =
+export function idStatut(p: IdPreuves): IdStatut {
+  const obs = Math.max(0, Math.floor(p.observations));
+  const elements: string[] = [];
+
+  let score =
+    p.type === "declare" ? BASE_TYPE_DECLARE : p.type === "drone" ? BASE_DRONE : BASE_TYPE_INCONNU;
+  elements.push(
     p.type === "declare"
       ? "type déclaré au registre"
       : p.type === "drone"
         ? "drone coopératif, modèle non déclaré"
-        : "type inconnu";
+        : "type inconnu",
+  );
+  if (p.immatriculation) {
+    score += BONUS_IMMATRICULATION;
+    elements.push("immatriculation connue");
+  }
+  if (p.indicatif) {
+    score += BONUS_INDICATIF;
+    elements.push("indicatif émis");
+  }
+  // Maturité : la confiance se gagne relevé après relevé, elle ne se décrète pas.
+  const maturite = Math.min(1, Math.max(0, (obs - 1) / (MATURITE_OBS - 1)));
+  score -= Math.round(PENALITE_JEUNESSE * (1 - maturite));
+  elements.push(`${obs} relevé${obs > 1 ? "s" : ""} cohérent${obs > 1 ? "s" : ""}`);
 
+  // Un doublon d'adresse ruine l'identité tirée de l'adresse, quel que soit le reste.
   if (p.incoherences >= p.seuilDoublon) {
     return {
-      score: Math.min(base, PLAFOND_DOUBLON),
+      etat: "candidat",
+      score: Math.min(borne(score), PLAFOND_DOUBLON),
       motif: `adresse ICAO douteuse (${p.incoherences} relevés incohérents) — émetteur incertain`,
     };
   }
   if (p.incoherences > 0) {
-    return {
-      score: borne(base - PENALITE_INCOHERENCE * p.incoherences),
-      motif: `${motifBase} · ${p.incoherences} relevé${p.incoherences > 1 ? "s" : ""} incohérent${p.incoherences > 1 ? "s" : ""}`,
-    };
+    score -= PENALITE_INCOHERENCE * p.incoherences;
+    elements.push(
+      `${p.incoherences} relevé${p.incoherences > 1 ? "s" : ""} incohérent${p.incoherences > 1 ? "s" : ""}`,
+    );
   }
-  return { score: borne(base), motif: motifBase };
+
+  let etat: IdEtat;
+  if (obs < CONFIRMATION_OBS) etat = "detecte";
+  else if (p.type === "declare" && p.incoherences === 0) etat = "confirme";
+  else etat = "candidat";
+
+  return { etat, score: borne(score), motif: elements.join(" · ") };
 }
 
 function borne(v: number): number {

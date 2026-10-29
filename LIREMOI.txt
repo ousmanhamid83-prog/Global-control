@@ -199,19 +199,55 @@ Symbologie APP-6 et radar
   réelles, TOUTES à 99 %, identiques d'une minute à l'autre — y compris des pistes au type inconnu
   et des adresses ICAO soupçonnées d'être tenues par deux émetteurs. Un chiffre inventé, présenté
   comme une mesure, et recopié tel quel dans le journal de preuve chaîné.
-  Elle découle maintenant des PREUVES D'IDENTITÉ réellement portées par la piste : le type est-il
-  déclaré par le registre pour cette adresse (95 %), inconnu (60 %), ou s'agit-il d'un drone
-  coopératif dont seul le genre est déclaré (72 %) ? Un relevé incohérent isolé coûte 15 points ;
-  un doublon d'adresse ICAO la plafonne à 30 %, quel que soit le type — on ne sait plus quel
-  émetteur on regarde. Et elle BOUGE : elle chute pendant l'épisode et se rétablit quand il se
-  referme. Le dossier de piste affiche le motif sous le chiffre.
+  Elle découle maintenant des PREUVES D'IDENTITÉ réellement portées par la piste, chacune écrite
+  dans le motif affiché sous le chiffre : type déclaré par le registre pour cette adresse (base 90),
+  drone coopératif dont seul le genre est déclaré (70), type inconnu (55) ; immatriculation connue
+  (+4) ; indicatif réellement ÉMIS par l'appareil (+3) ; et la MATURITÉ de la piste — vue une seule
+  fois elle perd 12 points, qui se regagnent observation après observation jusqu'à la sixième. Un
+  relevé incohérent coûte 15 points ; un doublon d'adresse ICAO la plafonne à 30 %, quel que soit le
+  reste — on ne sait plus quel émetteur on regarde. Elle chute pendant l'épisode et se rétablit
+  quand il se referme. (Un premier correctif la ramenait à trois paliers fixes : 120 pistes
+  affichaient alors exactement 95 % quelles que soient leurs preuves — moins faux, pas précis.)
   Ce qu'elle refuse de mélanger : la QUALITÉ DE POSITION. Une piste MLAT à ±2 km n'est pas moins
   bien identifiée — son adresse est décodée comme les autres — elle est moins bien PLACÉE, et le
   scope le montre déjà par son cercle d'incertitude.
-  Les paliers sont des catégories de preuve documentées, pas une probabilité mesurée : c'est dit.
-  Mesuré après correctif sur le même écran : 140 pistes, 120 à 95 % (type déclaré) et 20 à 60 %
-  (type inconnu), aucune à 99 %. Aucun seuil d'alerte ne dépend de cette valeur (vérifié) : seul
-  l'ordre des pistes d'une même classe de menace en est affecté, comme départage.
+  Les poids sont des catégories de preuve documentées, pas une probabilité mesurée : c'est dit.
+  Aucun seuil d'alerte ne dépend de cette valeur (vérifié) : seul l'ordre des pistes d'une même
+  classe de menace en est affecté, comme départage.
+- STATUT D'IDENTIFICATION PRÉCIS : PLUS DE « CONFIRMÉ » D'OFFICE. Toute piste 1090ES réelle naissait
+  « confirmée » dès sa première trame, d'où des contradictions affichées telles quelles (« Confirmé ·
+  confiance 60 % · type inconnu ») et des tableaux de bord qui comptaient tout le trafic comme
+  confirmé. Le statut suit désormais la même preuve que la confiance, comme la confirmation « M sur
+  N » d'un pisteur : DÉTECTÉ tant qu'une seule observation existe (ce peut être un fantôme de
+  décodage), CONFIRMÉ à la deuxième observation cohérente si le type est déclaré et l'adresse saine,
+  CANDIDAT sinon (type inconnu, drone au modèle non déclaré, incohérence en cours). L'heure de
+  confirmation est celle où la piste l'est réellement devenue — plus celle de sa naissance, ni celle
+  d'un statut provisoire qui ignorait une incohérence en cours.
+  Conséquence voulue : une piste vue une seule fois ne peut pas être versée au journal de preuve
+  avant sa deuxième observation (~1 s à l'antenne, ~20 s au réseau).
+- UNE OBSERVATION, C'EST UNE OBSERVATION. Trois façons de compter de trop, mesurées sur du trafic
+  réel puis corrigées :
+  · le RAPPORT RESSERVI : l'agrégateur, et le cache des cellules continentales du poste (jusqu'à
+    100 s), rendent le même rapport plusieurs fois — même position, même heure à 4 ms près. Chaque
+    image fusionnée comptait comme un relevé de plus : sur 100 s de vraies images de l'application,
+    9,7 fusions par avion pour 2,0 observations réelles, et 88 pistes « confirmées » sans avoir été
+    vues deux fois (235 confirmées à l'ancien compte, 147 au juste). Compte désormais une position
+    nouvelle, ou la même réémise au moins 2 s plus tard (avion immobile au sol) ; le compteur
+    « N plots » des vues Trace et Ident dit enfin la même chose.
+  · le FAUX INDICATIF : quand un avion n'émet pas d'indicatif, le libellé affiché se replie sur son
+    immatriculation, et ce repli passait pour un indicatif émis (+3) — 5 avions crédités à tort sur
+    7 mesurés. Chaque source porte maintenant le fait d'émission (agrégateur, antenne, rejeu).
+  · l'INDICATIF QUI CLIGNOTE : l'agrégateur cesse parfois de relayer l'indicatif d'un avion qui ne
+    l'a pas changé (3 sur 73) ; la preuve reçue reste acquise pour la piste, et le libellé garde le
+    dernier indicatif émis au lieu de retomber sur l'immatriculation. Un nouvel indicatif le remplace.
+  Le rejeu compte les relevés RÉELS de la bande, jamais les pas d'interpolation entre deux relevés.
+  Mesuré après correctifs sur six relevés réels successifs : 0 indicatif crédité sans émission,
+  0 piste confirmée sur une seule observation, 0 trace qui surestime ses observations. À l'écran,
+  60 s après ouverture : 241 pistes live = 91 détectées + 23 candidates + 127 confirmées.
+- PIED DE PAGE : le dernier événement porte son âge, qui avance (« 11:48:58 Z · il y a 19 s »).
+  Seule, son heure restait identique tant que rien ne survenait et se lisait comme une horloge
+  arrêtée — c'est ainsi que le balayage « rien de figé » de /zones l'a fait remonter ; le reste de
+  /zones est sain (ses autres heures sont des faits datés, pas des horloges).
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
   pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée

@@ -119,7 +119,15 @@ export function ConsoleStatus() {
               )}
               aria-hidden
             />
-            <span className="shrink-0 tabular-nums">{zTime(last.at)} Z</span>
+            {/* L'heure d'un fait PASSÉ, plus son âge qui avance. Seule, « 10:52:05 Z » restait
+                identique tant qu'aucun événement ne survenait, et se lisait comme une horloge
+                arrêtée — c'est ainsi que le balayage « rien de figé » l'a fait remonter. Rendu
+                seulement côté client (l'instantané serveur de la télémétrie est vide), donc sans
+                risque de désynchronisation d'hydratation malgré l'horloge murale. */}
+            <span className="shrink-0 tabular-nums">
+              {zTime(last.at)} Z
+              <span className="text-muted-foreground"> · il y a {formatAge(Math.max(0, wall - last.at))}</span>
+            </span>
             <span className="truncate normal-case tracking-normal text-fg">{last.text}</span>
           </>
         ) : (

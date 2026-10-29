@@ -78,6 +78,32 @@ describe("rejeu réel", () => {
     assert.equal(tapeUsable(long), true);
   });
 
+  it("un libellé de repli (adresse ou immatriculation) n'est pas un indicatif émis", () => {
+    const repli = tape([
+      { at: T0, rows: [row("06a1b2", 30, 31), row("0100e1", 25, 32), row("4b1814", 20, 30)] },
+    ]);
+    repli.ac["0100e1"] = ["SU-GCA", "A320", "SU-GCA", "A3", 0];
+    repli.ac["4b1814"] = ["4B1814", null, null, null, 0];
+    const pts = tapeAt(repli, T0);
+    const tx = (hex: string) => pts.find((p) => p.ac.hex === hex)!.ac.flightTx;
+    assert.equal(tx("06a1b2"), true, "QTR1404 a bien été émis");
+    assert.equal(tx("0100e1"), false, "libellé = immatriculation : repli d'affichage");
+    assert.equal(tx("4b1814"), false, "libellé = adresse : repli d'affichage");
+  });
+
+  it("seuls les relevés RÉELS comptent, pas les pas d'interpolation ni un relevé revu", () => {
+    const dup = tape([
+      { at: T0, rows: [row("06a1b2", 30, 31)] },
+      { at: T0 + 30_000, rows: [row("06a1b2", 30, 31, 30)] },
+      { at: T0 + 60_000, rows: [row("06a1b2", 30, 31.2)] },
+    ]);
+    const idx = indexTape(dup);
+    const vus = (t: number) => tapeAt(dup, t, idx)[0]!.vus;
+    assert.equal(vus(T0), 1);
+    assert.equal(vus(T0 + 50_000), 1, "50 pas d'interpolation et un relevé revu : toujours un seul");
+    assert.equal(vus(T0 + 60_000), 2);
+  });
+
   it("heure d'origine lisible en Z", () => {
     assert.equal(rejeuClock(T0), "04/10 17:53:25 Z");
   });

@@ -13,7 +13,7 @@ import {
   stepCoast,
   suspectActive,
 } from "./coast.ts";
-import { idConfiance, typeConnuDe } from "./id-confiance.ts";
+import { idStatut, observationNouvelle, typeConnuDe } from "./id-confiance.ts";
 import {
   altAged,
   declaredRcKm,
@@ -33,6 +33,11 @@ export const LIVE_CREDIT =
 export type LiveAc = {
   hex: string;
   flight: string;
+  /**
+   * Indicatif réellement ÉMIS par l'appareil. `flight` se replie sur l'immatriculation, puis sur
+   * l'adresse, pour l'affichage : sans ce drapeau, le repli passait pour un indicatif émis.
+   */
+  flightTx: boolean;
   lat: number;
   lon: number;
   altM: number;
@@ -249,10 +254,10 @@ export function parseDump1090(ac: unknown[]): LiveAc[] {
     const gsKt = num(r.gs) ?? num(r.tas) ?? 0;
     const track = num(r.track) ?? num(r.true_heading) ?? num(r.mag_heading) ?? 0;
     const roc = num(r.baro_rate) ?? num(r.geom_rate) ?? 0;
-    // « @@@@@@@@ » = indicatif non transmis : immatriculation, sinon adresse.
-    const flight = (String(r.flight ?? "").replace(/@/g, "").trim() || String(r.r ?? hex).trim())
-      .toUpperCase()
-      .slice(0, 8);
+    // « @@@@@@@@ » = indicatif non transmis : immatriculation, sinon adresse — pour l'AFFICHAGE.
+    // Qu'un indicatif ait été émis est une preuve d'identité à part entière : gardée à part.
+    const emis = String(r.flight ?? "").replace(/@/g, "").trim();
+    const flight = (emis || String(r.r ?? hex).trim()).toUpperCase().slice(0, 8);
     const sq = squawkOf(r.squawk);
     const emRaw =
       (typeof r.emergency === "string" && r.emergency !== "none" ? r.emergency : null) ??
@@ -261,6 +266,7 @@ export function parseDump1090(ac: unknown[]): LiveAc[] {
     out.push({
       hex,
       flight: flight || hex.toUpperCase(),
+      flightTx: emis !== "",
       lat,
       lon,
       altM: onGround ? 0 : altFt * 0.3048,
@@ -408,14 +414,38 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
   const platId = uav ? "adsb-uav" : platformIdForType(ac.icaoType);
   const plat =
     PLATFORM_BY_ID[platId] ?? FRIEND_BY_ID[platId] ?? FRIEND_BY_ID["asecna-unk"]!;
-  const idBase = idConfiance({
+  // La mesure BRUTE et son heure réelle : c'est elle qui sert à comparer deux relevés.
+  const mesure = { lat: ac.lat, lon: ac.lon, at: posAt };
+  // Un relevé ne compte que s'il est NOUVEAU : un agrégateur qui resert le même rapport n'ajoute
+  // ni un plot à la trace, ni une preuve à la confirmation (6 % des présences, mesuré).
+  const nouvelle = observationNouvelle(prev?.fix, mesure);
+  // `fix` reste la dernière observation COMPTÉE. Comparer au relevé précédent plutôt qu'à elle
+  // ferait qu'un appareil immobile au sol, entendu chaque seconde par l'antenne (même position,
+  // moins de 2 s d'écart à chaque fois), ne serait jamais observé « de nouveau ».
+  const fix = nouvelle || !prev?.fix ? mesure : prev.fix;
+  const trail = !prev
+    ? [{ lat: ac.lat, lon: ac.lon }]
+    : nouvelle
+      ? [...prev.trail, { lat: ac.lat, lon: ac.lon }].slice(-80)
+      : prev.trail;
+  const fixes = (prev ? (prev.fixes ?? 1) : 0) + (nouvelle ? 1 : 0);
+  // Un indicatif REÇU reste une preuve acquise : l'agrégateur cesse parfois de le relayer (3 avions
+  // sur 73 mesurés, aucun n'ayant changé d'indicatif). On garde alors le dernier indicatif émis
+  // plutôt que de retomber sur l'immatriculation : un libellé et un score qui ne clignotent pas.
+  // Un indicatif nouvellement émis remplace l'ancien.
+  const garde = !ac.flightTx && prev?.callsignTx === true;
+  const callsign = garde ? prev.callsign : ac.flight;
+  const callsignTx = ac.flightTx || garde;
+  // Statut et confiance PROVISOIRES, sans incohérence (inconnue ici) : la fusion les arrête une
+  // fois l'état de l'adresse connu.
+  const idBase = idStatut({
     type: typeConnuDe(plat.id),
+    immatriculation: Boolean(ac.reg),
+    indicatif: callsignTx,
+    observations: fixes,
     incoherences: 0,
     seuilDoublon: DUP_ADDR_RUN,
   });
-  const trail = prev
-    ? [...prev.trail, { lat: ac.lat, lon: ac.lon }].slice(-80)
-    : [{ lat: ac.lat, lon: ac.lon }];
   const dist = haversineKm(est.lat, est.lon, AO.centerLat, AO.centerLon);
   const corridor =
     dist <= 120
@@ -426,23 +456,26 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
   const catClass = classFromCategory(ac.category);
   return {
     id: `live-${ac.hex}`,
-    callsign: ac.flight,
+    callsign,
     // Meilleur estimé pour MAINTENANT (mesure recalée de son âge), pas la mesure telle quelle.
     lat: est.lat,
     lon: est.lon,
-    // La mesure BRUTE et son heure réelle : c'est elle qui sert à comparer deux relevés.
-    fix: { lat: ac.lat, lon: ac.lon, at: posAt },
+    fix,
+    fixes,
     altM,
     heading: ac.track,
     speedKmh: ac.gsKmh,
     climbMs: ac.climbMs,
     trail,
     truePlatformId: plat.id,
-    idState: uav ? "candidat" : "confirme",
+    // Plus de « confirmé » d'office : le statut suit les preuves (deux relevés cohérents au moins,
+    // un type déclaré, une adresse saine). Recalculé en fin de fusion avec l'état de l'adresse.
+    idState: idBase.etat,
     // Plus de 99 % tapé en dur : la confiance découle des preuves d'identité réellement portées.
     // Ici sans incohérence (inconnue à ce stade) ; la fusion la recalcule une fois l'état connu.
     confidence: idBase.score,
     confidenceNote: idBase.motif,
+    callsignTx,
     origin: uav ? "XX" : "XX",
     classGuess: catClass ?? plat.uasClass,
     hypotheses: [{ platformId: plat.id, score: idBase.score }],
@@ -451,7 +484,9 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
     // Heure RÉELLE de l'observation : c'est elle qui dit si la piste est fraîche ou muette.
     lastUpdate: posAt,
     dwellS: prev ? prev.dwellS + Math.max(0, (now - prev.lastUpdate) / 1000) : 0,
-    confirmedAt: prev?.confirmedAt ?? (uav ? null : now),
+    // Heure de la PREMIÈRE confirmation réelle, conservée ensuite : pas l'heure de naissance. Elle
+    // n'est posée que sur le statut ARRÊTÉ (`avecStatutId`), jamais sur ce statut provisoire.
+    confirmedAt: prev?.confirmedAt ?? null,
     motion: ac.onGround ? "loiter" : "transit",
     loiterCx: ac.lat,
     loiterCy: ac.lon,
@@ -594,7 +629,7 @@ export function mergeLiveTracks(
   // si un épisode de relevés incohérents pèse sur l'adresse. Elle BOUGE donc avec la preuve — un
   // doublon d'adresse la fait chuter, son extinction la rétablit — au lieu d'un 99 % figé.
   const vivants = [...nextLive, ...stale.filter((t) => t.idState !== "perdu")].map((t) =>
-    avecConfiance(t, now),
+    avecStatutId(t, now),
   );
   return {
     tracks: [...vivants, ...rest],
@@ -604,21 +639,29 @@ export function mergeLiveTracks(
 }
 
 /**
- * Confiance d'identification d'une piste réelle, à partir de ses preuves d'identité COURANTES.
- * Un épisode d'incohérences refermé ne pèse plus : l'adresse est redevenue saine.
+ * Statut et confiance d'identification ARRÊTÉS d'une piste réelle, à partir de ses preuves
+ * d'identité COURANTES — y compris l'état de son adresse, qui n'est connu qu'en fin de fusion.
+ * C'est aussi le seul endroit qui pose l'heure de confirmation : sur le statut provisoire d'un
+ * relevé, une piste en plein épisode d'incohérences était datée « confirmée » alors qu'elle
+ * restait candidate. Un épisode refermé ne pèse plus : l'adresse est redevenue saine.
  */
-function avecConfiance(t: Track, now: number): Track {
+export function avecStatutId(t: Track, now: number): Track {
   const incoherences = suspectActive(t.suspect, now) ? (t.suspect?.run ?? 0) : 0;
-  const c = idConfiance({
+  const s = idStatut({
     type: typeConnuDe(t.truePlatformId),
+    immatriculation: Boolean(t.reg),
+    indicatif: t.callsignTx === true,
+    observations: t.fixes ?? 1,
     incoherences,
     seuilDoublon: DUP_ADDR_RUN,
   });
   return {
     ...t,
-    confidence: c.score,
-    confidenceNote: c.motif,
-    hypotheses: [{ platformId: t.hypotheses[0]?.platformId ?? t.truePlatformId, score: c.score }],
+    idState: s.etat,
+    confirmedAt: t.confirmedAt ?? (s.etat === "confirme" ? now : null),
+    confidence: s.score,
+    confidenceNote: s.motif,
+    hypotheses: [{ platformId: t.hypotheses[0]?.platformId ?? t.truePlatformId, score: s.score }],
   };
 }
 

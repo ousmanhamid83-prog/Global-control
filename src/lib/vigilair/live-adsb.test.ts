@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ageLiveAc, jamFromAircraft, mergeLiveTracks, type LiveAc } from "./live-adsb.ts";
+import {
+  ageLiveAc,
+  jamFromAircraft,
+  mergeLiveTracks,
+  parseDump1090,
+  type LiveAc,
+} from "./live-adsb.ts";
 import { DEFAULT_COAST_CFG, DUP_ADDR_WINDOW_MS, FRESH_S } from "./coast.ts";
 import { haversineKm } from "./geo.ts";
 import type { Track } from "./types.ts";
@@ -11,6 +17,7 @@ function avion(over: Partial<LiveAc> = {}): LiveAc {
   return {
     hex: "3c6444",
     flight: "TEST123",
+    flightTx: true,
     lat: 12.0,
     lon: 15.0,
     altM: 9000,
@@ -245,11 +252,136 @@ test("CONFIANCE : un type inconnu n'affiche plus 99 %", () => {
   assert.match(t.confidenceNote ?? "", /type inconnu/);
 });
 
-test("CONFIANCE : un type déclaré au registre reste haut, et le dit", () => {
-  const t = mergeLiveTracks([], [avion({ icaoType: "A388" })], T0).tracks[0]!;
-  assert.ok(t.confidence >= 90, `obtenu ${t.confidence}`);
-  assert.match(t.confidenceNote ?? "", /type déclaré/);
-  assert.equal(t.hypotheses[0]!.score, t.confidence, "hypothèse et confiance ne divergent pas");
+test("STATUT : un avion n'est plus « confirmé » dès sa première trame — il le devient", () => {
+  // Avant : idState « confirme » d'office, au premier relevé. Un relevé isolé peut être un
+  // fantôme de décodage ; il faut deux relevés cohérents pour qu'une piste soit réelle.
+  let etat = mergeLiveTracks([], [avion({ icaoType: "A388" })], T0).tracks;
+  const premier = etat[0]!;
+  assert.equal(premier.idState, "detecte", "un seul relevé : détecté, pas confirmé");
+  assert.equal(premier.confirmedAt, null, "pas d'heure de confirmation inventée");
+  etat = mergeLiveTracks(etat, [avion({ icaoType: "A388", lon: 15.018 })], T0 + 10_000).tracks;
+  const second = etat.find((x) => x.feed === "adsb")!;
+  assert.equal(second.idState, "confirme", "deux relevés cohérents : confirmé");
+  assert.equal(second.confirmedAt, T0 + 10_000, "confirmé À CE MOMENT-LÀ, pas à la naissance");
+});
+
+test("CONFIANCE : un type déclaré MÛRIT relevé après relevé, et le dit", () => {
+  let etat = mergeLiveTracks([], [avion({ icaoType: "A388" })], T0).tracks;
+  const neuf = etat[0]!.confidence;
+  let lon = 15.0;
+  for (let i = 1; i <= 6; i++) {
+    lon += 0.018;
+    etat = mergeLiveTracks(etat, [avion({ icaoType: "A388", lon })], T0 + i * 10_000).tracks;
+  }
+  const mur = etat.find((x) => x.feed === "adsb")!;
+  assert.ok(mur.confidence > neuf, `neuf ${neuf} → mûr ${mur.confidence} : la confiance se gagne`);
+  assert.ok(mur.confidence >= 90, `une piste mûre au type déclaré reste haute, obtenu ${mur.confidence}`);
+  assert.match(mur.confidenceNote ?? "", /type déclaré/);
+  assert.match(mur.confidenceNote ?? "", /relevés cohérents/);
+  assert.equal(mur.hypotheses[0]!.score, mur.confidence, "hypothèse et confiance ne divergent pas");
+});
+
+test("STATUT : un type inconnu reste candidat, même mûr — fin de « Confirmé · 60 % »", () => {
+  let etat = mergeLiveTracks([], [avion({ icaoType: null })], T0).tracks;
+  let lon = 15.0;
+  for (let i = 1; i <= 6; i++) {
+    lon += 0.018;
+    etat = mergeLiveTracks(etat, [avion({ icaoType: null, lon })], T0 + i * 10_000).tracks;
+  }
+  const t = etat.find((x) => x.feed === "adsb")!;
+  assert.equal(t.idState, "candidat");
+  assert.equal(t.confirmedAt, null);
+});
+
+test("INDICATIF : le repli d'affichage sur l'immatriculation n'est PAS un indicatif émis", () => {
+  // Mesuré sur de vrais relevés : 7 avions sans indicatif mais immatriculés, dont 5 crédités à tort
+  // « indicatif émis » (+3) parce que leur libellé — l'immatriculation — différait de l'adresse.
+  const [muet, parlant, masque] = parseDump1090([
+    { hex: "0a1b2c", flight: "", r: "TT-ABC", lat: 12, lon: 15, alt_baro: 9000 },
+    { hex: "0a1b2d", flight: "ATC123  ", r: "TT-ABD", lat: 12, lon: 15.5, alt_baro: 9000 },
+    { hex: "0a1b2e", flight: "@@@@@@@@", lat: 12, lon: 16, alt_baro: 9000 },
+  ]);
+  assert.equal(muet!.flight, "TT-ABC", "l'affichage garde son repli");
+  assert.equal(muet!.flightTx, false);
+  assert.equal(parlant!.flightTx, true);
+  assert.equal(masque!.flightTx, false, "« @@@@@@@@ » = indicatif non transmis");
+  const [a, b] = mergeLiveTracks([], [muet!, parlant!], T0).tracks;
+  assert.doesNotMatch(a!.confidenceNote ?? "", /indicatif émis/);
+  assert.match(b!.confidenceNote ?? "", /indicatif émis/);
+  assert.ok(b!.confidence > a!.confidence, `${b!.confidence} doit dépasser ${a!.confidence}`);
+});
+
+test("INDICATIF : acquis, il ne clignote pas quand l'agrégateur cesse de le relayer", () => {
+  // Mesuré : 3 avions sur 73 perdent leur indicatif dans un relevé suivant (EJU39FX → rien,
+  // EWG32H → « @@@@@@@@ » → EWG32H), sans qu'aucun en ait changé.
+  const recu = { icaoType: "A388", reg: "OE-LSU", flight: "EJU39FX" };
+  const un = mergeLiveTracks([], [avion(recu)], T0).tracks;
+  const tu = { ...recu, flight: "OE-LSU", flightTx: false, lon: 15.018 };
+  const t = mergeLiveTracks(un, [avion(tu)], T0 + 10_000).tracks.find((x) => x.feed === "adsb")!;
+  const temoin = mergeLiveTracks(un, [avion({ ...recu, lon: 15.018 })], T0 + 10_000).tracks[0]!;
+  assert.equal(t.callsign, "EJU39FX", "le libellé garde l'indicatif émis, pas l'immatriculation");
+  assert.match(t.confidenceNote ?? "", /indicatif émis/);
+  assert.equal(t.confidence, temoin.confidence, "le score ne chute pas sur un relais manqué");
+  // Un indicatif NOUVELLEMENT émis, lui, remplace l'ancien.
+  const neuf = mergeLiveTracks([t], [avion({ ...recu, flight: "EJU40AB", lon: 15.036 })], T0 + 20_000)
+    .tracks[0]!;
+  assert.equal(neuf.callsign, "EJU40AB");
+});
+
+test("RESSERVI : le même rapport rendu de nouveau par l'agrégateur ne confirme pas la piste", () => {
+  // Mesuré : 6 % des présences sont un rapport resservi (même position, même heure à 4 ms près),
+  // et 2 pistes sur 67 passaient « confirmées » sur une seule observation réelle.
+  let etat = mergeLiveTracks([], [avion({ icaoType: "A388" })], T0).tracks;
+  // 20 s plus tard, l'agrégateur rend le MÊME rapport, vieilli d'autant : rien de neuf.
+  etat = mergeLiveTracks(etat, [avion({ icaoType: "A388", seenS: 20 })], T0 + 20_000).tracks;
+  let t = etat.find((x) => x.feed === "adsb")!;
+  assert.equal(t.idState, "detecte", "une seule observation réelle : toujours détectée");
+  assert.equal(t.fixes, 1);
+  assert.equal(t.trail.length, 1, "pas de plot fantôme dans la trace");
+  assert.match(t.confidenceNote ?? "", /1 relevé cohérent/);
+  // Une vraie nouvelle observation, elle, confirme.
+  etat = mergeLiveTracks(etat, [avion({ icaoType: "A388", lon: 15.036 })], T0 + 30_000).tracks;
+  t = etat.find((x) => x.feed === "adsb")!;
+  assert.equal(t.idState, "confirme");
+  assert.equal(t.fixes, 2);
+  assert.equal(t.trail.length, 2);
+});
+
+test("IMMOBILE : un appareil au sol entendu chaque seconde par l'antenne finit confirmé", () => {
+  // Même position à chaque relevé, moins de 2 s d'écart : comparer au relevé PRÉCÉDENT ne l'aurait
+  // jamais vu « de nouveau ». On compare à la dernière observation comptée.
+  const sol = { icaoType: "A388", onGround: true, gsKmh: 0, altM: 0, via: "antenne" as const };
+  let etat: Track[] = [];
+  for (let i = 0; i <= 4; i++) etat = mergeLiveTracks(etat, [avion(sol)], T0 + i * 1000).tracks;
+  const t = etat.find((x) => x.feed === "adsb")!;
+  assert.equal(t.fixes, 3, "une observation nouvelle toutes les 2 s : T0, T0+2 s, T0+4 s");
+  assert.equal(t.idState, "confirme");
+  assert.equal(t.fix!.at, T0 + 4000, "la dernière observation comptée");
+});
+
+test("RESSERVI : un relevé refusé n'est pas compté comme observation", () => {
+  let etat = mergeLiveTracks([], [avion({ icaoType: "A388" })], T0).tracks;
+  etat = mergeLiveTracks(etat, [avion({ icaoType: "A388", lat: 14.7 })], T0 + 10_000).tracks;
+  const t = etat.find((x) => x.feed === "adsb")!;
+  assert.ok(t.suspectJump, "le saut est bien refusé");
+  assert.equal(t.fixes, 1);
+  assert.equal(t.idState, "detecte");
+});
+
+test("STATUT : pas d'heure de confirmation posée pendant un épisode d'incohérences", () => {
+  // Le statut provisoire d'un relevé ignore l'état de l'adresse : y dater la confirmation datait
+  // « confirmée » une piste que la fusion laissait, à raison, candidate.
+  let etat = mergeLiveTracks([], [avion({ icaoType: "A388" })], T0).tracks;
+  etat = mergeLiveTracks(etat, [avion({ icaoType: "A388", lat: 14.7 })], T0 + 10_000).tracks;
+  etat = mergeLiveTracks(etat, [avion({ icaoType: "A388", lon: 15.036 })], T0 + 20_000).tracks;
+  let t = etat.find((x) => x.feed === "adsb")!;
+  assert.equal(t.idState, "candidat", "deux relevés cohérents, mais une incohérence en cours");
+  assert.equal(t.confirmedAt, null, "pas confirmée, donc pas d'heure de confirmation");
+  const tard = T0 + 20_000 + DUP_ADDR_WINDOW_MS + 1000;
+  etat = mergeLiveTracks(etat, [avion({ icaoType: "A388", lon: 15.13 })], tard).tracks;
+  t = etat.find((x) => x.feed === "adsb")!;
+  assert.equal(t.idState, "confirme", "épisode refermé : la piste est confirmée");
+  assert.equal(t.confirmedAt, tard, "et datée du moment où elle l'est réellement devenue");
 });
 
 test("CONFIANCE : un doublon d'adresse ICAO la fait CHUTER, même avec un type déclaré", () => {

@@ -234,6 +234,8 @@ function toLiveAc(a: RxAircraft, now: number): LiveAc {
   return {
     hex: a.hex,
     flight: a.flight || a.hex.toUpperCase(),
+    // Le décodeur ne renseigne `flight` qu'à réception d'une trame d'identification non vide.
+    flightTx: Boolean(a.flight),
     lat: a.lat!,
     lon: a.lon!,
     altM: a.onGround ? 0 : (a.altFt ?? 0) * 0.3048,
