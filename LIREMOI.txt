@@ -193,6 +193,25 @@ Symbologie APP-6 et radar
   doit voir — c'est le geste de qui ne veut pas être suivi. Alerte ÉLEVÉE, une fois par piste, avec
   la durée du silence, l'altitude, la distance au site et le rayon d'incertitude (« ce n'est plus
   une mesure »). Oubliée dès que la piste ré-émet.
+- CONFIANCE D'IDENTIFICATION : PLUS DE 99 % TAPÉ EN DUR. La « confiance » d'une piste dit à quel
+  point le poste sait CE QU'ELLE EST. Pour le trafic 1090ES réel, elle était écrite en dur dans le
+  code : 99 % pour tout avion, 72 % pour un drone. Mesuré sur l'écran d'accueil : 131 pistes
+  réelles, TOUTES à 99 %, identiques d'une minute à l'autre — y compris des pistes au type inconnu
+  et des adresses ICAO soupçonnées d'être tenues par deux émetteurs. Un chiffre inventé, présenté
+  comme une mesure, et recopié tel quel dans le journal de preuve chaîné.
+  Elle découle maintenant des PREUVES D'IDENTITÉ réellement portées par la piste : le type est-il
+  déclaré par le registre pour cette adresse (95 %), inconnu (60 %), ou s'agit-il d'un drone
+  coopératif dont seul le genre est déclaré (72 %) ? Un relevé incohérent isolé coûte 15 points ;
+  un doublon d'adresse ICAO la plafonne à 30 %, quel que soit le type — on ne sait plus quel
+  émetteur on regarde. Et elle BOUGE : elle chute pendant l'épisode et se rétablit quand il se
+  referme. Le dossier de piste affiche le motif sous le chiffre.
+  Ce qu'elle refuse de mélanger : la QUALITÉ DE POSITION. Une piste MLAT à ±2 km n'est pas moins
+  bien identifiée — son adresse est décodée comme les autres — elle est moins bien PLACÉE, et le
+  scope le montre déjà par son cercle d'incertitude.
+  Les paliers sont des catégories de preuve documentées, pas une probabilité mesurée : c'est dit.
+  Mesuré après correctif sur le même écran : 140 pistes, 120 à 95 % (type déclaré) et 20 à 60 %
+  (type inconnu), aucune à 99 %. Aucun seuil d'alerte ne dépend de cette valeur (vérifié) : seul
+  l'ordre des pistes d'une même classe de menace en est affecté, comme départage.
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
   pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée

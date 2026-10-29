@@ -175,6 +175,13 @@ export function Dossier() {
             <span className="text-sm text-muted-foreground">%</span>
           </p>
           <p className="mt-1 text-xs text-muted-foreground">confiance</p>
+          {/* Le POURQUOI du chiffre. Pour le trafic réel il était tapé en dur à 99 % ; il découle
+              maintenant des preuves d'identité, et il se justifie à l'écran. */}
+          {track.confidenceNote ? (
+            <p className="mt-0.5 max-w-[14rem] text-[11px] leading-tight text-muted-foreground">
+              {track.confidenceNote}
+            </p>
+          ) : null}
         </div>
       </div>
       <Separator />
@@ -555,7 +562,7 @@ function trackBrief(track: Track): string {
     `Source: ${feed}`,
     `Position: ${track.lat.toFixed(4)}, ${track.lon.toFixed(4)} · alt ${Math.round(track.altM)} m`,
     `Cinématique: cap ${Math.round(track.heading)}° · ${Math.round(track.speedKmh)} km/h · montée ${track.climbMs.toFixed(1)} m/s`,
-    `Identification: ${idStateLabel(track.idState)} · confiance ${Math.round(track.confidence)}%`,
+    `Identification: ${idStateLabel(track.idState)} · confiance ${Math.round(track.confidence)}%${track.confidenceNote ? ` (${track.confidenceNote})` : ""}`,
   ];
   if (track.origin) lines.push(`Origine: ${originLabel(track.origin)}`);
   if (track.classGuess) lines.push(`Classe estimée: ${classLabel(track.classGuess)}`);

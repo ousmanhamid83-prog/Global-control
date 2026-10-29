@@ -236,6 +236,53 @@ test("CACHE : le recalage de position tient compte de l'âge du cache", () => {
   assert.equal(t.lastUpdate, T0 - 20_000, "l'heure d'observation remonte à avant le cache");
 });
 
+/* ── CONFIANCE D'IDENTIFICATION : plus de 99 % tapé en dur ────────────────────────────────────── */
+
+test("CONFIANCE : un type inconnu n'affiche plus 99 %", () => {
+  // Le défaut mesuré à l'écran d'accueil : 131 pistes réelles toutes à 99 %, types inconnus compris.
+  const t = mergeLiveTracks([], [avion({ icaoType: null })], T0).tracks[0]!;
+  assert.ok(t.confidence < 99, `obtenu ${t.confidence}`);
+  assert.match(t.confidenceNote ?? "", /type inconnu/);
+});
+
+test("CONFIANCE : un type déclaré au registre reste haut, et le dit", () => {
+  const t = mergeLiveTracks([], [avion({ icaoType: "A388" })], T0).tracks[0]!;
+  assert.ok(t.confidence >= 90, `obtenu ${t.confidence}`);
+  assert.match(t.confidenceNote ?? "", /type déclaré/);
+  assert.equal(t.hypotheses[0]!.score, t.confidence, "hypothèse et confiance ne divergent pas");
+});
+
+test("CONFIANCE : un doublon d'adresse ICAO la fait CHUTER, même avec un type déclaré", () => {
+  // Deux émetteurs qui alternent : on ne sait plus lequel on regarde. 95 % serait un mensonge.
+  let etat = mergeLiveTracks([], [avion({ icaoType: "A388" })], T0).tracks;
+  let lon = 15.0;
+  for (let i = 1; i <= 8; i++) {
+    lon += 0.018;
+    const faux = i % 2 === 1;
+    etat = mergeLiveTracks(
+      etat,
+      [faux ? avion({ icaoType: "A388", lat: 14.7, lon }) : avion({ icaoType: "A388", lon })],
+      T0 + i * 10_000,
+    ).tracks;
+  }
+  const t = etat.find((x) => x.feed === "adsb")!;
+  assert.ok(t.confidence <= 30, `attendu ≤ 30 avec un doublon, obtenu ${t.confidence}`);
+  assert.match(t.confidenceNote ?? "", /adresse ICAO douteuse/);
+});
+
+test("CONFIANCE : elle se RÉTABLIT une fois l'épisode refermé — un chiffre qui bouge", () => {
+  const apresFaux = mergeLiveTracks(
+    mergeLiveTracks([], [avion({ icaoType: "A388" })], T0).tracks,
+    [avion({ icaoType: "A388", lat: 14.7 })],
+    T0 + 10_000,
+  ).tracks;
+  const pendant = apresFaux.find((x) => x.feed === "adsb")!.confidence;
+  const tard = T0 + 10_000 + DUP_ADDR_WINDOW_MS + 1000;
+  const propre = mergeLiveTracks(apresFaux, [avion({ icaoType: "A388", lon: 15.13 })], tard).tracks;
+  const apres = propre.find((x) => x.feed === "adsb")!.confidence;
+  assert.ok(apres > pendant, `pendant ${pendant} → après ${apres} : la confiance doit remonter`);
+});
+
 /* ── INTÉGRITÉ DE POSITION, BRANCHÉE SUR L'INGESTION ───────────────────────────────────────────── */
 
 test("INTÉGRITÉ : le rayon annoncé par l'aéronef arrive jusqu'à la piste", () => {

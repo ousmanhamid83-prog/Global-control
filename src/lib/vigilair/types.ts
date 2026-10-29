@@ -248,6 +248,12 @@ export type Track = {
   truePlatformId: string;
   idState: IdState;
   confidence: number;
+  /**
+   * Pourquoi cette confiance (pistes réelles) : type déclaré au registre, type inconnu, adresse
+   * ICAO douteuse… Le chiffre seul était tapé en dur à 99 % pour tout le trafic réel ; un score
+   * qui se justifie se lit, un score muet se croit.
+   */
+  confidenceNote?: string;
   origin: Origin | null;
   classGuess: UasClass | null;
   hypotheses: Hypothesis[];

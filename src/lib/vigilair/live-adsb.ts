@@ -2,7 +2,18 @@
 
 import type { Phenomenon } from "./capture";
 import { PLATFORM_BY_ID } from "./catalog.ts";
-import { checkJump, coastRadiusKm, deadReckon, DEFAULT_COAST_CFG, FRESH_S, noteJump, stepCoast, suspectActive } from "./coast.ts";
+import {
+  checkJump,
+  coastRadiusKm,
+  deadReckon,
+  DEFAULT_COAST_CFG,
+  DUP_ADDR_RUN,
+  FRESH_S,
+  noteJump,
+  stepCoast,
+  suspectActive,
+} from "./coast.ts";
+import { idConfiance, typeConnuDe } from "./id-confiance.ts";
 import {
   altAged,
   declaredRcKm,
@@ -397,6 +408,11 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
   const platId = uav ? "adsb-uav" : platformIdForType(ac.icaoType);
   const plat =
     PLATFORM_BY_ID[platId] ?? FRIEND_BY_ID[platId] ?? FRIEND_BY_ID["asecna-unk"]!;
+  const idBase = idConfiance({
+    type: typeConnuDe(plat.id),
+    incoherences: 0,
+    seuilDoublon: DUP_ADDR_RUN,
+  });
   const trail = prev
     ? [...prev.trail, { lat: ac.lat, lon: ac.lon }].slice(-80)
     : [{ lat: ac.lat, lon: ac.lon }];
@@ -423,10 +439,13 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
     trail,
     truePlatformId: plat.id,
     idState: uav ? "candidat" : "confirme",
-    confidence: uav ? 72 : 99,
+    // Plus de 99 % tapé en dur : la confiance découle des preuves d'identité réellement portées.
+    // Ici sans incohérence (inconnue à ce stade) ; la fusion la recalcule une fois l'état connu.
+    confidence: idBase.score,
+    confidenceNote: idBase.motif,
     origin: uav ? "XX" : "XX",
     classGuess: catClass ?? plat.uasClass,
-    hypotheses: [{ platformId: plat.id, score: uav ? 72 : 99 }],
+    hypotheses: [{ platformId: plat.id, score: idBase.score }],
     sensors: [],
     firstSeen: prev?.firstSeen ?? now,
     // Heure RÉELLE de l'observation : c'est elle qui dit si la piste est fraîche ou muette.
@@ -571,10 +590,35 @@ export function mergeLiveTracks(
     }
   }
   const rest = existing.filter((t) => t.feed !== "adsb");
+  // La confiance d'identification n'est connue qu'ICI : c'est seulement après la fusion qu'on sait
+  // si un épisode de relevés incohérents pèse sur l'adresse. Elle BOUGE donc avec la preuve — un
+  // doublon d'adresse la fait chuter, son extinction la rétablit — au lieu d'un 99 % figé.
+  const vivants = [...nextLive, ...stale.filter((t) => t.idState !== "perdu")].map((t) =>
+    avecConfiance(t, now),
+  );
   return {
-    tracks: [...nextLive, ...stale.filter((t) => t.idState !== "perdu"), ...rest],
+    tracks: [...vivants, ...rest],
     born,
     emergencies,
+  };
+}
+
+/**
+ * Confiance d'identification d'une piste réelle, à partir de ses preuves d'identité COURANTES.
+ * Un épisode d'incohérences refermé ne pèse plus : l'adresse est redevenue saine.
+ */
+function avecConfiance(t: Track, now: number): Track {
+  const incoherences = suspectActive(t.suspect, now) ? (t.suspect?.run ?? 0) : 0;
+  const c = idConfiance({
+    type: typeConnuDe(t.truePlatformId),
+    incoherences,
+    seuilDoublon: DUP_ADDR_RUN,
+  });
+  return {
+    ...t,
+    confidence: c.score,
+    confidenceNote: c.motif,
+    hypotheses: [{ platformId: t.hypotheses[0]?.platformId ?? t.truePlatformId, score: c.score }],
   };
 }
 
