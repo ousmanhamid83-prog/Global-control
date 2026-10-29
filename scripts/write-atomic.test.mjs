@@ -16,6 +16,11 @@ import { handOver, parseWriteAtomicArgs, stagingError } from "./write-atomic.mjs
 
 const TEMPLATE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = join(TEMPLATE_ROOT, "scripts/write-atomic.mjs");
+// The og skill is supplied by the App Builder sandbox; an exported checkout does not carry it.
+// Where it is present its pins apply; elsewhere they are reported as skipped, never as passed.
+const OG_SKILL_ABSENT = existsSync(join(TEMPLATE_ROOT, ".grok/skills/og"))
+  ? false
+  : "the og skill (.grok/skills/og) is supplied by the App Builder sandbox, not by this checkout";
 
 function makeWorkspace() {
   const root = mkdtempSync(join(tmpdir(), "write-atomic-"));
@@ -164,28 +169,32 @@ test("cli: relative paths follow the script's root, not the caller's cwd", () =>
   assert.equal(existsSync(join(root, "public/og.jpg")), false);
 });
 
-test("every hand-over the og skill prints is one this script accepts", () => {
-  // The card and banner recipes live in the skill's references/, not SKILL.md.
-  const skillDir = join(TEMPLATE_ROOT, ".grok/skills/og");
-  const docs = [
-    join(skillDir, "SKILL.md"),
-    ...readdirSync(join(skillDir, "references")).map((f) => join(skillDir, "references", f)),
-  ];
-  const invocations = docs.flatMap(
-    (path) => readFileSync(path, "utf8").match(/node scripts\/write-atomic\.mjs[^\n`]*/g) ?? [],
-  );
-  assert.ok(invocations.length >= 3, "og.jpg, x-banner.jpg and site.json each hand over");
-  for (const line of invocations) {
-    const argv = line.replace("node scripts/write-atomic.mjs", "").trim().split(/\s+/);
-    const args = parseWriteAtomicArgs(argv);
-    assert.equal(args.error, undefined, line);
-    assert.equal(
-      stagingError({ staged: args.staged, target: args.target, publicDir: "/workspace/public" }),
-      null,
-      line,
+test(
+  "every hand-over the og skill prints is one this script accepts",
+  { skip: OG_SKILL_ABSENT },
+  () => {
+    // The card and banner recipes live in the skill's references/, not SKILL.md.
+    const skillDir = join(TEMPLATE_ROOT, ".grok/skills/og");
+    const docs = [
+      join(skillDir, "SKILL.md"),
+      ...readdirSync(join(skillDir, "references")).map((f) => join(skillDir, "references", f)),
+    ];
+    const invocations = docs.flatMap(
+      (path) => readFileSync(path, "utf8").match(/node scripts\/write-atomic\.mjs[^\n`]*/g) ?? [],
     );
-  }
-});
+    assert.ok(invocations.length >= 3, "og.jpg, x-banner.jpg and site.json each hand over");
+    for (const line of invocations) {
+      const argv = line.replace("node scripts/write-atomic.mjs", "").trim().split(/\s+/);
+      const args = parseWriteAtomicArgs(argv);
+      assert.equal(args.error, undefined, line);
+      assert.equal(
+        stagingError({ staged: args.staged, target: args.target, publicDir: "/workspace/public" }),
+        null,
+        line,
+      );
+    }
+  },
+);
 
 test("cli: a missing staged file fails without touching the target", () => {
   const root = makeWorkspace();

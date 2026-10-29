@@ -286,12 +286,26 @@ Symbologie APP-6 et radar
   signalait à chaque démarrage. La fonction concernée (liaison d'un poste à sa clé) est maintenant
   marquée « serveur seulement » : identique côté serveur, absente du code envoyé au navigateur
   (vérifié dans le build de production). L'avertissement a disparu.
-- CONNU, HORS AFRICONTROL. `npm test` lance aussi les tests de l'outillage de la plateforme d'origine
-  (dossier scripts/) : 13 sur 195 échouent depuis l'import d'origine (17 à l'import, aucun nouveau) —
-  fichiers `.grok/skills/og/…` jamais livrés, greffon PWA et ses balises de partage, invariant
-  d'auth du gabarit. Ils ne testent pas AfriControl, dont la suite (`npm run test:app`) passe en
-  entier. Le serveur de DÉVELOPPEMENT écrit aussi « Error: aborted … unhandled » chaque fois qu'un
-  navigateur abandonne une requête (changement de page pendant un chargement) : bruit de
+- `npm test` PASSE EN ENTIER (outillage hérité réparé, aucun test supprimé). `npm test` lance aussi
+  les tests de l'outillage de la plateforme d'origine (dossier scripts/) : 13 échouaient depuis
+  l'import (17 à l'import). Aucun ne testait AfriControl, mais une suite rouge en permanence finit
+  par cacher l'échec qui compte. Cause mesurée pour chacun :
+  · 8 tests des balises de partage lisaient l'identité RÉELLE du projet (titre « AfriControl »,
+    carte public/og.jpg) au lieu d'un dossier vierge : ils ne pouvaient passer que sur le gabarit
+    nu. Chacun tourne maintenant dans un dossier temporaire vide. Contre-épreuve : sans ce dossier,
+    le test relit « AfriControl » et échoue.
+  · 1 test de migrations exigeait « rien à appliquer », vrai seulement pour le gabarit vide (le
+    poste livre 8 migrations). Il vérifie désormais ce qui doit tenir partout : la source du schéma
+    d'auth reste dans migrations/auth/ et le planificateur ne la prend jamais. Contre-épreuve : un
+    planificateur qui avale ce dossier le fait échouer.
+  · 4 vérifications portent sur la doc du skill og (.grok/skills/og/), fournie par le bac à sable
+    d'origine et jamais livrée avec le code. Leurs parties sur AGENTS.md tournent et passent ; les
+    parties sur ce skill sont déclarées SAUTÉES avec leur motif (4 « skipped » au compteur), jamais
+    comptées comme réussies. Si ce dossier revient, elles vérifient à nouveau d'elles-mêmes —
+    contrôlé avec un SKILL.md vide : 0 sauté, 6 échecs, comme il se doit.
+  Bilan : application 410/410 ; outillage 195 réussis, 4 sautés, 0 échec ; code de sortie 0.
+- CONNU, HORS AFRICONTROL. Le serveur de DÉVELOPPEMENT écrit « Error: aborted … unhandled » chaque
+  fois qu'un navigateur abandonne une requête (changement de page pendant un chargement) : bruit de
   l'adaptateur HTTP du framework, avant tout code du poste, sans effet sur les données.
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
