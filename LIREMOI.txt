@@ -304,9 +304,29 @@ Symbologie APP-6 et radar
     comptées comme réussies. Si ce dossier revient, elles vérifient à nouveau d'elles-mêmes —
     contrôlé avec un SKILL.md vide : 0 sauté, 6 échecs, comme il se doit.
   Bilan : application 410/410 ; outillage 195 réussis, 4 sautés, 0 échec ; code de sortie 0.
-- CONNU, HORS AFRICONTROL. Le serveur de DÉVELOPPEMENT écrit « Error: aborted … unhandled » chaque
-  fois qu'un navigateur abandonne une requête (changement de page pendant un chargement) : bruit de
-  l'adaptateur HTTP du framework, avant tout code du poste, sans effet sur les données.
+- UN CLIENT QUI S'EN VA N'EST PLUS UNE ERREUR (corrigé). Chaque fois qu'un navigateur abandonnait
+  une requête — page fermée, changement d'écran pendant un relevé, une tuile ou un envoi — le
+  journal du serveur recevait un bloc « Error: aborted … status: 500 … unhandled: true » de
+  19 lignes, pile comprise ; un envoi coupé au milieu de son corps y ajoutait un « Server Fn
+  Error! ». À DIRE FRANCHEMENT : ce LIREMOI disait que seul le serveur de développement était
+  touché et que rien ne se réglait dans le code du poste. Les deux étaient faux : la production
+  (build Nitro autonome) écrivait les mêmes blocs, et la cause se traite au point d'entrée serveur.
+  Cause : pour arrêter le travail d'une requête abandonnée, le framework lève la raison d'abandon
+  de son signal — l'erreur réseau brute de Node (ECONNRESET) — et sa couche HTTP écrit toute erreur
+  levée comme une panne 500. Le même framework traite pourtant une réponse levée comme une issue
+  normale, et son propre rendu ignore déjà l'abandon.
+  Correctif (src/server.ts, src/lib/depart-client.ts) : chaque requête reçoit un signal dérivé dont
+  la raison d'abandon est une réponse 499 (« Client Closed Request », convention nginx), et une
+  lecture du corps coupée par le départ du client rend la même réponse. Le travail s'arrête
+  toujours aussitôt — plus tôt même qu'avant pour une requête abandonnée avant sa prise en charge —
+  et rien ne s'écrit. Toute autre erreur passe inchangée et reste écrite.
+  Mesuré, 5 répétitions par scénario. Développement : tuile coupée 5 blocs → 0 ; relevé réseau
+  coupé 4 → 0 ; envoi coupé en cours 10 blocs + 5 « Server Fn Error! » → 0 ; navigateur fermé en
+  plein chargement (3 fois) 18 → 0. Production : tuile jamais demandée coupée 5 → 0 ; envoi coupé
+  10 + 5 → 0. Témoins inchangés : une page complète répond 200 sans rien écrire ; une vraie erreur
+  (charge illisible) répond 500 et reste écrite, à l'identique ; un envoi POST complet donne la
+  même réponse qu'avant. Contre-épreuve sur le serveur en marche : correctif contourné, 5 tuiles et
+  5 envois coupés redonnent 15 blocs et 5 « Server Fn Error! » ; correctif remis, 0.
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
   pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée
