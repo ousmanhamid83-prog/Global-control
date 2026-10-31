@@ -342,6 +342,15 @@ Symbologie APP-6 et radar
   au code. Mesuré au navigateur sur 7 pages : avant, 7 requêtes vers grok.com et une erreur console
   par page ; après, 0 requête vers un tiers et 0 erreur, en développement comme en production. Le
   manifeste et les autres balises d'en-tête sont toujours injectés.
+- RACINE DU DÉPÔT NETTOYÉE (code mort). Le tout premier envoi sur GitHub (« Add files via
+  upload ») avait posé à plat, à la racine, des copies de l'outillage de scripts/ : 21 identiques,
+  6 restées à leur version d'origine alors que scripts/ a évolué depuis (dont l'ancien injecteur
+  du script grok.com et les tests d'avant réparation), plus 2 sorties de build égarées
+  (config.json, nitro.json). Rien ne les utilisait — ni vite.config.ts, ni package.json, ni
+  tsconfig : elles ne s'importaient qu'entre elles. Les 29 sont retirées ; tests, lint, typage et
+  les deux builds de production donnent exactement les mêmes résultats qu'avant. Gardés à la
+  racine : configuration, documentation, licences, kits zip, startup.sh et les fichiers d'état de
+  la plateforme d'origine.
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
   pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée
