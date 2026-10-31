@@ -327,6 +327,21 @@ Symbologie APP-6 et radar
   (charge illisible) répond 500 et reste écrite, à l'identique ; un envoi POST complet donne la
   même réponse qu'avant. Contre-épreuve sur le serveur en marche : correctif contourné, 5 tuiles et
   5 envois coupés redonnent 15 blocs et 5 « Server Fn Error! » ; correctif remis, 0.
+- PLUS AUCUN SCRIPT TIERS DANS LA CONSOLE (retiré). Le gabarit d'origine injectait dans chaque page,
+  en développement comme en production, un script de la plateforme :
+  https://grok.com/grok-app-builder/extensions.js. Lu avant de trancher : sans identifiant de
+  projet (notre cas), il se télécharge depuis grok.com puis ne fait rien ; avec un identifiant, il
+  interroge les serveurs de la plateforme et affiche une pastille « Created with Grok — Remix this
+  app » qui propose de copier l'application. Aucun avantage pour le poste, trois coûts : chaque page
+  ouverte apprenait à grok.com l'adresse IP du poste ; un code tiers s'exécutait dans la console
+  avec un accès complet à la page ; hors connexion, une erreur de plus. Il contredisait aussi la
+  règle du poste : les appels externes partent du serveur, jamais du navigateur de l'opérateur.
+  Retiré du code (injection, interrupteur et nettoyage associés) ; les tests EXIGENT désormais
+  qu'aucun script ne soit injecté, avec ou sans identifiant de projet, et AGENTS.md est mis en
+  accord. La licence du dépôt est la MIT, au nom de son propriétaire : rien n'impose cette pastille
+  au code. Mesuré au navigateur sur 7 pages : avant, 7 requêtes vers grok.com et une erreur console
+  par page ; après, 0 requête vers un tiers et 0 erreur, en développement comme en production. Le
+  manifeste et les autres balises d'en-tête sont toujours injectés.
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
   pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée
