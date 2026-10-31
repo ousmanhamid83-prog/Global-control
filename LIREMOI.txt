@@ -29,6 +29,9 @@ Lancer comme un vrai serveur (sans mode dev)
     NITRO_PRESET=node-server npm run build
   → produit .output/server/index.mjs. Le lancer :
     PORT=8080 node .output/server/index.mjs
+  Le serveur construit applique le même réglage d'authentification que la console construite
+  (celui de .grok/app-env.json au moment du build) ; une variable VITE_AUTH_ENABLED posée au
+  lancement reste prioritaire.
   Flux externes (1090ES, météo) derrière un proxy : ajouter NODE_USE_ENV_PROXY=1 et HTTPS_PROXY.
 - Par défaut le build vise Vercel ; NITRO_PRESET choisit la cible, rien d'autre à changer.
 - Persistance (journal, personnel, preuves) : fournir une base Postgres via DATABASE_URL. Sans
@@ -353,8 +356,9 @@ Symbologie APP-6 et radar
   la plateforme d'origine.
 - CE QUI SORT DU POSTE (audit, mesuré). Lu dans le code ET mesuré : un espion noté chaque sortie
   réseau du serveur (fetch, HTTP, TCP, UDP, DNS) pendant que toutes les pages tournaient.
-  · NAVIGATEUR DE L'OPÉRATEUR : 0 requête vers un tiers (7 575 requêtes en production sur 16 pages,
-    12 673 en développement). Il ne parle qu'au poste.
+  · NAVIGATEUR DE L'OPÉRATEUR : 0 requête vers un tiers (7 198 requêtes en production sur 16 pages,
+    12 673 en développement). Il ne parle qu'au poste. Le serveur de production, relevés actifs,
+    contacte exactement les mêmes sources que le développement.
   · SERVEUR, EN AUTOMATIQUE : uniquement des sources publiques — imagerie (NASA GIBS, Esri,
     EUMETSAT), trafic 1090ES (adsb.lol, repli adsb.fi), METAR/TAF (aviationweather.gov), météo
     spatiale (NOAA SWPC), feux (FIRMS via ArcGIS), phénomènes (NASA EONET, USGS, GDACS). Ils voient
@@ -379,6 +383,21 @@ Symbologie APP-6 et radar
     d'installation qui télécharge (seul fsevents, inactif sous Linux, aucun postinstall), secret
     en clair, code obscurci, eval. Le pont d'aperçu postMessage n'écoute que grok.com ou la
     machine locale, vérifie l'origine et n'accepte que « aller à une page du poste ».
+- SERVEUR AUTONOME : LA CONSOLE N'EST PLUS MUETTE (corrigé). Lancé seul (node
+  .output/server/index.mjs, hors des scripts npm), le serveur de production exigeait une connexion
+  alors que la console, construite avec l'authentification coupée, n'en propose aucune. Mesuré :
+  20 appels serveur sur 20 refusés (« Unauthorized »), aucun relevé, et un écran « SILENCIEUX ·
+  0 PISTES » sans un mot d'erreur — un ciel vide présenté comme un ciel calme. À DIRE FRANCHEMENT :
+  c'est ce qui faussait ma première mesure de production pour l'audit ci-dessus. Le navigateur n'y
+  était pas connecté et les relevés n'avaient pas tourné ; la mesure a été refaite après correction.
+  Cause : le réglage vit dans .grok/app-env.json, que seuls les scripts dev/build/preview injectent.
+  Le code du navigateur le reçoit figé au build ; le serveur, lui, le relisait au lancement et,
+  faute de le trouver, appliquait l'authentification par défaut.
+  Correctif (src/lib/env.server.ts) : le serveur applique la variable de son environnement si elle
+  est posée, sinon la valeur figée dans le même build que la console. Mesuré après : 21 à 22 appels
+  sur 21 à 22 acceptés selon la session, 259 à 273 pistes 1090ES à l'écran. Contre-épreuve :
+  VITE_AUTH_ENABLED=true posée au lancement → 20 refus sur 20 ; la variable du lancement garde la
+  main.
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
   pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée
