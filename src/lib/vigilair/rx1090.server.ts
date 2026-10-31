@@ -141,18 +141,24 @@ function onData(st: RxState, chunk: string) {
   }
 }
 
+// La liaison vit AVEC le serveur, jamais à sa place : minuterie de reconnexion et socket sont
+// détachées de la boucle d'événements (unref). Sans cela, une fois le serveur arrêté (SIGTERM,
+// Ctrl+C), cette seule minuterie gardait le processus vivant à vie, à retenter 127.0.0.1:30002
+// toutes les 30 s.
 function schedule(st: RxState) {
   if (st.timer || !st.enabled) return;
   st.timer = setTimeout(() => {
     st.timer = null;
     connect(st);
   }, st.retryMs);
+  st.timer.unref();
   st.retryMs = Math.min(st.retryMs * 2, 30_000);
 }
 
 function connect(st: RxState) {
   if (!st.enabled || st.sock) return;
   const sock = net.createConnection({ host: st.host, port: st.port });
+  sock.unref();
   st.sock = sock;
   sock.setEncoding("latin1");
   sock.setKeepAlive(true, 30_000);

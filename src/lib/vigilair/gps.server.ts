@@ -169,12 +169,16 @@ function onData(st: GpsState, chunk: string) {
   if (st.buf.length > 8192) st.buf = ""; // flux non-NMEA : on ne laisse pas gonfler
 }
 
+// Comme la liaison 1090 : minuterie et socket détachées de la boucle d'événements (unref), pour
+// que le processus s'arrête avec le serveur. Le flux d'un récepteur série ne peut pas l'être ;
+// le filet d'arrêt du serveur (lib/arret-serveur) le couvre.
 function schedule(st: GpsState) {
   if (st.timer || !st.enabled) return;
   st.timer = setTimeout(() => {
     st.timer = null;
     connect(st);
   }, st.retryMs);
+  st.timer.unref();
   st.retryMs = Math.min(st.retryMs * 2, 30_000);
 }
 
@@ -182,6 +186,7 @@ function connect(st: GpsState) {
   if (!st.enabled || st.sock || st.stream) return;
   if (st.kind === "tcp") {
     const sock = net.createConnection({ host: st.host, port: st.port });
+    sock.unref();
     st.sock = sock;
     sock.setEncoding("latin1");
     sock.setKeepAlive(true, 30_000);

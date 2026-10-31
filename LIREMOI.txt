@@ -33,6 +33,8 @@ Lancer comme un vrai serveur (sans mode dev)
   (celui de .grok/app-env.json au moment du build) ; une variable VITE_AUTH_ENABLED posée au
   lancement reste prioritaire.
   Flux externes (1090ES, météo) derrière un proxy : ajouter NODE_USE_ENV_PROXY=1 et HTTPS_PROXY.
+  Arrêt : Ctrl+C (ou SIGTERM). Le serveur laisse 5 s aux requêtes en cours (réglable par
+  SERVER_SHUTDOWN_TIMEOUT), puis s'éteint ; un second Ctrl+C l'arrête tout de suite.
 - Par défaut le build vise Vercel ; NITRO_PRESET choisit la cible, rien d'autre à changer.
 - Persistance (journal, personnel, preuves) : fournir une base Postgres via DATABASE_URL. Sans
   base, le poste tourne sur sa base embarquée en mémoire : tout fonctionne (journal, quart,
@@ -417,6 +419,24 @@ Symbologie APP-6 et radar
   qui tient au rechargement. Contre-épreuve : ancienne configuration reconstruite → l'erreur
   ENOENT revient à l'écran et le quart reste vacant. Un test (scripts/pglite-build.test.mjs)
   échoue si la configuration cesse de livrer PGLite avec ses fichiers.
+- LE SERVEUR S'ARRÊTE VRAIMENT (corrigé, défaut d'origine). Sur SIGTERM ou Ctrl+C, le serveur
+  HTTP du framework ferme l'écoute puis rend la main sans jamais terminer le processus. Après une
+  session, la minuterie de reconnexion du lien 1090 le gardait vivant À VIE : la console ne
+  répondait plus, mais le processus retentait 127.0.0.1:30002 toutes les 30 s, et un second Ctrl+C
+  était ignoré (kill -9 obligatoire). À DIRE FRANCHEMENT : je l'ai découvert en trouvant 8 de mes
+  propres serveurs de mesure encore vivants, alors que je les croyais arrêtés.
+  Mesuré avant : après une session, SIGTERM → processus toujours vivant 8 s puis 68 s après, une
+  seule ressource active (cette minuterie).
+  Correctif : la liaison 1090 et le GPS réseau ne retiennent plus le processus (minuterie et socket
+  détachées de la boucle d'événements). Pour ce qui ne peut pas l'être (récepteur GPS série,
+  enregistrement ATC en cours), un filet (src/lib/arret-serveur.ts) termine le processus une fois
+  passé le délai de fermeture du serveur (5 s + 2 s de marge) ; un second Ctrl+C arrête tout de
+  suite.
+  Mesuré après : configuration par défaut → arrêt en 4 à 5 s selon les connexions encore ouvertes
+  (code 0). Avec un GPS série simulé
+  (pseudo-terminal, une trame NMEA par seconde) → 7,5 s après SIGTERM (code 0), 0,9 s sur double
+  Ctrl+C (code 130). Contre-épreuve : même GPS, filet désarmé → toujours vivant 15 s après.
+  6 tests sur de vrais processus ; 5 mutations du filet, toutes prises.
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
   pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée
