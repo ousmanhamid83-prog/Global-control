@@ -351,6 +351,34 @@ Symbologie APP-6 et radar
   les deux builds de production donnent exactement les mêmes résultats qu'avant. Gardés à la
   racine : configuration, documentation, licences, kits zip, startup.sh et les fichiers d'état de
   la plateforme d'origine.
+- CE QUI SORT DU POSTE (audit, mesuré). Lu dans le code ET mesuré : un espion noté chaque sortie
+  réseau du serveur (fetch, HTTP, TCP, UDP, DNS) pendant que toutes les pages tournaient.
+  · NAVIGATEUR DE L'OPÉRATEUR : 0 requête vers un tiers (7 575 requêtes en production sur 16 pages,
+    12 673 en développement). Il ne parle qu'au poste.
+  · SERVEUR, EN AUTOMATIQUE : uniquement des sources publiques — imagerie (NASA GIBS, Esri,
+    EUMETSAT), trafic 1090ES (adsb.lol, repli adsb.fi), METAR/TAF (aviationweather.gov), météo
+    spatiale (NOAA SWPC), feux (FIRMS via ArcGIS), phénomènes (NASA EONET, USGS, GDACS). Ils voient
+    l'IP du serveur, les zones de relevé, les stations et les tuiles regardées ; jamais l'IP de
+    l'opérateur ni une donnée du poste. Aucun appel vers grok.com, une IA, une messagerie ou un
+    service de statistiques.
+  · SERVEUR, SUR GESTE DE L'OPÉRATEUR : itinéraire (router.project-osrm.org) et profil de relief
+    (api.opentopodata.org) reçoivent les points de la route ; clic sur une mine ou une zone →
+    api.open-meteo.com reçoit une grille de points autour du site ; fiche d'un avion → adsbdb
+    reçoit son adresse.
+  · SEULEMENT SI UNE CLÉ OU UN RÉGLAGE EST POSÉ (rien ne part sinon) : assistant, briefing et
+    compte rendu de quart par IA (DeepSeek, ou xAI en repli) — ils reçoivent la question de
+    l'opérateur, un résumé de l'image et, pour le compte rendu, les bulletins du journal avec
+    leurs coordonnées ; relais d'alertes au chef (Telegram, webhook Signal) — le texte des
+    alertes ; Sentinel Hub — la zone du site.
+  · CORRIGÉ PENDANT L'AUDIT : l'en-tête User-Agent de chaque requête annonçait la mission et la
+    ville du poste — il nomme désormais le logiciel seul (« AfriControl/1 »), testé ; quatre
+    modules morts qui ouvraient des portes vers l'extérieur sont retirés (connecteurs Grok vers
+    Google Drive/Gmail/Outlook, WebRTC via STUN Google/Cloudflare, fausses transcriptions lues
+    par la synthèse vocale, tracés inutilisés).
+  · CHERCHÉ, PAS TROUVÉ : télémétrie (celle de Better Auth est éteinte par défaut), script
+    d'installation qui télécharge (seul fsevents, inactif sous Linux, aucun postinstall), secret
+    en clair, code obscurci, eval. Le pont d'aperçu postMessage n'écoute que grok.com ou la
+    machine locale, vérifie l'origine et n'accepte que « aller à une page du poste ».
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
   pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée
