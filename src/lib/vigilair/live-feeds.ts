@@ -39,8 +39,7 @@ import type { ReceiverFeed, ReceiverStatus } from "./rx1090.server";
 
 import { couvertureVerdict, type CellOutcome } from "./portee";
 import { cellulesDuReleve, reunirLots, vieCellule, type Lot } from "./releve-reseau";
-
-const UA = "AfriControl-COP/10.0 (C-UAS detection N'Djamena; read-only)";
+import { UA_POSTE as UA } from "./agent-http";
 
 type Cell = { lat: number; lon: number; label: string };
 

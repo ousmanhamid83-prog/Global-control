@@ -12,8 +12,8 @@ import {
   type TileMiss,
 } from "./tile-verdict";
 import type { SatLayer, SatMeta } from "./sat";
+import { UA_POSTE as UA } from "./agent-http";
 
-const UA = "AfriControl-COP/21 (C-UAS tiles; no operator identity)";
 const GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best";
 const EUM = "https://view.eumetsat.int/geoserver/wms";
 const ESRI =
