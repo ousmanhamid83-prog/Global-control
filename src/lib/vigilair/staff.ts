@@ -3,6 +3,7 @@ import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql } from "@/lib/db";
 import { sanitizeMachineLabel, scrubSessionIps, stripIps } from "./privacy";
+import { corpsWebhook, texteTelegram } from "./relais-alerte";
 import { AGENT_SESSION_CAP, pruneOldSessions, requireChefSeal } from "./seal";
 
 export type StaffRole = "superadmin" | "admin" | "operateur" | "analyste";
@@ -450,7 +451,8 @@ export async function dispatchChefAlert(data: {
       from bot_settings where user_id = ${owner}
     `;
     const cfg = bots[0];
-    const text = `AfriControl · ${data.level.toUpperCase()}\n${data.title}\n${data.body}`;
+    // Le détail ne sort que vers un relais du réseau du poste (voir relais-alerte).
+    const at = new Date();
     if (cfg?.telegram_token && cfg.telegram_chat_id) {
       try {
         const res = await fetch(
@@ -460,7 +462,7 @@ export async function dispatchChefAlert(data: {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               chat_id: cfg.telegram_chat_id,
-              text,
+              text: texteTelegram(data, at),
               disable_web_page_preview: true,
             }),
             signal: AbortSignal.timeout(4000),
@@ -476,14 +478,7 @@ export async function dispatchChefAlert(data: {
         const res = await fetch(cfg.signal_webhook, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            source: "AfriControl",
-            id: data.id,
-            level: data.level,
-            title: data.title,
-            body: data.body,
-            at: new Date().toISOString(),
-          }),
+          body: JSON.stringify(corpsWebhook(data, cfg.signal_webhook, at)),
           signal: AbortSignal.timeout(4000),
         });
         if (res.ok) channels.push("signal");

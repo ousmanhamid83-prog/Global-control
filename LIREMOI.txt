@@ -375,8 +375,9 @@ Symbologie APP-6 et radar
   · SEULEMENT SI UNE CLÉ OU UN RÉGLAGE EST POSÉ (rien ne part sinon) : assistant, briefing et
     compte rendu de quart par IA (DeepSeek, ou xAI en repli) — ils reçoivent la question de
     l'opérateur, un résumé de l'image et, pour le compte rendu, les bulletins du journal avec
-    leurs coordonnées ; relais d'alertes au chef (Telegram, webhook Signal) — le texte des
-    alertes ; Sentinel Hub — la zone du site.
+    leurs coordonnées ; relais d'alertes au chef — Telegram ne reçoit que le niveau et l'heure,
+    le webhook Signal ne reçoit le détail que s'il est sur le réseau du poste (voir « LE DÉTAIL
+    DES ALERTES NE QUITTE PLUS LE POSTE ») ; Sentinel Hub — la zone du site.
   · CORRIGÉ PENDANT L'AUDIT : l'en-tête User-Agent de chaque requête annonçait la mission et la
     ville du poste — il nomme désormais le logiciel seul (« AfriControl/1 »), testé ; quatre
     modules morts qui ouvraient des portes vers l'extérieur sont retirés (connecteurs Grok vers
@@ -452,6 +453,29 @@ Symbologie APP-6 et radar
   Access ») ; pour mesurer l'en-tête lui-même, cette protection était coupée pendant la mesure,
   et le témoin local réel (même réseau, non couvert par cette protection) donne le même verdict.
   Un test (4 cas, 2 mutations prises) garde la règle.
+- LE DÉTAIL DES ALERTES NE QUITTE PLUS LE POSTE (corrigé). Chaque alerte relayée au chef partait
+  en entier vers Telegram, qui la stocke sur ses serveurs, et vers le webhook Signal, où qu'il
+  soit : noms d'agents, récapitulatif de leur travail, incidents de sécurité, zones, sites,
+  indicatifs, et même l'identifiant interne (qui porte souvent un indicatif ou un nom de site).
+  Mesuré avant, de bout en bout (envois interceptés au serveur, rien n'est parti) : Telegram a
+  reçu « Agent éjecté · Moussa K. — Récap : 12 ident · dernier verrou AFR123 près de Komé · zone
+  Sud-Est » ; un webhook externe, le même texte avec l'identifiant « trk-ami-…-AFR123 ».
+  Désormais (src/lib/vigilair/relais-alerte.ts) :
+  · Telegram ne reçoit que le niveau et l'heure : « AfriControl · CRITIQUE — Alerte au poste à
+    12:01 Z — détail dans la console. »
+  · Le webhook reçoit le détail seulement s'il est SUR LE RÉSEAU DU POSTE, ce qui se lit dans
+    son adresse : 127.x, 10.x, 172.16–31.x, 192.168.x, 169.254.x, ::1, fc00::/7, fe80::/10, ou
+    un nom en .local, .home.arpa, .internal, localhost. Sinon, la même alerte sans contenu ni
+    identifiant. Jamais de résolution DNS (elle peut mentir) : un nom public qui pointe vers une
+    adresse privée compte comme extérieur, de même qu'un nom sans point et l'espace 100.64/10.
+    Dans le doute, rien ne sort.
+  · L'écran Division le dit, canal par canal : « Telegram configuré · sans contenu »,
+    « Webhook sur le réseau du poste · détail » ou « Webhook hors du poste · sans contenu ».
+  Mesuré après : Telegram et le webhook externe ont reçu niveau et heure seulement ; un webhook
+  en 10.9.9.9 a reçu le détail complet. Deux vraies alertes « élevée » de la console, relayées
+  pendant la mesure, sont parties sans contenu elles aussi. 5 tests (32 adresses, y compris les
+  faux-semblants : « 10.0.0.1@evil.com », « relais.local.example.com », IPv4 écrite en
+  hexadécimal) ; 6 mutations, toutes prises.
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
   pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée
