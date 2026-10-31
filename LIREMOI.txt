@@ -437,6 +437,21 @@ Symbologie APP-6 et radar
   (pseudo-terminal, une trame NMEA par seconde) → 7,5 s après SIGTERM (code 0), 0,9 s sur double
   Ctrl+C (code 130). Contre-épreuve : même GPS, filet désarmé → toujours vivant 15 s après.
   6 tests sur de vrais processus ; 5 mutations du filet, toutes prises.
+- AUCUN AUTRE SITE NE PEUT PLUS AFFICHER LA CONSOLE (corrigé). N'importe quelle page pouvait
+  encadrer la console et faire cliquer l'opérateur à son insu dans une console rendue invisible
+  (armer, prendre le poste, relayer une alerte). Mesuré avant, cinq pages hôtes : une page locale
+  réelle sur un autre port, un site tiers public, grok.com, un sous-domaine de grok.com et un sosie
+  (grok.com.example) l'affichaient toutes ; aucun en-tête ne l'empêchait.
+  Correctif : Content-Security-Policy: frame-ancestors 'self', plus X-Frame-Options: SAMEORIGIN
+  pour les navigateurs anciens (server/middleware/security-headers.ts). Même grok.com est refusé :
+  l'aperçu en direct de la plateforme passe par le serveur de développement, qui n'envoie pas ces
+  en-têtes (vérifié), et rien d'autre n'en a besoin.
+  Mesuré après : les cinq refusées par le navigateur (« Refused to frame … frame-ancestors
+  'self' ») ; la console s'encadre toujours elle-même. Fumée 7/7, hydratation 0/16. Note de
+  méthode : Chromium bloque déjà de lui-même une page PUBLIQUE qui vise localhost (« Local Network
+  Access ») ; pour mesurer l'en-tête lui-même, cette protection était coupée pendant la mesure,
+  et le témoin local réel (même réseau, non couvert par cette protection) donne le même verdict.
+  Un test (4 cas, 2 mutations prises) garde la règle.
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
   pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée
@@ -981,7 +996,8 @@ Navigation directe jusqu'au site (Capteurs > Navigation)
 
 Durcissement défensif
 - En-têtes de sécurité sur chaque réponse (nosniff, Referrer-Policy no-referrer, Permissions-Policy
-  capteurs coupés). Aucune télémétrie tierce. Les sources externes (1090ES, météo…) sont
+  capteurs coupés, frame-ancestors 'self' : aucun autre site ne peut afficher la console dans un
+  cadre). Aucune télémétrie tierce. Les sources externes (1090ES, météo…) sont
   interrogées PAR LE SERVEUR : l'adresse IP de l'opérateur n'est jamais exposée aux agrégateurs.
 - Audit des dépendances : 0 vulnérabilité (npm audit, dépendances de production).
 

@@ -5,10 +5,15 @@
  *  - Permissions-Policy — géoloc, caméra, micro, USB, paiement coupés : le poste ne s'en sert pas,
  *    donc aucune page ni script embarqué ne peut les réclamer.
  *  - X-DNS-Prefetch-Control: off — pas de prérésolution DNS opportuniste.
+ *  - Content-Security-Policy: frame-ancestors 'self' (et X-Frame-Options: SAMEORIGIN pour les
+ *    navigateurs anciens) — la console ne s'affiche que dans ses propres pages. Avant, n'importe
+ *    quel site pouvait l'encadrer et faire cliquer l'opérateur, à son insu, dans une console
+ *    rendue invisible (armer, prendre le poste, relayer une alerte). Ce middleware ne tourne que
+ *    sur le serveur construit : l'aperçu en direct de la plateforme (serveur de développement)
+ *    n'est pas concerné.
  *
- * Pas de X-Frame-Options ni de frame-ancestors : le poste s'affiche légitimement dans un cadre
- * d'aperçu de la plateforme. Les appels aux sources externes (1090ES, météo…) partent du serveur,
- * jamais du navigateur de l'opérateur : son adresse IP n'est pas exposée aux agrégateurs.
+ * Les appels aux sources externes (1090ES, météo…) partent du serveur, jamais du navigateur de
+ * l'opérateur : son adresse IP n'est pas exposée aux agrégateurs.
  */
 interface SecEvent {
   url: URL;
@@ -21,6 +26,8 @@ const SECURITY_HEADERS: Record<string, string> = {
   "X-DNS-Prefetch-Control": "off",
   "Permissions-Policy":
     "geolocation=(), camera=(), microphone=(), usb=(), payment=(), magnetometer=(), gyroscope=(), accelerometer=(), browsing-topics=()",
+  "Content-Security-Policy": "frame-ancestors 'self'",
+  "X-Frame-Options": "SAMEORIGIN",
 };
 
 export default async function securityHeadersMiddleware(
