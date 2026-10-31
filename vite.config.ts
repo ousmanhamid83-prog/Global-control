@@ -178,6 +178,12 @@ export default defineConfig(({ command, isPreview }) => ({
             // manifest + head-tag middleware). Nitro v3 defaults serverDir to
             // false, so removing this silently unwires /?install=1 on deploys.
             serverDir: "./server",
+            // La base embarquée (PGLite) charge pglite.wasm, initdb.wasm et pglite.data posés à
+            // côté de son module. Fondue dans le bundle, elle les cherchait dans _libs/ où ils
+            // n'étaient pas : sans DATABASE_URL, la base ne démarrait pas en production et chaque
+            // appel au journal, au quart ou aux registres échouait. Livrée comme paquet tracé,
+            // elle part avec ses fichiers.
+            traceDeps: ["@electric-sql/pglite"],
           }),
         ]
       : []),

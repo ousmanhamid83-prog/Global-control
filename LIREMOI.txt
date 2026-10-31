@@ -35,7 +35,8 @@ Lancer comme un vrai serveur (sans mode dev)
   Flux externes (1090ES, météo) derrière un proxy : ajouter NODE_USE_ENV_PROXY=1 et HTTPS_PROXY.
 - Par défaut le build vise Vercel ; NITRO_PRESET choisit la cible, rien d'autre à changer.
 - Persistance (journal, personnel, preuves) : fournir une base Postgres via DATABASE_URL. Sans
-  base, le cœur live (1090ES, carte, météo, phonie) fonctionne, mais rien n'est conservé au redémarrage.
+  base, le poste tourne sur sa base embarquée en mémoire : tout fonctionne (journal, quart,
+  registres compris), mais rien n'est conservé au redémarrage.
 
 Intégrer ta propre API
 - Un point d'entrée HTTP interne : créer src/routes/api/<nom>.ts sur le modèle de src/routes/api/tile.ts
@@ -398,6 +399,24 @@ Symbologie APP-6 et radar
   sur 21 à 22 acceptés selon la session, 259 à 273 pistes 1090ES à l'écran. Contre-épreuve :
   VITE_AUTH_ENABLED=true posée au lancement → 20 refus sur 20 ; la variable du lancement garde la
   main.
+- SERVEUR AUTONOME : LA BASE DÉMARRE ENFIN (corrigé, défaut d'origine). Sans DATABASE_URL, le poste
+  tourne sur sa base embarquée (PGLite), qui charge au démarrage trois fichiers posés à côté de son
+  module (pglite.wasm, initdb.wasm, pglite.data, 17 Mo). Le build fondait PGLite dans le bundle
+  serveur sans copier ces fichiers : en production, la base ne démarrait JAMAIS. Le défaut est
+  dans tous les journaux de production, dès le premier (18 octobre). À DIRE FRANCHEMENT : je les
+  avais sous les yeux à chaque mesure de production et je ne l'avais pas relevé. Il y avait
+  donc deux échecs silencieux en un : chaque appel au journal, au quart, au personnel ou aux
+  registres échouait, et l'écran affichait pourtant « quart vacant », comme si tout allait bien.
+  Mesuré avant, sur les pages journal, quart, zones, capteurs, tableau et accueil : 53 réponses
+  serveur en erreur (« ENOENT … pglite.data ») et 66 rejets non gérés au journal du serveur.
+  « Prendre le poste » affichait l'erreur brute (avec le chemin du serveur), et le quart restait
+  vacant au rechargement.
+  Correctif (vite.config.ts) : PGLite est livré comme paquet tracé, avec ses fichiers, dans
+  .output/server/node_modules/ (et dans la fonction Vercel, construite de la même façon).
+  Mesuré après : 102 réponses saines, 0 en erreur, 0 rejet ; « Prendre le poste » ouvre le quart,
+  qui tient au rechargement. Contre-épreuve : ancienne configuration reconstruite → l'erreur
+  ENOENT revient à l'écran et le quart reste vacant. Un test (scripts/pglite-build.test.mjs)
+  échoue si la configuration cesse de livrer PGLite avec ses fichiers.
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
   pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée
