@@ -17,3 +17,6 @@ recordings/
 
 # État partagé du poste généré au runtime (sites surveillés)
 data/
+
+# Réglages propres au poste (écrits par scripts/poste/preparer-poste ; peuvent contenir des jetons)
+poste.env
