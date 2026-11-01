@@ -368,6 +368,14 @@ Symbologie APP-6 et radar
   · NAVIGATEUR DE L'OPÉRATEUR : 0 requête vers un tiers (7 198 requêtes en production sur 16 pages,
     12 673 en développement). Il ne parle qu'au poste. Le serveur de production, relevés actifs,
     contacte exactement les mêmes sources que le développement.
+  · MESURE FINALE EN PRODUCTION (1er novembre, après les chantiers alertes, IA, itinéraire et
+    relief ; serveur construit, 16 pages puis une minute sur l'accueil) : navigateur, 7 266
+    requêtes, 0 vers un tiers. Serveur, 1 164 requêtes vers 10 sources publiques de données
+    seulement (NASA GIBS 477, Esri 395, EUMETSAT 134, adsb.lol 67, aviationweather 28, NOAA SWPC
+    28, FIRMS/ArcGIS 14, EONET 7, USGS 7, GDACS 7), toutes avec l'en-tête « AfriControl/1 ».
+    Connexions TCP : locales seulement — le proxy du banc de mesure, qui porte ces requêtes, et la
+    liaison antenne 127.0.0.1:30002. 0 UDP. Aucune IA, aucune messagerie, aucun service
+    d'itinéraire ou de relief.
   · SERVEUR, EN AUTOMATIQUE : uniquement des sources publiques — imagerie (NASA GIBS, Esri,
     EUMETSAT), trafic 1090ES (adsb.lol, repli adsb.fi), METAR/TAF (aviationweather.gov), météo
     spatiale (NOAA SWPC), feux (FIRMS via ArcGIS), phénomènes (NASA EONET, USGS, GDACS). Ils voient
