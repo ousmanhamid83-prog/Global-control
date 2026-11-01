@@ -1,0 +1,365 @@
+﻿<#
+Prépare le poste AfriControl en une commande (Windows). À lancer UNE FOIS EN LIGNE, depuis le
+dossier AfriControl ; ensuite tout tourne hors ligne. Les réglages vont dans poste.env, que le
+serveur lit seul au démarrage (src/lib/config-poste.ts).
+
+  powershell -ExecutionPolicy Bypass -File scripts\poste\preparer-poste.ps1
+  powershell -ExecutionPolicy Bypass -File scripts\poste\preparer-poste.ps1 -Itineraire -Signal
+
+  -Modele NOM     modèle d'IA (défaut selon la mémoire : qwen2.5:7b dès 15 Go, qwen2.5:3b dès
+                  7 Go, sinon qwen2.5:1.5b)
+  -Zone S,N,O,E   relief sur cette zone, en degrés entiers (défaut : le Tchad, 7,23,13,23 —
+                  187 tuiles, 862 Mo)
+  -Itineraire     serveur d'itinéraire OSRM du poste (Docker Desktop, carte OSM du Tchad, 151 Mo)
+  -Signal         relais Signal du poste (Docker Desktop) : le détail des alertes, chiffré
+                  jusqu'aux téléphones des destinataires
+  -SansBuild  -SansIA  -SansRelief    sauter une étape
+
+Relancer le script reprend là où il s'était arrêté : ce qui est déjà en place est gardé.
+#>
+param(
+  [string]$Modele = "",
+  [string]$Zone = "7,23,13,23",
+  [switch]$Itineraire,
+  [switch]$Signal,
+  [switch]$SansBuild,
+  [switch]$SansIA,
+  [switch]$SansRelief
+)
+
+$ErrorActionPreference = "Stop"
+# Sans cela, Invoke-WebRequest de PowerShell 5.1 télécharge des dizaines de fois plus lentement.
+$ProgressPreference = "SilentlyContinue"
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+
+Set-Location (Join-Path $PSScriptRoot (Join-Path ".." ".."))
+$Racine = (Get-Location).Path
+$PosteEnv = Join-Path $Racine "poste.env"
+$OsrmImage = "ghcr.io/project-osrm/osrm-backend:v26.11.0-debian"
+$SignalImage = "bbernhard/signal-cli-rest-api:0.101"
+
+$Bilan = New-Object System.Collections.Generic.List[string]
+$AFaire = New-Object System.Collections.Generic.List[string]
+$NbEchecs = 0
+function Etape([string]$Texte) { Write-Host ""; Write-Host "== $Texte" }
+function Ok([string]$Texte) { $Bilan.Add("  [ok] $Texte"); Write-Host "  [ok] $Texte" -ForegroundColor Green }
+function Rate([string]$Texte) {
+  $Bilan.Add("  [échec] $Texte")
+  $script:NbEchecs++
+  Write-Host "  [échec] $Texte" -ForegroundColor Red
+}
+
+# Commande native, muette : vrai si elle réussit. ($ErrorActionPreference local : sous PowerShell
+# 5.1, une simple ligne sur stderr lèverait sinon une exception.)
+function Reussit([scriptblock]$Commande) {
+  $ErrorActionPreference = "Continue"
+  & $Commande *> $null
+  return ($LASTEXITCODE -eq 0)
+}
+
+# Même chose, sortie gardée dans un journal.
+function ReussitJournal([string]$Journal, [scriptblock]$Commande) {
+  $ErrorActionPreference = "Continue"
+  & $Commande *>> $Journal
+  return ($LASTEXITCODE -eq 0)
+}
+
+function Repond([string]$Url) {
+  try {
+    $null = Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 -Uri $Url
+    return $true
+  } catch {
+    return $false
+  }
+}
+
+# Attendre <test> <secondes> : réessaie le test chaque seconde jusqu'au délai.
+function Attendre([scriptblock]$Test, [int]$Secondes) {
+  for ($i = 0; $i -lt $Secondes; $i++) {
+    if (& $Test) { return $true }
+    Start-Sleep -Seconds 1
+  }
+  return $false
+}
+
+# Regler CLE valeur : écrit ou remplace la ligne CLE= de poste.env (les autres lignes restent).
+function Regler([string]$Cle, [string]$Valeur) {
+  $lignes = New-Object System.Collections.Generic.List[string]
+  if (Test-Path $PosteEnv) {
+    foreach ($l in [IO.File]::ReadAllLines($PosteEnv)) { $lignes.Add($l) }
+  } else {
+    $lignes.Add("# Réglages du poste AfriControl, lus au démarrage du serveur.")
+    $lignes.Add("# Écrit par scripts/poste/preparer-poste ; une variable posée au lancement garde la main.")
+  }
+  $fait = $false
+  for ($i = 0; $i -lt $lignes.Count; $i++) {
+    if ($lignes[$i].StartsWith("$Cle=")) {
+      if ($fait) {
+        $lignes.RemoveAt($i)
+        $i--
+      } else {
+        $lignes[$i] = "$Cle=$Valeur"
+        $fait = $true
+      }
+    }
+  }
+  if (-not $fait) { $lignes.Add("$Cle=$Valeur") }
+  [IO.File]::WriteAllLines($PosteEnv, $lignes, (New-Object Text.UTF8Encoding($false)))
+}
+
+# Telecharger <fichier> <adresses> : la première adresse qui répond.
+function Telecharger([string]$Fichier, [string[]]$Adresses) {
+  foreach ($adresse in $Adresses) {
+    Write-Host "  téléchargement : $adresse"
+    try {
+      Invoke-WebRequest -UseBasicParsing -Uri $adresse -OutFile "$Fichier.part"
+      Move-Item -Force "$Fichier.part" $Fichier
+      return $true
+    } catch {
+      Write-Host "  échec : $($_.Exception.Message)"
+    }
+  }
+  return $false
+}
+
+function DockerPret {
+  if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { return $false }
+  return (Reussit { docker info })
+}
+
+# Une image déjà là n'est pas retéléchargée : relancer le script hors ligne reste possible.
+function ImagePresente([string]$Image) { return (Reussit { docker image inspect $Image }) }
+
+Etape "Node"
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+  Write-Host "Node 22 ou plus est requis : https://nodejs.org/fr/download (ou : winget install -e --id OpenJS.NodeJS.LTS)"
+  exit 1
+}
+$versionNode = (& node -p "process.versions.node").Trim()
+if ([int]$versionNode.Split(".")[0] -lt 22) {
+  Write-Host "Node v$versionNode est trop ancien : 22 ou plus est requis (https://nodejs.org/fr/download)."
+  exit 1
+}
+Ok "Node v$versionNode"
+
+if (-not $SansBuild) {
+  Etape "Serveur AfriControl (dépendances, build autonome)"
+  & npm ci --no-audit --no-fund
+  $code = $LASTEXITCODE
+  if ($code -eq 0) {
+    $env:NITRO_PRESET = "node-server"
+    & npm run build
+    $code = $LASTEXITCODE
+    Remove-Item Env:NITRO_PRESET
+  }
+  if ($code -ne 0) {
+    Write-Host "Le build a échoué (messages ci-dessus) : vérifier la connexion, puis relancer le script."
+    exit 1
+  }
+  Ok "serveur construit : .output\server\index.mjs"
+}
+
+function OllamaExe {
+  $commande = Get-Command ollama -ErrorAction SilentlyContinue
+  if ($commande) { return $commande.Source }
+  if ($env:LOCALAPPDATA) {
+    $chemin = Join-Path $env:LOCALAPPDATA "Programs\Ollama\ollama.exe"
+    if (Test-Path $chemin) { return $chemin }
+  }
+  return $null
+}
+$UrlIa = "http://127.0.0.1:11434/api/version"
+
+if (-not $SansIA) {
+  Etape "IA du poste (Ollama, sur cette machine)"
+  if (-not (Repond $UrlIa) -and -not (OllamaExe)) {
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+      Write-Host "  installation d'Ollama (winget)…"
+      & winget install -e --id Ollama.Ollama --silent --accept-package-agreements --accept-source-agreements
+    } else {
+      Write-Host "  installation d'Ollama (installeur officiel d'ollama.com)…"
+      $installeur = Join-Path $env:TEMP "OllamaSetup.exe"
+      Invoke-WebRequest -UseBasicParsing -Uri "https://ollama.com/download/OllamaSetup.exe" -OutFile $installeur
+      Start-Process -Wait -FilePath $installeur -ArgumentList "/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES"
+    }
+  }
+  $ollama = OllamaExe
+  if (-not (Repond $UrlIa) -and $ollama) {
+    # Ollama se lance d'habitude seul à l'ouverture de session ; sinon, le serveur sans fenêtre.
+    Start-Process -FilePath $ollama -ArgumentList "serve" -WindowStyle Hidden
+  }
+  if (-not $ollama) {
+    Rate "IA : Ollama n'a pas pu être installé (messages ci-dessus)"
+  } elseif (-not (Attendre { Repond $UrlIa } 60)) {
+    Rate "IA : Ollama ne répond pas sur 127.0.0.1:11434"
+  } else {
+    if (-not $Modele) {
+      $memoire = [Math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
+      if ($memoire -ge 15) { $Modele = "qwen2.5:7b" } elseif ($memoire -ge 7) { $Modele = "qwen2.5:3b" } else { $Modele = "qwen2.5:1.5b" }
+      Write-Host "  mémoire : $memoire Go → modèle $Modele"
+    }
+    & $ollama pull $Modele
+    if ($LASTEXITCODE -ne 0) {
+      Rate "IA : le modèle $Modele n'a pas pu être téléchargé — relancer le script pour reprendre"
+    } else {
+      Regler "AFRICONTROL_IA" "http://127.0.0.1:11434/v1"
+      Regler "AFRICONTROL_IA_MODELE" $Modele
+      Write-Host "  essai d'une réponse (le premier chargement du modèle peut prendre une minute)…"
+      $debut = Get-Date
+      $question = @{ model = $Modele; max_tokens = 12; messages = @(@{ role = "user"; content = "Réponds seulement : prêt." }) } | ConvertTo-Json -Depth 4
+      try {
+        $reponse = Invoke-RestMethod -Method Post -TimeoutSec 300 -Uri "http://127.0.0.1:11434/v1/chat/completions" -ContentType "application/json; charset=utf-8" -Body ([Text.Encoding]::UTF8.GetBytes($question))
+        $secondes = [Math]::Round(((Get-Date) - $debut).TotalSeconds)
+        Ok "IA : $Modele répond en $secondes s (« $($reponse.choices[0].message.content.Trim()) »)"
+      } catch {
+        Rate "IA : $Modele installé mais n'a pas répondu à l'essai ($($_.Exception.Message))"
+      }
+    }
+  }
+}
+
+if (-not $SansRelief) {
+  Etape "Relief (tuiles Copernicus GLO-90, lues par le poste lui-même)"
+  $bornes = $Zone.Split(",")
+  if ($bornes.Count -ne 4 -or ($bornes | Where-Object { $_ -notmatch '^-?\d+$' })) {
+    Write-Host "-Zone attend quatre degrés entiers S,N,O,E (reçu : $Zone)"
+    exit 2
+  }
+  $sud, $nord, $ouest, $est = $bornes | ForEach-Object { [int]$_ }
+  $dossierRelief = Join-Path $Racine (Join-Path "data" "relief")
+  New-Item -ItemType Directory -Force -Path $dossierRelief | Out-Null
+  $total = ($nord - $sud + 1) * ($est - $ouest + 1)
+  $n = 0; $neuves = 0; $mer = 0; $echecs = 0
+  for ($lat = $sud; $lat -le $nord; $lat++) {
+    for ($lon = $ouest; $lon -le $est; $lon++) {
+      $n++
+      $ns = if ($lat -lt 0) { "S" } else { "N" }
+      $ew = if ($lon -lt 0) { "W" } else { "E" }
+      $nom = "Copernicus_DSM_COG_30_{0}{1:D2}_00_{2}{3:D3}_00_DEM" -f $ns, [Math]::Abs($lat), $ew, [Math]::Abs($lon)
+      $fichier = Join-Path $dossierRelief "$nom.tif"
+      if (Test-Path $fichier) { continue }
+      Write-Host -NoNewline "`r  tuile $n/$total "
+      try {
+        Invoke-WebRequest -UseBasicParsing -TimeoutSec 600 -Uri "https://copernicus-dem-90m.s3.amazonaws.com/$nom/$nom.tif" -OutFile "$fichier.part"
+        # Une vraie tuile commence par l'en-tête TIFF « II » ; un portail captif renverrait du HTML.
+        $flux = [IO.File]::OpenRead("$fichier.part")
+        $entete = @($flux.ReadByte(), $flux.ReadByte())
+        $flux.Close()
+        if ($entete[0] -eq 0x49 -and $entete[1] -eq 0x49) {
+          Move-Item -Force "$fichier.part" $fichier
+          $neuves++
+        } else {
+          Remove-Item -Force "$fichier.part"
+          $echecs++
+        }
+      } catch {
+        if (Test-Path "$fichier.part") { Remove-Item -Force "$fichier.part" }
+        $statut = 0
+        if ($_.Exception.Response) { $statut = [int]$_.Exception.Response.StatusCode }
+        if ($statut -eq 404) { $mer++ } else { $echecs++ } # 404 : pas de tuile, la mer
+      }
+    }
+  }
+  Write-Host ""
+  $tuiles = @(Get-ChildItem -Path $dossierRelief -Filter "Copernicus_DSM_COG_*_DEM.tif")
+  $mo = [Math]::Round(($tuiles | Measure-Object -Property Length -Sum).Sum / 1MB)
+  Ok "relief : $($tuiles.Count) tuiles dans data\relief ($mo Mo), dont $neuves téléchargées maintenant ; $mer en mer, sans tuile"
+  if ($echecs -gt 0) {
+    Rate "relief : $echecs tuiles n'ont pas pu être téléchargées — relancer le script pour les reprendre"
+  }
+}
+
+$UrlRoute = "http://127.0.0.1:5810/route/v1/driving/15.0444,12.1067;20.8324,13.8292?overview=false"
+
+if ($Itineraire) {
+  Etape "Itinéraire (serveur OSRM du poste, carte OpenStreetMap du Tchad)"
+  if (-not (DockerPret)) {
+    Rate "itinéraire : Docker Desktop absent ou arrêté (https://docs.docker.com/desktop/setup/install/windows-install/)"
+  } else {
+    $dossierOsrm = Join-Path $Racine (Join-Path "data" "osrm")
+    New-Item -ItemType Directory -Force -Path $dossierOsrm | Out-Null
+    $carte = Join-Path $dossierOsrm "tchad.osm.pbf"
+    $journal = Join-Path $dossierOsrm "preparation.log"
+    if ((Test-Path $carte) -or (Telecharger $carte @("https://download.openstreetmap.fr/extracts/africa/chad.osm.pbf", "https://download.geofabrik.de/africa/chad-latest.osm.pbf"))) {
+      if (-not (ImagePresente $OsrmImage) -and -not (Reussit { docker pull -q $OsrmImage })) {
+        Rate "itinéraire : l'image $OsrmImage n'a pas pu être téléchargée — relancer le script"
+      } elseif (-not (Test-Path (Join-Path $dossierOsrm "tchad.osrm.mldgr"))) {
+        Write-Host "  préparation du graphe routier (quelques minutes)…"
+        $volume = "${dossierOsrm}:/data"
+        foreach ($outil in @(@("osrm-extract", "-p", "/opt/car.lua", "/data/tchad.osm.pbf"), @("osrm-partition", "/data/tchad.osrm"), @("osrm-customize", "/data/tchad.osrm"))) {
+          if (-not (ReussitJournal $journal { docker run --rm -v $volume $OsrmImage @outil })) {
+            Rate "itinéraire : $($outil[0]) a échoué (voir data\osrm\preparation.log)"
+            break
+          }
+        }
+      }
+      if (Test-Path (Join-Path $dossierOsrm "tchad.osrm.mldgr")) {
+        $null = Reussit { docker rm -f africontrol-osrm }
+        $volume = "${dossierOsrm}:/data"
+        $null = Reussit { docker run -d --name africontrol-osrm --restart unless-stopped -p 127.0.0.1:5810:5000 -v $volume $OsrmImage osrm-routed --algorithm mld /data/tchad.osrm }
+        if (Attendre { Repond $UrlRoute } 120) {
+          Regler "AFRICONTROL_ITINERAIRE" "http://127.0.0.1:5810"
+          $km = [Math]::Round((Invoke-RestMethod -Uri $UrlRoute).routes[0].distance / 1000)
+          Ok "itinéraire : OSRM sur 127.0.0.1:5810, redémarre avec la machine (essai N'Djamena → Abéché : $km km par la route)"
+        } else {
+          Rate "itinéraire : OSRM ne répond pas sur 127.0.0.1:5810 (docker logs africontrol-osrm)"
+        }
+      }
+    } else {
+      Rate "itinéraire : la carte OSM du Tchad n'a pas pu être téléchargée — relancer le script"
+    }
+  }
+}
+
+if ($Signal) {
+  Etape "Relais Signal du poste (détail des alertes, chiffré jusqu'aux téléphones)"
+  if (-not (DockerPret)) {
+    Rate "relais Signal : Docker Desktop absent ou arrêté (https://docs.docker.com/desktop/setup/install/windows-install/)"
+  } else {
+    $dossierSignal = Join-Path $Racine (Join-Path "data" "signal")
+    New-Item -ItemType Directory -Force -Path $dossierSignal | Out-Null
+    # Docker Hub limite les téléchargements anonymes : le miroir de Google sert la même image.
+    $miroir = "mirror.gcr.io/$SignalImage"
+    if (-not (ImagePresente $SignalImage) -and -not (Reussit { docker pull -q $SignalImage }) -and -not ((Reussit { docker pull -q $miroir }) -and (Reussit { docker tag $miroir $SignalImage }))) {
+      Rate "relais Signal : l'image $SignalImage n'a pas pu être téléchargée — relancer le script"
+    } else {
+      $null = Reussit { docker rm -f africontrol-signal }
+      $volume = "${dossierSignal}:/home/.local/share/signal-cli"
+      $null = Reussit { docker run -d --name africontrol-signal --restart unless-stopped -p 127.0.0.1:8085:8080 -e MODE=native -v $volume $SignalImage }
+    }
+    if ((Reussit { docker inspect africontrol-signal }) -and (Attendre { Repond "http://127.0.0.1:8085/v1/about" } 90)) {
+      Ok "relais Signal sur 127.0.0.1:8085, redémarre avec la machine — reste à lier le téléphone (ci-dessous)"
+      $AFaire.Add("Lier le téléphone Signal du poste (une fois) :")
+      $AFaire.Add("  1. ouvrir http://127.0.0.1:8085/v1/qrcodelink?device_name=AfriControl dans le navigateur du poste ;")
+      $AFaire.Add("  2. sur le téléphone : Signal → Paramètres → Appareils reliés → « + », scanner le QR ;")
+      $AFaire.Add("  3. AfriControl → Division → Webhook Signal, coller (number = le téléphone relié, recipients = qui reçoit) :")
+      $AFaire.Add("     http://127.0.0.1:8085/v2/send?number=+235XXXXXXXX&recipients=+235YYYYYYYY,+235ZZZZZZZZ")
+    } else {
+      Rate "relais Signal : ne répond pas sur 127.0.0.1:8085 (docker logs africontrol-signal)"
+    }
+  }
+}
+
+foreach ($ancienne in @("AFRICONTROL_DEEPSEEK", "XAI_API_KEY")) {
+  $dansFichier = (Test-Path $PosteEnv) -and (Select-String -Path $PosteEnv -Pattern "^$ancienne=" -Quiet)
+  if ([Environment]::GetEnvironmentVariable($ancienne) -or $dansFichier) {
+    $AFaire.Add("$ancienne n'est plus lue (l'IA reste sur le poste) : la retirer de l'environnement ou de poste.env.")
+  }
+}
+
+Etape "Bilan"
+$Bilan | ForEach-Object { Write-Host $_ }
+if (Test-Path $PosteEnv) {
+  Write-Host ""
+  Write-Host "  poste.env :"
+  Get-Content $PosteEnv | Where-Object { $_ -like "AFRICONTROL_*" } | ForEach-Object { Write-Host "    $_" }
+}
+if ($AFaire.Count -gt 0) {
+  Write-Host ""
+  $AFaire | ForEach-Object { Write-Host "  $_" }
+}
+Write-Host ""
+Write-Host "  Lancer le poste (poste.env est lu tout seul) :"
+Write-Host '    $env:PORT="8080"; node .output\server\index.mjs'
+Write-Host "  Puis Capteurs > Outils > « Tester le serveur » pour l'IA, et le diagnostic pour le reste."
+if ($NbEchecs -gt 0) { exit 1 }

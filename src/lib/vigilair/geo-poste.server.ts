@@ -5,8 +5,8 @@
  * router.project-osrm.org, api.opentopodata.org et api.open-meteo.com (la grille autour d'une mine
  * ou d'une zone cliquée).
  *
- *   AFRICONTROL_ITINERAIRE=http://127.0.0.1:5000          serveur OSRM (osrm-routed, carte OSM de
- *                                                         la région)
+ *   AFRICONTROL_ITINERAIRE=http://127.0.0.1:5810          serveur OSRM (osrm-routed, carte OSM de
+ *                                                         la région ; scripts/poste/preparer-poste)
  *   data/relief/Copernicus_DSM_COG_*_DEM.tif              tuiles de relief lues par le poste
  *                                                         lui-même (AFRICONTROL_RELIEF_TUILES pour
  *                                                         un autre dossier) : aucun serveur

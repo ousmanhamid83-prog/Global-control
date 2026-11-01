@@ -1,0 +1,2 @@
+# Les scripts bash restent en LF, même clonés sous Windows (core.autocrlf) : un CR les casse.
+*.sh text eol=lf
