@@ -54,3 +54,15 @@ export function hoteSurPlace(adresse: string): boolean {
 /** Ce que l'opérateur lit quand une adresse est refusée parce qu'elle sort du poste. */
 export const RESEAU_POSTE_EXEMPLES =
   "127.x, 10.x, 172.16–31.x, 192.168.x, nom en .local ou .internal";
+
+/**
+ * Adresse d'un serveur du poste réglée par l'opérateur (IA, itinéraire, relief) : utilisable
+ * seulement si elle est sur le réseau du poste. Sans barre finale, prête à recevoir un chemin.
+ */
+export function serveurPoste(
+  adresse: string | undefined,
+): { base: string } | { refus: "absente" | "hors-poste" } {
+  if (!adresse) return { refus: "absente" };
+  if (!hoteSurPlace(adresse)) return { refus: "hors-poste" };
+  return { base: adresse.replace(/\/+$/, "") };
+}

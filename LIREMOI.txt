@@ -374,10 +374,10 @@ Symbologie APP-6 et radar
     l'IP du serveur, les zones de relevé, les stations et les tuiles regardées ; jamais l'IP de
     l'opérateur ni une donnée du poste. Aucun appel vers grok.com, une IA, une messagerie ou un
     service de statistiques.
-  · SERVEUR, SUR GESTE DE L'OPÉRATEUR : itinéraire (router.project-osrm.org) et profil de relief
-    (api.opentopodata.org) reçoivent les points de la route ; clic sur une mine ou une zone →
-    api.open-meteo.com reçoit une grille de points autour du site ; fiche d'un avion → adsbdb
-    reçoit son adresse.
+  · SERVEUR, SUR GESTE DE L'OPÉRATEUR : fiche d'un avion → adsbdb reçoit son adresse ICAO
+    (publique, émise en clair par l'avion). L'itinéraire, le profil de relief et l'altitude
+    d'une zone ne vont plus qu'aux serveurs du réseau du poste (voir « ITINÉRAIRE, RELIEF ET
+    ALTITUDE DE ZONE NE SORTENT PLUS DU POSTE »).
   · SEULEMENT SI UNE CLÉ OU UN RÉGLAGE EST POSÉ (rien ne part sinon) : l'IA (assistant, briefing,
     compte rendu de quart) ne parle plus qu'à un serveur du réseau du poste (voir « L'IA NE
     SORT PLUS DU POSTE ») ; relais d'alertes au chef — Telegram ne reçoit que le niveau et l'heure,
@@ -510,6 +510,26 @@ Symbologie APP-6 et radar
   affiche le modèle ; le diagnostic dit si l'IA est réglée, refusée ou absente. 5 tests sur un
   vrai faux serveur local (plus un espion qui prouve qu'une adresse refusée n'envoie rien) ;
   6 mutations, toutes prises.
+- ITINÉRAIRE, RELIEF ET ALTITUDE DE ZONE NE SORTENT PLUS DU POSTE (corrigé). Trois services
+  publics recevaient les coordonnées où le poste regarde, se rend ou protège : l'itinéraire
+  (router.project-osrm.org), le profil de relief (api.opentopodata.org) et, à chaque clic sur une
+  mine ou une zone, une grille d'environ 80 points autour du site (api.open-meteo.com). Mesuré
+  avant, de bout en bout (envois interceptés, rien n'est parti) : la grille autour de Komé, les
+  points de la route 15.03390,12.13310 → 15.20000,12.30000, puis tout le tracé point par point.
+  Désormais (src/lib/vigilair/geo-poste.server.ts) : un serveur OSRM (AFRICONTROL_ITINERAIRE) et
+  un serveur opentopodata (AFRICONTROL_RELIEF) SUR LE RÉSEAU DU POSTE — même règle que les
+  alertes et l'IA (reseau-poste). Sans eux : cap direct, profil et pente de zone « non mesurés »,
+  dit à l'écran. La note de praticabilité ne cite plus un MNT qu'on n'utilise pas : « MNT du
+  poste », et la source nomme le jeu de données réellement servi (ex. srtm30m).
+  Mesuré après, de bout en bout :
+  · aucun serveur réglé → « pas de serveur d'itinéraire sur le poste — cap direct », « pas de
+    serveur de relief », zone de Komé « dégradée » avec la raison ; 0 appel public ;
+  · les services publics mis dans les variables → « refusée … rien n'a été envoyé » ; 0 appel ;
+  · serveurs du poste (127.0.0.1) → route, profil « MNT du poste · srtm30m » et zone mesurée ;
+    les serveurs locaux ont reçu la grille, la route et le profil ; 0 appel public.
+  5 tests sur de faux serveurs OSRM et opentopodata locaux (plus un espion qui prouve qu'une
+  adresse refusée n'envoie aucune coordonnée) ; 6 mutations, toutes prises (dont lat/lon
+  inversées pour OSRM et un trou d'altitude comblé par 0).
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
   pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée
@@ -1019,14 +1039,30 @@ Navigation directe jusqu'au site (Capteurs > Navigation)
 - ALARME / NOTIFICATION : quand un NOUVEL obstacle réel surgit à moins de 25 km de la route ACTIVE,
   le poste pousse une alerte dans le bandeau ET sonne (bip court), même si on n'est pas sur l'onglet
   Navigation. Interrupteur « Alarme sonore ». Un même foyer ne re-sonne pas à chaque relevé.
-- PROFIL DE TERRAIN : bouton « Profil de terrain » → le poste interroge un service d'élévation public
-  (ASTER GDEM 30 m, opentopodata) et trace l'altitude le long de la route (min–max, dénivelé D+) pour
-  repérer un massif à franchir. ~30 m : un relief se voit, pas un ravin d'un mètre. Nécessite Internet.
+- PROFIL DE TERRAIN : bouton « Profil de terrain » → le poste interroge le serveur de relief DU
+  POSTE et trace l'altitude le long de la route (min–max, dénivelé D+) pour repérer un massif à
+  franchir. Avec un jeu SRTM ou ASTER ~30 m : un relief se voit, pas un ravin d'un mètre.
 - ITINÉRAIRE ROUTIER (OSM) : bouton « Itinéraire routier » → là où des routes existent (axes
-  principaux, ex. N'Djamena–Abéché), le poste trace la route réelle (OSRM/OpenStreetMap) avec distance
-  et durée ; la route tracée sur le COP suit alors les pistes. En zone sans route (BET, Ennedi) OSM
-  accroche une route lointaine : c'est détecté (trajet aberrant) et le poste revient au CAP DIRECT. On
-  a donc les DEUX : itinéraire routier quand il existe, cap direct sinon.
+  principaux, ex. N'Djamena–Abéché), le poste trace la route réelle (serveur OSRM du poste, carte
+  OpenStreetMap) avec distance et durée ; la route tracée sur le COP suit alors les pistes. En zone
+  sans route (BET, Ennedi) OSM accroche une route lointaine : c'est détecté (trajet aberrant) et le
+  poste revient au CAP DIRECT. On a donc les DEUX : itinéraire routier quand il existe, cap direct
+  sinon.
+- SERVEURS DU POSTE POUR L'ITINÉRAIRE ET LE RELIEF : les points d'une route, d'un profil ou d'une
+  zone ne partent qu'à des serveurs du réseau du poste, jamais à un service public. Sans eux, le
+  cap direct marche toujours, le profil et la pente de zone sont « non mesurés » — dit à l'écran,
+  jamais inventé. Les préparer une fois, en ligne, puis tout tourne hors ligne :
+    Itinéraire — OSRM (Docker) avec la carte OSM de la région :
+      wget http://download.geofabrik.de/africa/chad-latest.osm.pbf
+      docker run -t -v "$PWD:/data" ghcr.io/project-osrm/osrm-backend osrm-extract -p /opt/car.lua /data/chad-latest.osm.pbf
+      docker run -t -v "$PWD:/data" ghcr.io/project-osrm/osrm-backend osrm-partition /data/chad-latest.osrm
+      docker run -t -v "$PWD:/data" ghcr.io/project-osrm/osrm-backend osrm-customize /data/chad-latest.osrm
+      docker run -t -p 5000:5000 -v "$PWD:/data" ghcr.io/project-osrm/osrm-backend osrm-routed --algorithm mld /data/chad-latest.osrm
+      puis : AFRICONTROL_ITINERAIRE=http://127.0.0.1:5000
+    Relief — un serveur opentopodata (projet libre, Docker ; voir sa documentation) avec des tuiles
+      SRTM ou ASTER de la région, sur un autre port, puis l'adresse du JEU de données :
+      AFRICONTROL_RELIEF=http://127.0.0.1:5100/v1/srtm30m
+  Une adresse hors du réseau du poste est refusée avant tout envoi.
 - EXPORT GPX / POINTS : « Export GPX » télécharge la route (et les obstacles en waypoints) au format
   GPX 1.1 — importable par un GPS de véhicule (Garmin…) ou une appli carto. « Copier les points »
   copie les « lat, lon » en texte, à dicter à la radio ou coller dans un GPS basique.
@@ -1068,7 +1104,7 @@ autoriser ces domaines (HTTPS, port 443) :
   Imagerie géostationnaire  : gibs.earthdata.nasa.gov  view.eumetsat.int  tiles.maps.eox.at
   Sentinel-2 Copernicus     : sh.dataspace.copernicus.eu  identity.dataspace.copernicus.eu
   1090ES réseau / registre  : opendata.adsb.fi  api.adsb.lol  api.adsbdb.com
-  Météo / aéroport          : aviationweather.gov  api.open-meteo.com
+  Météo / aéroport          : aviationweather.gov
   Météo spatiale            : services.swpc.noaa.gov
   Phénomènes                : eonet.gsfc.nasa.gov  earthquake.usgs.gov  www.gdacs.org
                               firms.modaps.eosdis.nasa.gov  services9.arcgis.com

@@ -195,7 +195,7 @@ export function classifyPass(opts: {
       note: "MNT non joint. Le cercle GPS est exact. La pente n'est pas inventée.",
     };
   }
-  const slope = `Pente max ${max.toFixed(0)} % · moyenne ${mean.toFixed(0)} %. MNT Copernicus ~90 m, pas un graphe routier, pas les mines, pas le sable.`;
+  const slope = `Pente max ${max.toFixed(0)} % · moyenne ${mean.toFixed(0)} %. MNT du poste, pas un graphe routier, pas les mines, pas le sable.`;
   if (max < 8 && mean < 4) {
     return {
       mode: "voiture",

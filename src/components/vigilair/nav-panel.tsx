@@ -808,11 +808,11 @@ export function NavPanel() {
               ) : null}
               <p className="text-[11px] text-muted-foreground">
                 {elev.source} — un massif se voit, pas un ravin d'un mètre. Pente = moyenne entre relevés.
-                Nécessite Internet.
+                Les points de la route ne quittent pas le poste.
               </p>
             </>
           ) : (
-            <p className="font-mono text-xs text-crit">{elev.reason} — le profil a besoin d'Internet.</p>
+            <p className="font-mono text-xs text-crit">{elev.reason}</p>
           )}
         </div>
       ) : null}

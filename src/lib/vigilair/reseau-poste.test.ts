@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { hoteSurPlace } from "./reseau-poste.ts";
+import { hoteSurPlace, serveurPoste } from "./reseau-poste.ts";
 
 describe("réseau du poste : la seule destination où une donnée peut partir", () => {
   it("SUR PLACE : bouclage, privé, lien local, IPv6 locale, noms réservés au réseau local", () => {
@@ -48,5 +48,15 @@ describe("réseau du poste : la seule destination où une donnée peut partir", 
     ]) {
       assert.equal(hoteSurPlace(url), false, url);
     }
+  });
+
+  it("SERVEUR DU POSTE : absent, refusé hors du poste, ou prêt sans barre finale", () => {
+    assert.deepEqual(serveurPoste(undefined), { refus: "absente" });
+    assert.deepEqual(serveurPoste(""), { refus: "absente" });
+    assert.deepEqual(serveurPoste("https://router.project-osrm.org"), { refus: "hors-poste" });
+    assert.deepEqual(serveurPoste("http://10.0.0.7:5000//"), { base: "http://10.0.0.7:5000" });
+    assert.deepEqual(serveurPoste("http://relief.local:5100/v1/srtm30m"), {
+      base: "http://relief.local:5100/v1/srtm30m",
+    });
   });
 });

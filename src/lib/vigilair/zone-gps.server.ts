@@ -1,5 +1,5 @@
 import { kmPerDegLon } from "./geo";
-import { UA_POSTE } from "./agent-http";
+import { altitudes } from "./geo-poste.server";
 import {
   classifyPass,
   zoneCorners,
@@ -26,28 +26,12 @@ function grid(lat: number, lon: number, radiusKm: number): Sample[] {
   return out;
 }
 
-async function elevations(pts: Sample[]): Promise<number[] | null> {
-  const lat = pts.map((p) => p.lat.toFixed(5)).join(",");
-  const lon = pts.map((p) => p.lon.toFixed(5)).join(",");
-  const url = `https://api.open-meteo.com/v1/elevation?latitude=${lat}&longitude=${lon}`;
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 8000);
-  try {
-    const res = await fetch(url, {
-      signal: ctrl.signal,
-      headers: { accept: "application/json", "user-agent": UA_POSTE },
-    });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { elevation?: unknown };
-    if (!Array.isArray(body.elevation) || body.elevation.length !== pts.length) return null;
-    return body.elevation.map((n) => (typeof n === "number" && Number.isFinite(n) ? n : Number.NaN));
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(t);
-  }
-}
-
+/**
+ * Mesure d'une zone (clic sur une mine, une zone libre) : pente et altitude sur une grille autour
+ * du centre, par le serveur de relief DU RÉSEAU DU POSTE (voir geo-poste.server). Avant, la grille
+ * partait chez api.open-meteo.com. Sans serveur de relief, le cercle GPS reste exact et la pente
+ * n'est pas mesurée — jamais inventée.
+ */
 export async function measureZone(opts: {
   id: string;
   name: string;
@@ -71,14 +55,18 @@ export async function measureZone(opts: {
   };
   const water = zoneOnWater(opts.lat, opts.lon);
   const pts = grid(opts.lat, opts.lon, opts.radiusKm);
-  const elevs = await elevations(pts);
-  if (!elevs) {
+  const alt = await altitudes(pts);
+  if (!alt.ok) {
     const c = classifyPass({ water, slopeMax: null, slopeMean: null });
-    return { ...base, mode: c.mode, note: c.note, source: "WGS84 · MNT non joint" };
+    return {
+      ...base,
+      mode: c.mode,
+      note: c.note,
+      source: `WGS84 · relief non mesuré : ${alt.raison}`,
+    };
   }
   pts.forEach((p, k) => {
-    const e = elevs[k]!;
-    p.elev = Number.isFinite(e) ? e : null;
+    p.elev = alt.elev[k] ?? null;
   });
   const known = pts.filter((p) => p.elev != null).map((p) => p.elev as number);
   if (known.length < 4) {
@@ -112,7 +100,7 @@ export async function measureZone(opts: {
     slopeMaxPct: slopeMax,
     slopeMeanPct: slopeMean,
     mode: c.mode,
-    source: "WGS84 · Copernicus DEM ~90 m",
+    source: `WGS84 · MNT du poste (${alt.jeu})`,
     note: c.note,
   };
 }

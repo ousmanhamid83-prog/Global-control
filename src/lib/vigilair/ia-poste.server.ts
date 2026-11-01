@@ -13,7 +13,7 @@
  * Une adresse hors du réseau du poste (voir reseau-poste) est refusée avant tout envoi.
  */
 import { env } from "../env.server.ts";
-import { hoteSurPlace, RESEAU_POSTE_EXEMPLES } from "./reseau-poste.ts";
+import { RESEAU_POSTE_EXEMPLES, serveurPoste } from "./reseau-poste.ts";
 
 export type ChatMsg = { role: "system" | "user" | "assistant"; content: string };
 
@@ -21,20 +21,14 @@ export type ChatMsg = { role: "system" | "user" | "assistant"; content: string }
 const DELAI_REPONSE_MS = 120_000;
 
 function adresseIa(): { base: string } | { erreur: string; reglee: boolean } {
-  const brute = env("AFRICONTROL_IA");
-  if (!brute) {
-    return {
-      erreur: "IA du poste non réglée (AFRICONTROL_IA au lancement du serveur)",
-      reglee: false,
-    };
-  }
-  if (!hoteSurPlace(brute)) {
-    return {
-      erreur: `AFRICONTROL_IA refusée : le serveur d'IA doit être sur le réseau du poste (${RESEAU_POSTE_EXEMPLES}). Rien n'a été envoyé.`,
-      reglee: true,
-    };
-  }
-  return { base: brute.replace(/\/+$/, "") };
+  const s = serveurPoste(env("AFRICONTROL_IA"));
+  if ("base" in s) return s;
+  return s.refus === "absente"
+    ? { erreur: "IA du poste non réglée (AFRICONTROL_IA au lancement du serveur)", reglee: false }
+    : {
+        erreur: `AFRICONTROL_IA refusée : le serveur d'IA doit être sur le réseau du poste (${RESEAU_POSTE_EXEMPLES}). Rien n'a été envoyé.`,
+        reglee: true,
+      };
 }
 
 /** Pourquoi l'IA ne sert pas (non réglée, ou réglée hors du poste) ; null si elle est prête. */
