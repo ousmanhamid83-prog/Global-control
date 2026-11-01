@@ -1,5 +1,8 @@
 node_modules/
-.grok/
+# Dossier de la plateforme d'origine : ignoré, SAUF l'interrupteur d'authentification du poste
+# (VITE_AUTH_ENABLED=false). Sans lui, un clone exigeait une connexion que rien ne fournit.
+.grok/*
+!.grok/app-env.json
 screenshots/
 .output/
 .vercel/

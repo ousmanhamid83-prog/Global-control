@@ -476,6 +476,16 @@ Symbologie APP-6 et radar
   pendant la mesure, sont parties sans contenu elles aussi. 5 tests (32 adresses, y compris les
   faux-semblants : « 10.0.0.1@evil.com », « relais.local.example.com », IPv4 écrite en
   hexadécimal) ; 6 mutations, toutes prises.
+- UN CLONE DU DÉPÔT GITHUB OUVRE ENFIN LA CONSOLE (corrigé). Le réglage « authentification
+  coupée » du poste vit dans .grok/app-env.json, et .gitignore excluait tout le dossier .grok/ :
+  le fichier était dans le zip livré, jamais sur GitHub. Quiconque clonait le dépôt obtenait une
+  console qui exigeait une connexion que rien ne fournit. Mesuré sur un clone neuf : chaque
+  appel serveur répondait « Unauthorized », et rien ne remontait — c'est le symptôme « pas
+  connecté, relevés arrêtés ». Constaté quand l'environnement de travail a été recréé et le
+  dépôt recloné.
+  Correctif : .gitignore ignore toujours le reste de .grok/ mais suit ce seul fichier (aucun
+  secret, un interrupteur). Mesuré après, même clone : l'appel est accepté et reçoit la vraie
+  réponse du poste.
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
   pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée
