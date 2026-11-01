@@ -21,8 +21,9 @@ function bulletinLine(e: JournalEntry): string {
 }
 
 /**
- * Compte rendu de quart rédigé par DeepSeek à partir des SEULS bulletins du journal.
- * Partagé entre le Journal de preuve et la vue Quart (relève). La clé reste au serveur.
+ * Compte rendu de quart rédigé par l'IA du poste (serveur sur le réseau du poste) à partir des
+ * SEULS bulletins du journal. Partagé entre le Journal de preuve et la vue Quart (relève). Les
+ * bulletins, coordonnées comprises, ne vont à aucun service public.
  * Aide à relire et valider avant la relève — ce n'est pas une pièce scellée.
  */
 export function ShiftReportCard() {
@@ -54,7 +55,7 @@ export function ShiftReportCard() {
     const header =
       `AfriControl — compte rendu de quart\n` +
       `Poste FTTJ (N'Djamena) · ${stamp.toLocaleString("fr-FR")}\n` +
-      `Rédigé par assistant DeepSeek à partir de ${journal.length} bulletins du journal.\n` +
+      `Rédigé par l'IA du poste (serveur sur place) à partir de ${journal.length} bulletins du journal.\n` +
       `Aide à valider, pas une pièce scellée — la preuve reste les bulletins hashés.\n` +
       `${"=".repeat(60)}\n\n`;
     const blob = new Blob([header + report + "\n"], { type: "text/plain;charset=utf-8" });
@@ -71,7 +72,7 @@ export function ShiftReportCard() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="flex items-center gap-1.5 text-sm font-medium">
           <Sparkles className="size-4 text-muted-foreground" />
-          Compte rendu de quart · DeepSeek
+          Compte rendu de quart · IA du poste
         </p>
         <div className="flex items-center gap-2">
           {report ? (
@@ -86,8 +87,9 @@ export function ShiftReportCard() {
         </div>
       </div>
       <p className="text-xs text-muted-foreground">
-        Synthèse rédigée à partir des SEULS bulletins versés (faits réels, exercices marqués).
-        La clé reste au serveur. À relire et valider avant la relève — ce n'est pas une pièce scellée.
+        Synthèse rédigée à partir des SEULS bulletins versés (faits réels, exercices marqués), par
+        le serveur d'IA du poste : les bulletins ne sortent pas. À relire et valider avant la relève
+        — ce n'est pas une pièce scellée.
       </p>
       {err ? <p className="text-xs text-warn">{err}</p> : null}
       {report ? (

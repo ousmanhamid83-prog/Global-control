@@ -1316,12 +1316,9 @@ export const lookupAircraft = createServerFn({ method: "POST" })
 export const briefLivePicture = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async (): Promise<{ ok: true; text: string } | { ok: false; error: string }> => {
-    const apiKey = process.env.XAI_API_KEY;
-    const ds = await import("./deepseek.server");
-    const useDeepseek = ds.deepseekConfigured();
-    if (!useDeepseek && !apiKey) {
-      return { ok: false, error: "Briefing indisponible : configurer AFRICONTROL_DEEPSEEK (ou XAI_API_KEY)" };
-    }
+    const ia = await import("./ia-poste.server");
+    const indispo = ia.iaIndisponible();
+    if (indispo) return { ok: false, error: `Briefing indisponible : ${indispo.erreur}` };
     const pic = peekLiveCache();
     if (!pic) return { ok: false, error: "Pas encore d'ingest — attendre le 1090 / METAR" };
     const fttj = pic.metar.find((m) => m.icao === "FTTJ");
@@ -1356,30 +1353,7 @@ export const briefLivePicture = createServerFn({ method: "POST" })
       "Conclure: posture, ce qui est réel vs silence capteur, une action chef de division.",
     ].join("\n");
     try {
-      // DeepSeek (clé du poste) prioritaire ; repli xAI si seule XAI_API_KEY est posée.
-      if (useDeepseek) {
-        const text = await ds.deepseekChat([{ role: "user", content: prompt }], { maxTokens: 420 });
-        return { ok: true, text };
-      }
-      const res = await fetch("https://api.x.ai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: "grok-4.5",
-          max_tokens: 420,
-          temperature: 0.2,
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-      if (!res.ok) return { ok: false, error: `xAI ${res.status}` };
-      const body = (await res.json()) as {
-        choices?: { message?: { content?: string } }[];
-      };
-      const text = body.choices?.[0]?.message?.content?.trim() ?? "";
-      if (!text) return { ok: false, error: "Briefing vide" };
+      const text = await ia.iaChat([{ role: "user", content: prompt }], { maxTokens: 420 });
       return { ok: true, text };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "briefing échoué" };
@@ -1387,22 +1361,29 @@ export const briefLivePicture = createServerFn({ method: "POST" })
   });
 
 /**
- * État de la clé DeepSeek du poste (bouton « Tester la clé » dans Capteurs > Outils).
- * La clé reste dans l'environnement du serveur (AFRICONTROL_DEEPSEEK) ; on ne renvoie jamais
- * sa valeur, seulement si elle est posée et si l'API répond.
+ * État de l'IA du poste (bouton « Tester le serveur » dans Capteurs > Outils) : réglée, sur le
+ * réseau du poste, répond, avec quel modèle.
  */
-export const deepseekStatus = createServerFn({ method: "GET" })
+export const iaStatus = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .handler(async (): Promise<{ configured: boolean; ok: boolean; error: string | null }> => {
-    const ds = await import("./deepseek.server");
-    return ds.deepseekCheck();
-  });
+  .handler(
+    async (): Promise<{
+      configured: boolean;
+      ok: boolean;
+      error: string | null;
+      modele: string | null;
+    }> => {
+      const ia = await import("./ia-poste.server");
+      return ia.iaCheck();
+    },
+  );
 
 /**
- * Assistant IA du poste (DeepSeek) — question libre de l'opérateur. La question part côté SERVEUR,
- * la clé ne quitte jamais le poste, le navigateur ne reçoit que la réponse texte. L'assistant est
- * cadré : il raisonne sur l'image live réelle (capteurs), ne fabrique pas de pistes, répond en
- * français et bref. Réception seule : il ne commande rien et n'émet pas.
+ * Assistant IA du poste — question libre de l'opérateur. La question part du serveur du poste vers
+ * le serveur d'IA du réseau du poste (voir ia-poste.server), jamais vers un service public ; le
+ * navigateur ne reçoit que la réponse texte. L'assistant est cadré : il raisonne sur l'image live
+ * réelle (capteurs), ne fabrique pas de pistes, répond en français et bref. Réception seule : il ne
+ * commande rien et n'émet pas.
  */
 export const askAssistant = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
@@ -1413,10 +1394,9 @@ export const askAssistant = createServerFn({ method: "POST" })
   }))
   .handler(async ({ data }): Promise<{ ok: true; text: string } | { ok: false; error: string }> => {
     if (!data.question) return { ok: false, error: "Question vide" };
-    const ds = await import("./deepseek.server");
-    if (!ds.deepseekConfigured()) {
-      return { ok: false, error: "Assistant indisponible : configurer AFRICONTROL_DEEPSEEK au lancement du serveur" };
-    }
+    const ia = await import("./ia-poste.server");
+    const indispo = ia.iaIndisponible();
+    if (indispo) return { ok: false, error: `Assistant indisponible : ${indispo.erreur}` };
     // On donne à l'assistant un résumé factuel de l'image live réelle s'il y en a une.
     const pic = peekLiveCache();
     const fttj = pic?.metar.find((m) => m.icao === "FTTJ");
@@ -1440,7 +1420,7 @@ export const askAssistant = createServerFn({ method: "POST" })
       (data.track ? `\n\nPiste ciblée par l'opérateur :\n${data.track}` : "") +
       `\n\nQuestion de l'opérateur : ${data.question}`;
     try {
-      const text = await ds.deepseekChat(
+      const text = await ia.iaChat(
         [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -1536,12 +1516,19 @@ export const posteDiagnostic = createServerFn({ method: "GET" })
       rows.push({ id: "gps", label: "GPS du poste (position/heure)", state: "crit", detail: `${gs.source} injoignable${gs.error ? ` : ${gs.error}` : ""}.` });
     }
 
-    const ds = await import("./deepseek.server");
+    const ia = await import("./ia-poste.server");
+    const iaKo = ia.iaIndisponible();
     rows.push({
-      id: "deepseek",
-      label: "Assistant IA (DeepSeek)",
-      state: ds.deepseekConfigured() ? "ok" : "off",
-      detail: ds.deepseekConfigured() ? "Clé posée. « Tester la clé » dans Outils pour un essai live." : "Clé non posée (AFRICONTROL_DEEPSEEK) — assistant indisponible.",
+      id: "ia",
+      label: "IA du poste (serveur sur place)",
+      state: !iaKo ? "ok" : iaKo.reglee ? "crit" : "off",
+      detail: !iaKo
+        ? "Serveur réglé sur le réseau du poste. « Tester le serveur » dans Outils pour un essai live."
+        : iaKo.reglee
+          ? iaKo.erreur
+          : // Une ancienne clé de service public posée au lancement n'est plus lue : le dire, pour que
+            // personne ne croie l'assistant branché.
+            `Non réglée (AFRICONTROL_IA) — assistant, briefing et compte rendu indisponibles.${process.env.AFRICONTROL_DEEPSEEK || process.env.XAI_API_KEY ? " AFRICONTROL_DEEPSEEK et XAI_API_KEY ne sont plus lues : l'IA ne sort plus du poste." : ""}`,
     });
 
     const sh = await import("./sentinelhub.server");
@@ -1556,10 +1543,11 @@ export const posteDiagnostic = createServerFn({ method: "GET" })
   });
 
 /**
- * Compte rendu de quart (AAR) rédigé par DeepSeek à partir des VRAIS événements du journal de preuve.
- * Le client fournit des lignes factuelles (champs typés des bulletins), le serveur les met en forme et
- * demande une synthèse structurée. La clé reste au serveur. Les bulletins d'exercice (inject) sont
- * fournis marqués « EXERCICE » et ne doivent jamais être présentés comme du trafic réel.
+ * Compte rendu de quart (AAR) rédigé par l'IA du poste à partir des VRAIS événements du journal de
+ * preuve. Le client fournit des lignes factuelles (champs typés des bulletins, coordonnées
+ * comprises), le serveur les met en forme et demande une synthèse structurée au serveur d'IA du
+ * réseau du poste : les bulletins ne sortent pas. Les bulletins d'exercice (inject) sont fournis
+ * marqués « EXERCICE » et ne doivent jamais être présentés comme du trafic réel.
  */
 export const shiftReport = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
@@ -1570,10 +1558,9 @@ export const shiftReport = createServerFn({ method: "POST" })
     meta: String(raw?.meta ?? "").trim().slice(0, 300),
   }))
   .handler(async ({ data }): Promise<{ ok: true; text: string } | { ok: false; error: string }> => {
-    const ds = await import("./deepseek.server");
-    if (!ds.deepseekConfigured()) {
-      return { ok: false, error: "Compte rendu indisponible : configurer AFRICONTROL_DEEPSEEK au lancement du serveur" };
-    }
+    const ia = await import("./ia-poste.server");
+    const indispo = ia.iaIndisponible();
+    if (indispo) return { ok: false, error: `Compte rendu indisponible : ${indispo.erreur}` };
     if (data.events.length === 0) {
       return { ok: false, error: "Aucun bulletin au journal — rien à résumer." };
     }
@@ -1586,7 +1573,7 @@ export const shiftReport = createServerFn({ method: "POST" })
       "réel, signale-le comme exercice. Si les données sont minces, dis-le au lieu de broder.";
     const user = `${data.meta ? data.meta + "\n" : ""}Bulletins du journal (les plus récents en tête) :\n${data.events.join("\n")}`;
     try {
-      const text = await ds.deepseekChat(
+      const text = await ia.iaChat(
         [
           { role: "system", content: system },
           { role: "user", content: user },

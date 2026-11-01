@@ -47,20 +47,26 @@ Intégrer ta propre API
   créer un module <nom>.server.ts qui fait le fetch, et l'exposer via createServerFn (voir
   src/lib/vigilair/live-feeds.ts). Le composant appelle la fonction, le navigateur ne voit que le résultat.
 
-Assistant IA DeepSeek (ta clé) — Capteurs > Outils
-- Le poste intègre un assistant qui raisonne sur l'image live réelle (1090ES, METAR, SIGMET, Kp).
-  Il répond en français, bref, sans inventer de pistes. Réception seule : il ne commande rien.
-- Ta clé DeepSeek est un SECRET : elle vit UNIQUEMENT dans la variable d'environnement du serveur
-  AFRICONTROL_DEEPSEEK, posée AU LANCEMENT. Jamais dans le code, le zip livré, Git, ni .grok/app-env.json
-  (ce n'est PAS une variable VITE_ : celles-là partent dans le navigateur). La clé ne quitte jamais le
-  serveur ; le navigateur ne reçoit que la réponse texte.
-    AFRICONTROL_DEEPSEEK=sk-xxxx PORT=8080 node .output/server/index.mjs     (serveur autonome)
-    AFRICONTROL_DEEPSEEK=sk-xxxx npm run dev                                 (dev)
-    Windows PowerShell :  $env:AFRICONTROL_DEEPSEEK="sk-xxxx"; npm run dev
-- Capteurs > Outils > « Assistant IA du poste » : bouton « Tester la clé » (vérifie que l'API répond)
-  et un champ question libre. Le même bouton sert au « Briefing situation » (DeepSeek si la clé est posée).
-- IMPORTANT : si une clé a été exposée (collée dans un message, un ticket, une capture), la RÉVOQUER et en
-  régénérer une sur platform.deepseek.com. Une clé ne se partage pas en clair ; seul le serveur la détient.
+Assistant IA du poste (serveur sur place) — Capteurs > Outils
+- Le poste intègre un assistant qui raisonne sur l'image live réelle (1090ES, METAR, SIGMET, Kp),
+  un briefing de situation et un compte rendu de quart. Réponses en français, brèves, sans inventer
+  de pistes. Réception seule : il ne commande rien.
+- Le modèle tourne SUR LE RÉSEAU DU POSTE, jamais chez un service public : la question de
+  l'opérateur, le résumé de l'image et les bulletins du journal (indicatifs, coordonnées) ne
+  sortent pas. Tout serveur compatible OpenAI convient : Ollama, llama.cpp (llama-server), vLLM,
+  LM Studio. Exemple avec Ollama sur la machine du poste :
+    ollama pull qwen2.5:7b
+    AFRICONTROL_IA=http://127.0.0.1:11434/v1 PORT=8080 node .output/server/index.mjs   (serveur autonome)
+    AFRICONTROL_IA=http://127.0.0.1:11434/v1 npm run dev                               (dev)
+    Windows PowerShell :  $env:AFRICONTROL_IA="http://127.0.0.1:11434/v1"; npm run dev
+  Facultatif : AFRICONTROL_IA_MODELE (sinon, le premier modèle que le serveur annonce) et
+  AFRICONTROL_IA_CLE (jeton, si le serveur en exige un). Un serveur sur une autre machine du
+  réseau du poste convient aussi (10.x, 172.16–31.x, 192.168.x, nom en .local ou .internal).
+- Une adresse hors du réseau du poste est REFUSÉE avant tout envoi. AFRICONTROL_DEEPSEEK et
+  XAI_API_KEY ne sont plus lues (le diagnostic le signale si elles traînent encore au lancement).
+- Capteurs > Outils > « Assistant IA du poste » : bouton « Tester le serveur » (réglé, sur le poste,
+  répond, avec quel modèle) et un champ question libre. Le « Briefing situation » passe par le même
+  serveur.
 
 Antenne 1090 du poste (clé SDR + dump1090)
 Lancer dump1090 avec le port brut AVR, et un port web qui ne prend pas 8080 (celui de AfriControl) :
@@ -372,10 +378,9 @@ Symbologie APP-6 et radar
     (api.opentopodata.org) reçoivent les points de la route ; clic sur une mine ou une zone →
     api.open-meteo.com reçoit une grille de points autour du site ; fiche d'un avion → adsbdb
     reçoit son adresse.
-  · SEULEMENT SI UNE CLÉ OU UN RÉGLAGE EST POSÉ (rien ne part sinon) : assistant, briefing et
-    compte rendu de quart par IA (DeepSeek, ou xAI en repli) — ils reçoivent la question de
-    l'opérateur, un résumé de l'image et, pour le compte rendu, les bulletins du journal avec
-    leurs coordonnées ; relais d'alertes au chef — Telegram ne reçoit que le niveau et l'heure,
+  · SEULEMENT SI UNE CLÉ OU UN RÉGLAGE EST POSÉ (rien ne part sinon) : l'IA (assistant, briefing,
+    compte rendu de quart) ne parle plus qu'à un serveur du réseau du poste (voir « L'IA NE
+    SORT PLUS DU POSTE ») ; relais d'alertes au chef — Telegram ne reçoit que le niveau et l'heure,
     le webhook Signal ne reçoit le détail que s'il est sur le réseau du poste (voir « LE DÉTAIL
     DES ALERTES NE QUITTE PLUS LE POSTE ») ; Sentinel Hub — la zone du site.
   · CORRIGÉ PENDANT L'AUDIT : l'en-tête User-Agent de chaque requête annonçait la mission et la
@@ -486,6 +491,25 @@ Symbologie APP-6 et radar
   Correctif : .gitignore ignore toujours le reste de .grok/ mais suit ce seul fichier (aucun
   secret, un interrupteur). Mesuré après, même clone : l'appel est accepté et reçoit la vraie
   réponse du poste.
+- L'IA NE SORT PLUS DU POSTE (corrigé). L'assistant, le briefing et le compte rendu de quart
+  envoyaient tout à api.deepseek.com, avec repli sur api.x.ai. Mesuré avant, de bout en bout
+  (clé factice, envois interceptés au serveur, rien n'est parti) : trois requêtes vers DeepSeek —
+  l'assistant (831 caractères : la question « Quelle posture autour de Komé ? », N'Djamena, le
+  METAR, les contacts), le briefing (1 618 caractères : résumé de l'image et échantillon de
+  pistes), le compte rendu (761 caractères : indicatif AFR123, coordonnées 12.1500N, plateforme).
+  Désormais (src/lib/vigilair/ia-poste.server.ts) : un serveur de modèle SUR LE RÉSEAU DU POSTE
+  (AFRICONTROL_IA, compatible OpenAI : Ollama, llama.cpp, vLLM, LM Studio). Une adresse hors du
+  poste est refusée avant tout envoi ; DeepSeek et xAI ne sont plus appelés du tout. La règle
+  « réseau du poste » est la même que pour les alertes (src/lib/vigilair/reseau-poste.ts).
+  Mesuré après, les trois mêmes fonctions, de bout en bout :
+  · ancienne clé DeepSeek posée, AFRICONTROL_IA absente → « IA du poste non réglée », 0 appel ;
+  · AFRICONTROL_IA=https://api.deepseek.com/v1 → « refusée … Rien n'a été envoyé », 0 appel ;
+  · AFRICONTROL_IA=http://127.0.0.1:11434/v1 (serveur de modèle local) → trois réponses du
+    serveur local, qui a reçu les trois échanges ; 0 appel vers une IA publique.
+  Interface : « Assistant IA du poste · serveur sur place », bouton « Tester le serveur », qui
+  affiche le modèle ; le diagnostic dit si l'IA est réglée, refusée ou absente. 5 tests sur un
+  vrai faux serveur local (plus un espion qui prouve qu'une adresse refusée n'envoie rien) ;
+  6 mutations, toutes prises.
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
   pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée
@@ -645,20 +669,22 @@ Balayage continental (chef de division) — Capteurs > 1090ES
 
 Diagnostic du poste — Capteurs > Outils
 - Une vue qui dit honnêtement l'état de CHAQUE source : 1090ES réseau, METAR, SIGMET, météo spatiale,
-  antenne 1090 locale, phonie ATC, clé assistant DeepSeek, clé imagerie Sentinel. Vert = répond,
+  antenne 1090 locale, phonie ATC, IA du poste, clé imagerie Sentinel. Vert = répond,
   jaune = réglé mais rien reçu / vieux, rouge = réglé mais en échec, gris = non réglé (optionnel).
 - Il n'interroge PAS les API (aucun martèlement) : il lit le dernier relevé en cache, l'état mémoire
   de l'antenne et de la phonie, et la présence des clés. « 0 contact » est un vrai constat là où le
   réseau public n'a pas de récepteur, jamais une panne déguisée. Bouton « Rafraîchir ».
 - Chaque ligne en défaut porte un bouton d'action direct : « Régler l'antenne » (onglet Antenne),
-  « Ouvrir Phonie ATC », « Configurer la clé » (DeepSeek / Sentinel). On va au bon réglage en un clic.
+  « Ouvrir Phonie ATC », « Régler le serveur IA », « Configurer la clé » (Sentinel). On va au bon
+  réglage en un clic.
 
-Compte rendu de quart (DeepSeek) — Journal de preuve
-- En tête du Journal : bouton « Rédiger le compte rendu ». DeepSeek rédige un AAR structuré (période,
-  volume, faits marquants, points d'attention, recommandation pour la relève) à partir des SEULS
-  bulletins versés. Les injects sont marqués EXERCICE et ne sont jamais comptés comme trafic réel.
-- La clé reste au serveur (AFRICONTROL_DEEPSEEK). Le compte rendu est une aide à relire et valider,
-  pas une pièce scellée : les bulletins hashés restent la preuve.
+Compte rendu de quart (IA du poste) — Journal de preuve
+- En tête du Journal : bouton « Rédiger le compte rendu ». L'IA du poste rédige un AAR structuré
+  (période, volume, faits marquants, points d'attention, recommandation pour la relève) à partir
+  des SEULS bulletins versés. Les injects sont marqués EXERCICE et ne sont jamais comptés comme
+  trafic réel.
+- Les bulletins ne vont qu'au serveur d'IA du réseau du poste (AFRICONTROL_IA). Le compte rendu
+  est une aide à relire et valider, pas une pièce scellée : les bulletins hashés restent la preuve.
 
 Enregistrements archivés — Capteurs > Outils
 - Copie de ce que le poste a réellement entendu (veille 30 min), écrite sur disque dans recordings/.
@@ -1046,7 +1072,7 @@ autoriser ces domaines (HTTPS, port 443) :
   Météo spatiale            : services.swpc.noaa.gov
   Phénomènes                : eonet.gsfc.nasa.gov  earthquake.usgs.gov  www.gdacs.org
                               firms.modaps.eosdis.nasa.gov  services9.arcgis.com
-  Assistant IA (ta clé)     : api.deepseek.com
+  Assistant IA              : aucun domaine — serveur du réseau du poste (AFRICONTROL_IA)
 Imagerie nette = Esri Clarity / World Imagery jusqu'à 0,3 m (zoom 19) : une archive, pas une
 prise du jour. Le crédit en bas de carte dit toujours d'où vient l'image affichée.
 

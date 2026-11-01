@@ -32,8 +32,8 @@ import {
   atcStatus,
   atcToggle,
   briefLivePicture,
-  deepseekStatus,
   gpsStatus,
+  iaStatus,
   downloadArchive,
   downloadAtcSegment,
   fetchArchives,
@@ -1218,8 +1218,8 @@ function DiagnosticSection({ onGoTab }: { onGoTab: (id: Tab) => void }) {
         return { label: "Régler l'antenne", run: () => onGoTab("antenne") };
       case "atc":
         return { label: "Ouvrir Phonie ATC", run: () => onGoTab("phonie") };
-      case "deepseek":
-        return { label: "Configurer la clé", run: () => scrollTo("diag-deepseek") };
+      case "ia":
+        return { label: "Régler le serveur IA", run: () => scrollTo("diag-ia") };
       case "sentinel":
         return { label: "Configurer la clé", run: () => scrollTo("diag-sentinel") };
       default:
@@ -1287,7 +1287,12 @@ function DiagnosticSection({ onGoTab }: { onGoTab: (id: Tab) => void }) {
 }
 
 function AssistantSection() {
-  const [st, setSt] = useState<{ configured: boolean; ok: boolean; error: string | null } | null>(null);
+  const [st, setSt] = useState<{
+    configured: boolean;
+    ok: boolean;
+    error: string | null;
+    modele: string | null;
+  } | null>(null);
   const [testing, setTesting] = useState(false);
   const [q, setQ] = useState("");
   const [answer, setAnswer] = useState<string | null>(null);
@@ -1296,9 +1301,11 @@ function AssistantSection() {
 
   const test = () => {
     setTesting(true);
-    deepseekStatus()
+    iaStatus()
       .then(setSt)
-      .catch((e: unknown) => setSt({ configured: true, ok: false, error: e instanceof Error ? e.message : "échec" }))
+      .catch((e: unknown) =>
+        setSt({ configured: true, ok: false, error: e instanceof Error ? e.message : "échec", modele: null }),
+      )
       .finally(() => setTesting(false));
   };
   useEffect(() => {
@@ -1320,33 +1327,46 @@ function AssistantSection() {
   };
 
   const tone = !st ? "default" : !st.configured ? "warn" : st.ok ? "ok" : "crit";
-  const label = !st ? "…" : !st.configured ? "clé requise" : st.ok ? "clé valide" : "clé en échec";
+  const label = !st
+    ? "…"
+    : !st.configured
+      ? "serveur à régler"
+      : st.ok
+        ? `prêt · ${st.modele ?? "modèle ?"}`
+        : "en échec";
 
   return (
-    <section id="diag-deepseek" className="space-y-3 rounded-md border border-border bg-surface p-4 col-span-2 hud">
+    <section id="diag-ia" className="space-y-3 rounded-md border border-border bg-surface p-4 col-span-2 hud">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-medium">Assistant IA du poste · DeepSeek</h2>
+        <h2 className="text-sm font-medium">Assistant IA du poste · serveur sur place</h2>
         <div className="flex items-center gap-2">
           <Badge tone={tone}>{label}</Badge>
           <Button size="sm" variant="outline" disabled={testing} onClick={test}>
-            {testing ? "…" : "Tester la clé"}
+            {testing ? "…" : "Tester le serveur"}
           </Button>
         </div>
       </div>
       <p className="text-sm text-muted-foreground">
-        Question libre sur l'image live. La question part <strong>du serveur</strong> : ta clé ne
-        quitte jamais le poste, le navigateur ne reçoit que la réponse. L'assistant raisonne sur les
-        capteurs réels du dernier ingest — il n'invente pas de pistes et ne commande rien.
+        Question libre sur l'image live. Elle part du serveur du poste vers <strong>ton</strong>{" "}
+        serveur de modèle, sur le réseau du poste : ni la question, ni l'image, ni les bulletins ne
+        vont à un service public. L'assistant raisonne sur les capteurs réels du dernier ingest — il
+        n'invente pas de pistes et ne commande rien.
       </p>
       {st?.error ? <p className="font-mono text-xs text-crit">{st.error}</p> : null}
       {!st?.configured ? (
         <div className="space-y-2 rounded-sm border border-border bg-bg/60 p-3 text-xs text-muted-foreground">
-          <p className="text-fg">Brancher la clé DeepSeek (secret du poste)</p>
-          <p>Poser la clé dans l'environnement du serveur AU LANCEMENT — jamais dans le code, le zip, ni Git :</p>
+          <p className="text-fg">Brancher un serveur de modèle sur le réseau du poste</p>
+          <p>
+            Ollama, llama.cpp (llama-server), vLLM ou LM Studio — API compatible OpenAI. Poser son
+            adresse au lancement du serveur :
+          </p>
           <pre className="overflow-x-auto rounded-xs bg-bg px-2 py-1.5 font-mono text-[11px] text-fg">
-            AFRICONTROL_DEEPSEEK=sk-... PORT=8080 node .output/server/index.mjs
+            AFRICONTROL_IA=http://127.0.0.1:11434/v1 PORT=8080 node .output/server/index.mjs
           </pre>
-          <p>En dev : AFRICONTROL_DEEPSEEK=sk-... npm run dev. Ce n'est PAS une variable VITE_ (celles-là partent dans le navigateur).</p>
+          <p>
+            Modèle : AFRICONTROL_IA_MODELE (sinon, le premier que le serveur annonce). Une adresse
+            hors du réseau du poste est refusée avant tout envoi.
+          </p>
         </div>
       ) : (
         <>
@@ -1480,7 +1500,7 @@ function ToolsPanel({ onGoTab }: { onGoTab: (id: Tab) => void }) {
         <h2 className="text-sm font-medium">Briefing situation</h2>
         <p className="text-sm text-muted-foreground">
           Synthèse des capteurs réels du dernier ingest — 1090, METAR, SIGMET,
-          Kp, NIC. Demande explicite, une fois.
+          Kp, NIC — par l'IA du poste (serveur sur place). Demande explicite, une fois.
         </p>
         <Button type="button" onClick={runBrief} disabled={briefing}>
           {briefing ? "Rédaction…" : "Briefing chef de division"}

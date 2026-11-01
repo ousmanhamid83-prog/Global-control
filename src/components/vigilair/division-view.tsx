@@ -27,7 +27,7 @@ import {
   type TeamRecapRow,
 } from "@/lib/vigilair/command";
 import { formatDate } from "@/lib/vigilair/format";
-import { hoteSurPlace } from "@/lib/vigilair/relais-alerte";
+import { hoteSurPlace, RESEAU_POSTE_EXEMPLES } from "@/lib/vigilair/reseau-poste";
 import {
   ASSIGNABLE_ROLES,
   ROLE_LABEL,
@@ -911,8 +911,7 @@ function BotsPanel() {
         <p className="mt-1 text-sm text-muted-foreground">
           Le détail d'une alerte ne quitte pas le réseau du poste. Telegram passe par les serveurs
           de Telegram : il ne reçoit que le niveau et l'heure. Le webhook reçoit le détail s'il est
-          sur le réseau du poste (127.x, 10.x, 172.16–31.x, 192.168.x, nom en .local ou .internal),
-          sinon la même alerte sans contenu.
+          sur le réseau du poste ({RESEAU_POSTE_EXEMPLES}), sinon la même alerte sans contenu.
         </p>
       </div>
       <form onSubmit={onSave} className="grid gap-3 grid-cols-2">
