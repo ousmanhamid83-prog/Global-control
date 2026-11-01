@@ -27,6 +27,7 @@ import {
   type TeamRecapRow,
 } from "@/lib/vigilair/command";
 import { formatDate } from "@/lib/vigilair/format";
+import { estRelaisSignal } from "@/lib/vigilair/relais-alerte";
 import { hoteSurPlace, RESEAU_POSTE_EXEMPLES } from "@/lib/vigilair/reseau-poste";
 import {
   ASSIGNABLE_ROLES,
@@ -913,6 +914,11 @@ function BotsPanel() {
           de Telegram : il ne reçoit que le niveau et l'heure. Le webhook reçoit le détail s'il est
           sur le réseau du poste ({RESEAU_POSTE_EXEMPLES}), sinon la même alerte sans contenu.
         </p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Relais Signal du poste (installé par scripts/poste/preparer-poste) : coller
+          http://127.0.0.1:8085/v2/send?number=+235…&amp;recipients=+235… — le détail part chiffré
+          de bout en bout jusqu'aux téléphones des destinataires.
+        </p>
       </div>
       <form onSubmit={onSave} className="grid gap-3 grid-cols-2">
         <label className="block text-sm col-span-2">
@@ -941,7 +947,7 @@ function BotsPanel() {
             className="mt-1"
             value={hook}
             onChange={(e) => setHook(e.target.value)}
-            placeholder="https://…"
+            placeholder="http://127.0.0.1:8085/v2/send?number=+235…&recipients=+235…"
           />
         </label>
         <div className="flex flex-wrap items-center gap-2 col-span-2">
@@ -955,7 +961,11 @@ function BotsPanel() {
           )}
           {hook.trim() ? (
             hoteSurPlace(hook.trim()) ? (
-              <Badge tone="ok">Webhook sur le réseau du poste · détail</Badge>
+              <Badge tone="ok">
+                {estRelaisSignal(hook.trim())
+                  ? "Relais Signal du poste · détail chiffré"
+                  : "Webhook sur le réseau du poste · détail"}
+              </Badge>
             ) : (
               <Badge>Webhook hors du poste · sans contenu</Badge>
             )

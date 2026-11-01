@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { corpsWebhook, texteTelegram } from "./relais-alerte.ts";
+import { corpsWebhook, envoiWebhook, estRelaisSignal, texteTelegram } from "./relais-alerte.ts";
 
 const ALERTE = {
   id: "trk-ami-1793446-AFR123",
@@ -43,5 +43,52 @@ describe("relais d'alerte : ce qui sort du poste", () => {
       title: ALERTE.title,
       body: ALERTE.body,
     });
+  });
+});
+
+describe("relais Signal du poste (signal-cli-rest-api)", () => {
+  it("RECONNU : l'adresse finit par /v2/send, et rien d'autre", () => {
+    assert.ok(estRelaisSignal("http://127.0.0.1:8085/v2/send?number=+235"));
+    assert.ok(estRelaisSignal("http://127.0.0.1:8085/v2/send/"));
+    assert.ok(!estRelaisSignal("http://127.0.0.1:8085/v2/sendx"));
+    assert.ok(!estRelaisSignal("http://10.9.9.9:8080/hook"));
+    assert.ok(!estRelaisSignal("pas une adresse"));
+  });
+
+  it("SUR PLACE : le détail, les numéros intacts, l'adresse sans ses paramètres", () => {
+    const envoi = envoiWebhook(
+      ALERTE,
+      "http://127.0.0.1:8085/v2/send?number=+23566000001&recipients=+23566000002, %2B23566000003,",
+      AT,
+    );
+    assert.deepEqual(envoi, {
+      url: "http://127.0.0.1:8085/v2/send",
+      corps: {
+        message: `AfriControl · CRITIQUE\n${ALERTE.title}\n${ALERTE.body}`,
+        number: "+23566000001",
+        recipients: ["+23566000002", "+23566000003"],
+      },
+    });
+  });
+
+  it("HORS DU POSTE : niveau et heure seulement, comme Telegram", () => {
+    const envoi = envoiWebhook(
+      ALERTE,
+      "https://signal.exemple-externe.test/v2/send?number=+23566000001&recipients=+23566000002",
+      AT,
+    );
+    assert.equal(envoi.url, "https://signal.exemple-externe.test/v2/send");
+    assert.equal(envoi.corps.message, texteTelegram(ALERTE, AT));
+    const json = JSON.stringify(envoi.corps);
+    for (const mot of MOTS_SENSIBLES) assert.ok(!json.includes(mot), mot);
+  });
+
+  it("WEBHOOK GÉNÉRIQUE : adresse et corps inchangés", () => {
+    for (const adresse of ["http://10.9.9.9:8080/hook?jeton=a+b", "https://hooks.exemple.test/x"]) {
+      assert.deepEqual(envoiWebhook(ALERTE, adresse, AT), {
+        url: adresse,
+        corps: corpsWebhook(ALERTE, adresse, AT),
+      });
+    }
   });
 });

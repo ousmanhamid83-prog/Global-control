@@ -3,7 +3,7 @@ import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql } from "@/lib/db";
 import { sanitizeMachineLabel, scrubSessionIps, stripIps } from "./privacy";
-import { corpsWebhook, texteTelegram } from "./relais-alerte";
+import { envoiWebhook, texteTelegram } from "./relais-alerte";
 import { AGENT_SESSION_CAP, pruneOldSessions, requireChefSeal } from "./seal";
 
 export type StaffRole = "superadmin" | "admin" | "operateur" | "analyste";
@@ -475,10 +475,11 @@ export async function dispatchChefAlert(data: {
     }
     if (cfg?.signal_webhook) {
       try {
-        const res = await fetch(cfg.signal_webhook, {
+        const envoi = envoiWebhook(data, cfg.signal_webhook, at);
+        const res = await fetch(envoi.url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(corpsWebhook(data, cfg.signal_webhook, at)),
+          body: JSON.stringify(envoi.corps),
           signal: AbortSignal.timeout(4000),
         });
         if (res.ok) channels.push("signal");
