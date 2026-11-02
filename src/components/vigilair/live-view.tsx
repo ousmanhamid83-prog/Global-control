@@ -1354,13 +1354,29 @@ function Redaction({ depuis }: { depuis: number }) {
 
 /** Une réponse de l'assistant : texte vérifié, temps mesuré, extraits de la notice. */
 function ReponseAssistantVue({ rep, duree }: { rep: ReponseAssistant; duree: number | null }) {
+  // Sans IA, la console répond quand même : faits du relevé et passages de la notice.
+  const sansIa = !rep.ok && (rep.faits.length > 0 || rep.notice.length > 0);
   return (
     <div className="space-y-2">
       {rep.ok ? (
         <ReponseIa texte={rep.text} className="text-sm" />
+      ) : sansIa ? (
+        <p className="text-xs text-muted-foreground">
+          {rep.error} — réponse sans IA, sans rédaction : les valeurs reçues et la notice du poste.
+        </p>
       ) : (
         <p className="text-sm text-warn">{rep.error}</p>
       )}
+      {!rep.ok && rep.faits.length > 0 ? (
+        <div className="rounded-sm border border-border bg-bg/60 p-2 text-xs">
+          <p className="text-muted-foreground">
+            Ce que disent les capteurs — dernier relevé, valeurs reçues, sans interprétation
+          </p>
+          <pre className="mt-1 whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-fg">
+            {rep.faits.join("\n")}
+          </pre>
+        </div>
+      ) : null}
       {rep.ok && duree != null ? (
         <p className="text-[11px] text-muted-foreground">
           Réponse en {duree.toFixed(1)} s
@@ -1370,9 +1386,9 @@ function ReponseAssistantVue({ rep, duree }: { rep: ReponseAssistant; duree: num
           .
         </p>
       ) : null}
-      {!rep.ok && rep.notice.length === 0 ? (
+      {!rep.ok && !sansIa ? (
         <p className="text-xs text-muted-foreground">
-          Aucun passage de la notice du poste ne répond à cette question.
+          Ni la notice du poste ni le dernier relevé ne répondent à cette question.
         </p>
       ) : null}
       {rep.notice.length > 0 ? (
@@ -1432,7 +1448,12 @@ function AssistantSection() {
     askAssistant({ data: { question } })
       .then(setRep)
       .catch((e: unknown) =>
-        setRep({ ok: false, error: e instanceof Error ? e.message : "assistant échoué", notice: [] }),
+        setRep({
+          ok: false,
+          error: e instanceof Error ? e.message : "assistant échoué",
+          notice: [],
+          faits: [],
+        }),
       )
       .finally(() => {
         setDuree((Date.now() - t0) / 1000);
@@ -1464,8 +1485,9 @@ function AssistantSection() {
         Question libre sur l'image live ou sur l'usage de la console. Elle part du serveur du poste
         vers <strong>ton</strong> serveur de modèle, sur le réseau du poste : ni la question, ni
         l'image, ni les bulletins ne vont à un service public. Pour une question d'usage, la notice
-        du poste (LIREMOI) est cherchée sur place et jointe — sans serveur d'IA, ses passages
-        s'affichent seuls.
+        du poste (LIREMOI) est cherchée sur place et jointe. Sans serveur d'IA, la console répond
+        quand même, sans rédiger : les passages de la notice, et pour une question sur l'image live
+        les valeurs brutes du dernier relevé.
       </p>
       <LimitesIa />
       {st?.error ? <p className="font-mono text-xs text-crit">{st.error}</p> : null}

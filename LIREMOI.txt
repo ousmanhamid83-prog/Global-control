@@ -175,6 +175,21 @@ Assistant IA du poste (serveur sur place) — Capteurs > Outils
   sont détachées du texte et colorées, dans l'assistant, le dossier d'une piste, le briefing et
   le compte rendu de quart. Vérifié dans un vrai navigateur, avec et sans serveur d'IA : 0 erreur
   console.
+- SANS SERVEUR D'IA, LA CONSOLE RÉPOND QUAND MÊME (src/lib/vigilair/faits-capteurs.ts). Une
+  question sur l'image live reçoit les valeurs brutes du dernier relevé, choisies selon son sujet :
+  trafic 1090ES (totaux, les plus proches de FTTJ avec leur distance), urgences, appareils
+  d'État, METAR et TAF de FTTJ mot pour mot, Kp et alertes SWPC, SIGMET de l'AO, cellules GNSS
+  dégradées. Elles s'affichent sous « Ce que disent les capteurs — dernier relevé, valeurs reçues,
+  sans interprétation ». Une question qui exprime une crainte réunit tout ce qui peut alerter ;
+  une demande de synthèse, tout. Les « aucun » sont dits, pas omis ; sans relevé, la console le
+  dit. Une question d'usage reste à la notice : une valeur de capteur n'y répond jamais. Pas de
+  rédaction, pas de conclusion : chaque ligne est une valeur reçue, c'est l'opérateur qui juge.
+  Même chose si le serveur d'IA est réglé mais ne répond pas, et dans le dossier d'une piste (la
+  piste ciblée rappelée en tête). Vérifié sur le vrai serveur sans IA, avec l'image live réelle
+  (243 appareils, le plus proche à 2 288 km, METAR FTTJ reçu à 39 °C, Kp et alertes SWPC) ; dans
+  un vrai navigateur, synthèse en 18 lignes, 0 erreur console. 20 tests, 28 mutations prises.
+  Au passage, corrigé : la NOAA donne l'échelle géomagnétique sans sa lettre (« 0 »), si bien que
+  le briefing, le diagnostic et l'assistant affichaient « Kp 0 0 » au lieu de « Kp 0 G0 ».
 
 Antenne 1090 du poste (clé SDR + dump1090)
 Lancer dump1090 avec le port brut AVR, et un port web qui ne prend pas 8080 (celui de AfriControl) :

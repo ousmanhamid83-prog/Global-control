@@ -589,6 +589,8 @@ function AssistantAsk({ track }: { track: Track }) {
   const [q, setQ] = useState("");
   const [answer, setAnswer] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Sans IA : les valeurs reçues (la piste, puis le dernier relevé), sans interprétation.
+  const [faits, setFaits] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
   const ask = () => {
@@ -598,6 +600,7 @@ function AssistantAsk({ track }: { track: Track }) {
     setErr(null);
     askAssistant({ data: { question, track: trackBrief(track) } })
       .then((r) => {
+        setFaits(r.ok ? [] : r.faits);
         if (r.ok) setAnswer(r.text);
         else setErr(r.error);
       })
@@ -628,14 +631,24 @@ function AssistantAsk({ track }: { track: Track }) {
           {busy ? "…" : "Demander"}
         </Button>
       </div>
-      {err ? <p className="text-xs text-warn">{err}</p> : null}
+      {err ? (
+        <p className={faits.length > 0 ? "text-[11px] text-muted-foreground" : "text-xs text-warn"}>
+          {err}
+          {faits.length > 0 ? " — réponse sans IA : les valeurs reçues, sans interprétation." : ""}
+        </p>
+      ) : null}
+      {faits.length > 0 ? (
+        <pre className="whitespace-pre-wrap rounded-sm border border-border bg-bg/60 p-2 font-mono text-[11px] leading-relaxed text-fg">
+          {faits.join("\n")}
+        </pre>
+      ) : null}
       {answer ? (
         <ReponseIa texte={answer} className="text-xs" />
-      ) : (
+      ) : faits.length === 0 ? (
         <p className="text-[11px] text-muted-foreground">
           Raisonne sur les données réelles de la piste. La clé reste au serveur ; réception seule.
         </p>
-      )}
+      ) : null}
     </section>
   );
 }

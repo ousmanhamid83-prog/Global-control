@@ -12,7 +12,8 @@ import {
   parseEsriFirms,
   type Phenomenon,
 } from "./capture";
-import { AO, haversineKm, theaterOf } from "./geo";
+import { contactsProches, faitsCapteurs } from "./faits-capteurs";
+import { theaterOf } from "./geo";
 import { IA_CONTACTS_VUS, IA_QUESTION_MAX } from "./ia-limites";
 import {
   ageLiveAc,
@@ -546,7 +547,8 @@ async function pullSpace(): Promise<SpaceWx> {
     );
     if (raw && typeof raw === "object") {
       const now = (raw as Record<string, { G?: { Scale?: string } }>)["0"];
-      if (now?.G?.Scale) gScale = now.G.Scale;
+      // La NOAA donne le seul chiffre (« 0 ») : sans le G, l'écran affichait « Kp 0 0 ».
+      if (now?.G?.Scale) gScale = `G${String(now.G.Scale).replace(/^G/i, "")}`;
     }
   } catch {
     gScale = kp >= 8 ? "G4" : kp >= 7 ? "G3" : kp >= 6 ? "G2" : kp >= 5 ? "G1" : "G0";
@@ -1315,33 +1317,6 @@ export const lookupAircraft = createServerFn({ method: "POST" })
     }
   });
 
-/**
- * Les n contacts 1090 les plus proches du poste, une ligne factuelle chacun : rien que des champs
- * reçus, et la distance au poste. Sans elle, rien ne disait au modèle que « le plus proche » peut
- * être à des milliers de kilomètres (mesuré le 2 novembre 2026 : 2 493 km).
- */
-function contactsProches(pic: LivePicture, n: number): string[] {
-  return pic.aircraft
-    .map((a) => ({ a, km: haversineKm(AO.centerLat, AO.centerLon, a.lat, a.lon) }))
-    .sort((x, y) => x.km - y.km)
-    .slice(0, n)
-    .map(({ a, km }) =>
-      [
-        a.flight,
-        a.hex,
-        a.icaoType ?? "?",
-        a.reg ?? "",
-        `FL${Math.round(a.altM / 30.48)}`,
-        `nic=${a.nic ?? "?"}`,
-        `à ${Math.round(km)} km`,
-        a.military ? "MIL" : "",
-        a.emergency ?? "",
-      ]
-        .filter(Boolean)
-        .join(" "),
-    );
-}
-
 export const briefLivePicture = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .handler(async (): Promise<{ ok: true; text: string } | { ok: false; error: string }> => {
@@ -1353,7 +1328,7 @@ export const briefLivePicture = createServerFn({ method: "POST" })
     const fttj = pic.metar.find((m) => m.icao === "FTTJ");
     const aoSig = pic.sigmets.filter((s) => s.inAo).slice(0, 6);
     const jam = pic.jam.filter((j) => j.level !== "low").slice(0, 6);
-    const sample = contactsProches(pic, 12);
+    const sample = contactsProches(pic.aircraft, 12);
     const prompt = [
       "Officier COP C-UAS AfriControl, N'Djamena (FTTJ), Tchad. Briefing opérationnel en français, 12 lignes max, factuel, sans fiction, sans markdown.",
       "Les données ci-dessous sont des capteurs réels (ADS-B 1090ES, METAR NOAA, SIGMET OACI, NOAA SWPC, AWC FTTJ). Ne pas inventer de pistes.",
@@ -1399,10 +1374,11 @@ export const iaStatus = createServerFn({ method: "GET" })
 /**
  * Réponse de l'assistant. `notice` : les extraits de la notice du poste (LIREMOI) qui répondent à la
  * question — joints à la question quand l'IA répond, montrés tels quels quand elle ne répond pas.
+ * `faits` (sans IA) : les valeurs du dernier relevé qui répondent à une question sur l'image live.
  */
 export type ReponseAssistant =
   | { ok: true; text: string; notice: Passage[] }
-  | { ok: false; error: string; notice: Passage[] };
+  | { ok: false; error: string; notice: Passage[]; faits: string[] };
 
 /**
  * Assistant IA du poste — question libre de l'opérateur. La question part du serveur du poste vers
@@ -1412,8 +1388,10 @@ export type ReponseAssistant =
  * commande rien et n'émet pas.
  *
  * Il connaît aussi la notice du poste : les passages du LIREMOI qui répondent à la question sont
- * retrouvés sur place (savoir-poste) et joints. Sans IA joignable, ces passages sont rendus seuls :
- * une question d'usage (« comment relier le téléphone Signal ? ») a sa réponse même sans modèle.
+ * retrouvés sur place (savoir-poste) et joints. Sans IA joignable, la console répond quand même,
+ * sans rédiger : les passages de la notice pour une question d'usage (« comment relier le
+ * téléphone Signal ? »), les faits bruts du dernier relevé pour une question sur l'image live
+ * (« y a-t-il des urgences ? », voir faits-capteurs).
  */
 export const askAssistant = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
@@ -1423,11 +1401,18 @@ export const askAssistant = createServerFn({ method: "POST" })
     track: String(raw?.track ?? "").trim().slice(0, 2000),
   }))
   .handler(async ({ data }): Promise<ReponseAssistant> => {
-    if (!data.question) return { ok: false, error: "Question vide", notice: [] };
+    if (!data.question) return { ok: false, error: "Question vide", notice: [], faits: [] };
     const notice = await (await import("./savoir-poste.server")).noticePour(data.question);
+    // Sans IA : la notice et les faits bruts du relevé, sans rédaction.
+    const sansIa = (error: string): ReponseAssistant => ({
+      ok: false,
+      error,
+      notice,
+      faits: faitsCapteurs(data.question, peekLiveCache(), Date.now(), notice.length, data.track),
+    });
     const ia = await import("./ia-poste.server");
     const indispo = ia.iaIndisponible();
-    if (indispo) return { ok: false, error: `Assistant indisponible : ${indispo.erreur}`, notice };
+    if (indispo) return sansIa(`Assistant indisponible : ${indispo.erreur}`);
     // On donne à l'assistant un résumé factuel de l'image live réelle s'il y en a une.
     const pic = peekLiveCache();
     const fttj = pic?.metar.find((m) => m.icao === "FTTJ");
@@ -1439,7 +1424,7 @@ export const askAssistant = createServerFn({ method: "POST" })
           `METAR FTTJ: ${fttj?.raw ?? "absent (station parfois muette)"}`,
           `Kp ${pic.space.kp} ${pic.space.gScale}. SIGMET AO: ${pic.sigmets.filter((s) => s.inAo).length}.`,
           `Contacts 1090 les plus proches de FTTJ (${IA_CONTACTS_VUS} au plus, distance au poste):`,
-          ...contactsProches(pic, IA_CONTACTS_VUS),
+          ...contactsProches(pic.aircraft, IA_CONTACTS_VUS),
         ].join("\n")
       : "Pas encore d'image live (1090/METAR en attente).";
     const extraits = notice.map((p) => `[${p.titre}]\n${p.texte}`).join("\n\n");
@@ -1472,7 +1457,7 @@ export const askAssistant = createServerFn({ method: "POST" })
       );
       return { ok: true, text, notice };
     } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : "assistant échoué", notice };
+      return sansIa(e instanceof Error ? e.message : "assistant échoué");
     }
   });
 
