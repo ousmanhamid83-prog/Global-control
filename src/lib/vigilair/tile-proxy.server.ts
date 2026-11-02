@@ -13,6 +13,7 @@ import {
 } from "./tile-verdict";
 import type { SatLayer, SatMeta } from "./sat";
 import { UA_POSTE as UA } from "./agent-http";
+import { creerDisjoncteur, type Disjoncteur } from "./disjoncteur.ts";
 
 const GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best";
 const EUM = "https://view.eumetsat.int/geoserver/wms";
@@ -60,11 +61,15 @@ const g = globalThis as unknown as {
   __vigilairSatMeta?: SatMeta;
   __vigilairGeoSlot?: { goes: string; hima: string; mtg: string; at: number };
   __vigilairEumQ?: { n: number; wait: Array<() => void> };
+  __vigilairDisjoncteur?: Disjoncteur;
 };
 
 const cache = (g.__vigilairTileProxy21 ??= new Map());
 const hits = (g.__vigilairTileHits ??= { t: Date.now(), n: 0 });
 const eumQ = (g.__vigilairEumQ ??= { n: 0, wait: [] });
+// Un disjoncteur par source d'imagerie : quand une source ne répond plus, on cesse de l'appeler
+// un moment pour ne pas affamer la console (voir disjoncteur.ts).
+const disjoncteur = (g.__vigilairDisjoncteur ??= creerDisjoncteur());
 const meta = (g.__vigilairSatMeta ??= {
   visAt: null,
   s2At: null,
@@ -203,10 +208,25 @@ function sansImagerie(): Response {
   return emptyTile();
 }
 
+function hoteDe(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
 async function fetchImg(
   url: string,
   ms = 9000,
 ): Promise<{ bytes: Uint8Array; scene: string } | null> {
+  const hote = hoteDe(url);
+  // Source déclarée injoignable récemment : on ne retient pas une connexion 10 s pour rien. On le
+  // dit honnêtement (« injoignable » : on n'a pas regardé), et la tuile revient vide tout de suite.
+  if (!disjoncteur.passe(hote)) {
+    noteMiss("injoignable");
+    return null;
+  }
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
   try {
@@ -215,6 +235,8 @@ async function fetchImg(
       headers: { Accept: "image/jpeg,image/png,image/*", "User-Agent": UA },
       redirect: "follow",
     });
+    // La source a répondu (même un 404 « rien ici ») : elle est joignable, on referme le disjoncteur.
+    disjoncteur.succes(hote);
     if (!res.ok) {
       noteMiss(missFromStatus(res.status));
       return null;
@@ -233,7 +255,9 @@ async function fetchImg(
       (fromWarn ? `${fromWarn[1]}Z` : "");
     return { bytes: buf, scene };
   } catch {
-    // Réseau coupé, délai dépassé, TLS refusé : nous n'avons PAS pu regarder.
+    // Réseau coupé, délai dépassé, TLS refusé : nous n'avons PAS pu regarder. Échec de connexion :
+    // au bout de quelques-uns d'affilée, le disjoncteur ouvre et les tuiles suivantes passent vite.
+    disjoncteur.echec(hote);
     noteMiss("injoignable");
     return null;
   } finally {
@@ -597,13 +621,27 @@ export function satStatus(): SatMeta {
  * demandées en même temps — ce qui est la règle sur une carte — s'entrelaceraient sur un état
  * partagé et se voleraient la raison de leur échec, au point de déguiser une panne en terrain vide.
  */
+// Plafond dur par tuile : aucune requête de tuile ne retient une connexion du navigateur plus
+// longtemps, même si une source traîne juste sous son propre délai. Au-delà, on rend « pas
+// d'imagerie » (sans la mettre en cache : la vraie tuile reviendra au relevé suivant si la source
+// se rétablit). Supérieur au délai d'un appel (≈ 10 s) pour laisser une source lente aboutir une
+// fois ; le disjoncteur, lui, évite d'y revenir.
+const BUDGET_TUILE_MS = 12_000;
+
 export function serveTile(
   z: number,
   x: number,
   y: number,
   layer: SatLayer = "vis",
 ): Promise<Response> {
-  return motifTuile.run({ why: "absente" }, () => serveTileInner(z, x, y, layer));
+  return motifTuile.run({ why: "absente" }, () =>
+    Promise.race([
+      serveTileInner(z, x, y, layer),
+      new Promise<Response>((resolve) => {
+        setTimeout(() => resolve(sansImagerie()), BUDGET_TUILE_MS).unref();
+      }),
+    ]),
+  );
 }
 
 async function serveTileInner(

@@ -623,6 +623,23 @@ Symbologie APP-6 et radar
   (@tanstack/react-start 1.169.4, start-server-core 1.169.45) ; vérifié que l'avis a disparu et
   que les fonctions serveur répondent toujours. Détail et point sur l'avis better-auth restant
   sous « Audit des dépendances ».
+- LA CONSOLE NE SE BLOQUE PLUS QUAND L'IMAGERIE SATELLITE RAME (corrigé). Sur une liaison lente ou
+  coupée — le quotidien du poste isolé —, une tuile satellite attendait son délai plein (≈ 10 s)
+  avant d'abandonner, et comme certaines vues enchaînent plusieurs créneaux horaires et deux
+  couches, une seule tuile pouvait retenir une connexion plus de 40 s. Le navigateur n'ouvrant
+  que ~6 connexions par hôte, quelques centaines de tuiles lentes prenaient TOUTES les connexions
+  et affamaient les appels serveur dont dépend la console : elle restait bloquée sur « Chargement
+  du poste… ». Mesuré, EUMETSAT rendu muet : UNE seule tuile z5 dépassait 40 s.
+  Correctif (src/lib/vigilair/disjoncteur.ts) : un disjoncteur par source d'imagerie. Quand une
+  source enchaîne les échecs de connexion (délai, réseau — pas un « rien ici », qui est une vraie
+  réponse), il « ouvre » : pendant 45 s, les tuiles vers cette source reviennent VIDE tout de
+  suite, sans retenir de connexion. Un succès referme. En plus, un plafond dur de 12 s par tuile :
+  aucune requête ne retient une connexion plus longtemps (sans mettre ce vide en cache — la vraie
+  tuile revient dès que la source se rétablit).
+  Mesuré après, EUMETSAT muet : 30 tuiles en même temps, toutes servies, mur 12 s à froid (le
+  temps que le disjoncteur ouvre), puis 4 ms une fois ouvert. En ligne, rien ne change : tuile z5
+  géostationnaire 200 en 2,4 s, tuile z12 Esri 200 en 0,3 s. 8 tests sur le disjoncteur, 7
+  mutations prises ; fumée 7/7, hydratation 0/16.
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
   pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée
