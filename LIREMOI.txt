@@ -542,6 +542,19 @@ Symbologie APP-6 et radar
   qui tient au rechargement. Contre-épreuve : ancienne configuration reconstruite → l'erreur
   ENOENT revient à l'écran et le quart reste vacant. Un test (scripts/pglite-build.test.mjs)
   échoue si la configuration cesse de livrer PGLite avec ses fichiers.
+- LE SERVEUR NE SE FIGE PLUS EN PLEINE UTILISATION (corrigé). Une fois par lancement, une requête
+  de l'opérateur restait bloquée 1,3 s. Cause, trouvée au profileur : la création de la base
+  embarquée (l'initdb de PGLite, 1,3 s de calcul d'un seul tenant qui fige tout le processus) ne
+  partait qu'au premier appel touchant l'authentification, car le serveur construit ne charge
+  l'application qu'à la première requête. Mesuré à part : création 1 518 ms dont un gel de
+  1 284 ms ; migrations 50 ms. Un premier correctif dans src/server.ts n'a RIEN changé (ce module
+  est lui aussi chargé à la première requête) : retiré. Correctif retenu : un plugin Nitro
+  (server/plugins/base-au-demarrage.ts), exécuté au démarrage du processus, lance la création
+  tout de suite. Mesuré, l'opérateur arrivant 4 s après le lancement : 7 requêtes sur 7 entre 44
+  et 71 ms, le gel a lieu à t = 0,3–2 s, quand personne n'attend. Contre-épreuve, même build sans
+  le plugin : la 3e requête gèle encore 1,25 à 1,36 s. Reste : une requête envoyée dans les deux
+  premières secondes de vie du serveur attend la fin de la création (~1,3 s). Le réduire
+  demanderait de restaurer une base pré-créée (mesuré : 0,26 s au lieu de 1,3 s), pas fait.
 - LE SERVEUR S'ARRÊTE VRAIMENT (corrigé, défaut d'origine). Sur SIGTERM ou Ctrl+C, le serveur
   HTTP du framework ferme l'écoute puis rend la main sans jamais terminer le processus. Après une
   session, la minuterie de reconnexion du lien 1090 le gardait vivant À VIE : la console ne
