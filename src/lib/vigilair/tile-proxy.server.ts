@@ -17,8 +17,7 @@ import { creerDisjoncteur, type Disjoncteur } from "./disjoncteur.ts";
 
 const GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best";
 const EUM = "https://view.eumetsat.int/geoserver/wms";
-const ESRI =
-  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile";
+const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile";
 const CLARITY =
   "https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile";
 const HILL =
@@ -250,9 +249,7 @@ async function fetchImg(
     }
     const warning = res.headers.get("warning") ?? "";
     const fromWarn = warning.match(/time=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/);
-    const scene =
-      res.headers.get("layer-time-actual") ||
-      (fromWarn ? `${fromWarn[1]}Z` : "");
+    const scene = res.headers.get("layer-time-actual") || (fromWarn ? `${fromWarn[1]}Z` : "");
     return { bytes: buf, scene };
   } catch {
     // Réseau coupé, délai dépassé, TLS refusé : nous n'avons PAS pu regarder. Échec de connexion :
@@ -443,27 +440,35 @@ async function nightTile(z: number, x: number, y: number) {
   const n20 = await gibsDaily(
     "VIIRS_NOAA20_DayNightBand_AtSensor_M15",
     "GoogleMapsCompatible_Level8",
-    z, x, y,
+    z,
+    x,
+    y,
   );
   if (n20) return { ...n20, src: "VIIRS NOAA-20 Black Marble", archive: false };
   const snpp = await gibsDaily(
     "VIIRS_SNPP_DayNightBand_AtSensor_M15",
     "GoogleMapsCompatible_Level8",
-    z, x, y,
+    z,
+    x,
+    y,
   );
   if (snpp) return { ...snpp, src: "VIIRS SNPP Black Marble", archive: false };
   if (z <= 7) {
     const raw = await gibsDaily(
       "VIIRS_NOAA20_DayNightBand",
       "GoogleMapsCompatible_Level7",
-      z, x, y,
+      z,
+      x,
+      y,
     );
     if (raw) return { ...raw, src: "VIIRS NOAA-20 DNB", archive: false };
   }
   const bm = await gibsOnce(
     "VIIRS_Black_Marble",
     "GoogleMapsCompatible_Level8",
-    z, x, y,
+    z,
+    x,
+    y,
     "2016-01-01",
     "png",
   );
@@ -515,7 +520,9 @@ async function reliefTile(z: number, x: number, y: number) {
   return gibsOnce(
     "ASTER_GDEM_Color_Shaded_Relief",
     "GoogleMapsCompatible_Level12",
-    z, x, y,
+    z,
+    x,
+    y,
     "2000-01-01",
     "jpg",
   ).then((got) => (got ? { ...got, src: "ASTER GDEM ombrage ~30 m" } : null));
@@ -535,7 +542,10 @@ async function geoVisible(z: number, x: number, y: number, slots: string[]) {
     const g16 = await gibsGeo(
       "GOES-East_ABI_GeoColor",
       "GoogleMapsCompatible_Level7",
-      z, x, y, slots,
+      z,
+      x,
+      y,
+      slots,
     );
     if (g16) return { ...g16, src: "GOES-Est GeoColor" };
   }
@@ -543,7 +553,10 @@ async function geoVisible(z: number, x: number, y: number, slots: string[]) {
     const g18 = await gibsGeo(
       "GOES-West_ABI_GeoColor",
       "GoogleMapsCompatible_Level7",
-      z, x, y, slots,
+      z,
+      x,
+      y,
+      slots,
     );
     if (g18) return { ...g18, src: "GOES-Ouest GeoColor" };
   }
@@ -551,7 +564,10 @@ async function geoVisible(z: number, x: number, y: number, slots: string[]) {
     const hi = await gibsGeo(
       "Himawari_AHI_Band3_Red_Visible_1km",
       "GoogleMapsCompatible_Level7",
-      z, x, y, slots,
+      z,
+      x,
+      y,
+      slots,
     );
     if (hi) return { ...hi, src: "Himawari visible" };
   }
@@ -572,7 +588,10 @@ async function geoInfrared(z: number, x: number, y: number, slots: string[]) {
     const ir = await gibsGeo(
       "GOES-East_ABI_Band13_Clean_Infrared",
       "GoogleMapsCompatible_Level6",
-      z, x, y, slots,
+      z,
+      x,
+      y,
+      slots,
     );
     if (ir) return { ...ir, src: "GOES-Est IR 10.3 µm" };
   }
@@ -580,7 +599,10 @@ async function geoInfrared(z: number, x: number, y: number, slots: string[]) {
     const ir = await gibsGeo(
       "GOES-West_ABI_Band13_Clean_Infrared",
       "GoogleMapsCompatible_Level6",
-      z, x, y, slots,
+      z,
+      x,
+      y,
+      slots,
     );
     if (ir) return { ...ir, src: "GOES-Ouest IR 10.3 µm" };
   }
@@ -588,7 +610,10 @@ async function geoInfrared(z: number, x: number, y: number, slots: string[]) {
     const ir = await gibsGeo(
       "Himawari_AHI_Band13_Clean_Infrared",
       "GoogleMapsCompatible_Level6",
-      z, x, y, slots,
+      z,
+      x,
+      y,
+      slots,
     );
     if (ir) return { ...ir, src: "Himawari IR 10.4 µm" };
   }
@@ -644,12 +669,7 @@ export function serveTile(
   );
 }
 
-async function serveTileInner(
-  z: number,
-  x: number,
-  y: number,
-  layer: SatLayer,
-): Promise<Response> {
+async function serveTileInner(z: number, x: number, y: number, layer: SatLayer): Promise<Response> {
   // Tuile hors du monde : la requête elle-même est fausse, ce n'est pas une absence d'imagerie.
   if (!inWorld(z, x, y)) return new Response(null, { status: 404 });
   const key = `${layer}/${z}/${x}/${y}`;
@@ -751,7 +771,9 @@ async function serveTileInner(
     const b31 = await gibsDaily(
       "MODIS_Terra_Brightness_Temp_Band31_Day",
       "GoogleMapsCompatible_Level7",
-      z, x, y,
+      z,
+      x,
+      y,
     );
     if (b31) {
       note("ir", b31.slot, "MODIS B31 (repli)");
@@ -771,11 +793,7 @@ async function serveTileInner(
       } else {
         note("nv", night.slot || night.scene, night.src);
       }
-      const via = night.archive
-        ? night.src.startsWith("Earth")
-          ? "CITY"
-          : "BMARBLE"
-        : "DNB";
+      const via = night.archive ? (night.src.startsWith("Earth") ? "CITY" : "BMARBLE") : "DNB";
       remember(key, night.bytes, via, night.slot || night.scene);
       return img(night.bytes, via, night.slot || night.scene);
     }
@@ -797,7 +815,9 @@ async function serveTileInner(
     const sst = await gibsDaily(
       "GHRSST_L4_MUR_Sea_Surface_Temperature",
       "GoogleMapsCompatible_Level7",
-      z, x, y,
+      z,
+      x,
+      y,
     );
     if (sst && sst.bytes.byteLength > 10000) {
       note("th", sst.slot, "GHRSST MUR SST");
@@ -813,7 +833,9 @@ async function serveTileInner(
   const lst = await gibsDaily(
     "VIIRS_NOAA20_Land_Surface_Temp_Day",
     "GoogleMapsCompatible_Level7",
-    z, x, y,
+    z,
+    x,
+    y,
   );
   if (lst && lst.bytes.byteLength > 4000) {
     note("th", lst.slot, "VIIRS LST");
@@ -830,7 +852,8 @@ function img(bytes: Uint8Array, via: string, scene: string, mime?: string): Resp
     status: 200,
     headers: {
       "Content-Type": mime || sniff(bytes),
-      "Cache-Control": via.startsWith("GEO") || via === "IR" ? "public, max-age=900" : "public, max-age=1800",
+      "Cache-Control":
+        via.startsWith("GEO") || via === "IR" ? "public, max-age=900" : "public, max-age=1800",
       "X-Content-Type-Options": "nosniff",
       "Referrer-Policy": "no-referrer",
       "X-AfriControl-Tile": via,
