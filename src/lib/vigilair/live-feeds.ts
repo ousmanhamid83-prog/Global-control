@@ -16,6 +16,15 @@ import { contactsProches, faitsCapteurs } from "./faits-capteurs";
 import { theaterOf } from "./geo";
 import { IA_CONTACTS_VUS, IA_QUESTION_MAX } from "./ia-limites";
 import {
+  fusionAntenne,
+  health,
+  imageDuPoste,
+  localN,
+  nicHealth,
+  sahelCount,
+  vieillir,
+} from "./image-poste";
+import {
   ageLiveAc,
   gpsTime,
   jamFromAircraft,
@@ -37,7 +46,7 @@ import {
 import type { ArchiveMeta } from "./archive.server";
 import type { AtcSegment, AtcStatus } from "./atc.server";
 import type { RejeuTape } from "./rejeu";
-import type { ReceiverFeed, ReceiverStatus } from "./rx1090.server";
+import type { ReceiverFeed } from "./rx1090.server";
 import type { Passage } from "./savoir-poste";
 
 import { couvertureVerdict, type CellOutcome } from "./portee";
@@ -377,11 +386,6 @@ async function pullAdsb(): Promise<{
   };
 }
 
-/** Avions au-dessus du Sahel (Tchad, Darfour, AES, bande Dakar → mer Rouge). */
-function sahelCount(ac: LiveAc[]): number {
-  return ac.filter((a) => theaterOf(a.lat, a.lon) !== "monde").length;
-}
-
 function visToM(v: unknown): number | null {
   if (typeof v === "number") return v > 50 ? v : v * 1609.34;
   if (typeof v !== "string") return null;
@@ -587,17 +591,6 @@ async function pullSpace(): Promise<SpaceWx> {
   };
 }
 
-function localN(ac: LiveAc[]): number {
-  let n = 0;
-  for (const a of ac) {
-    const dlat = a.lat - 12.1348;
-    const dlon = a.lon - 15.0557;
-    const km = Math.hypot(dlat * 110.57, dlon * 111.32 * Math.cos((12.1348 * Math.PI) / 180));
-    if (km <= 120) n += 1;
-  }
-  return n;
-}
-
 function emptyPicture(err: string): LivePicture {
   const g = gpsTime();
   return {
@@ -629,97 +622,6 @@ function emptyPicture(err: string): LivePicture {
     errors: [err],
     phenomena: [],
     continentSweep,
-  };
-}
-
-function health(
-  id: string,
-  label: string,
-  ok: boolean,
-  detail: string,
-): SourceHealth {
-  return { id, label, ok, detail };
-}
-
-function nicHealth(ac: LiveAc[], jam: JamCell[]): SourceHealth {
-  return health(
-    "nic",
-    "GNSS NIC (ADS-B)",
-    jam.length > 0 || ac.some((a) => a.nic != null),
-    jam.some((j) => j.level !== "low")
-      ? `${jam.filter((j) => j.level !== "low").length} cellules dégradées`
-      : "pas de jamming mesuré sur le flux",
-  );
-}
-
-/**
- * Ajoute l'antenne du poste à l'image réseau : ses avions passent devant ceux des agrégateurs
- * (plus frais, entendus en direct), le registre réseau complète le type et l'immatriculation.
- */
-function withReceiver(net: LivePicture, rx: ReceiverStatus, rxAc: LiveAc[]): LivePicture {
-  const now = Date.now();
-  const live = rx.enabled && rx.connected && rx.lastLineAt != null && now - rx.lastLineAt < 60_000;
-  const silentS = rx.lastLineAt ? Math.round((now - rx.lastLineAt) / 1000) : null;
-  const rxHealth = health(
-    "rx",
-    "Antenne 1090 du poste",
-    live,
-    !rx.enabled
-      ? "coupée (AFRICONTROL_1090=off)"
-      : live
-        ? `${rx.positioned} positionnés · ${rx.heard} entendus · ${rx.msgPerS} msg/s · ${rx.endpoint}`
-        : rx.connected
-          ? `connectée ${rx.endpoint} · aucune trame${silentS != null ? ` depuis ${silentS} s` : ""}`
-          : `${rx.lastError ?? "connexion en cours"} · ${rx.endpoint}`,
-  );
-  const byHex = new Map(net.aircraft.map((a) => [a.hex, a] as const));
-  for (const a of rxAc) {
-    const n = byHex.get(a.hex);
-    byHex.set(
-      a.hex,
-      n
-        ? {
-            ...a,
-            // L'indicatif du réseau ne supplée que si l'antenne ne l'a pas encore décodé : dans les
-            // deux cas il a été émis par l'appareil, entendu par un autre récepteur.
-            flight: a.flightTx ? a.flight : n.flight,
-            flightTx: a.flightTx || n.flightTx,
-            // L'une ou l'autre source suffit à établir l'adresse : on garde la plus parlante.
-            messages: Math.max(a.messages ?? 0, n.messages ?? 0) || null,
-            icaoType: n.icaoType,
-            reg: n.reg,
-            military: n.military,
-            category: a.category ?? n.category,
-          }
-        : a,
-    );
-  }
-  const aircraft = [...byHex.values()];
-  const jam = jamFromAircraft(aircraft);
-  const sources: SourceHealth[] = [];
-  for (const src of net.sources) {
-    sources.push(src.id === "nic" ? nicHealth(aircraft, jam) : src);
-    if (src.id === "1090") sources.push(rxHealth);
-  }
-  if (!sources.includes(rxHealth)) sources.unshift(rxHealth);
-  const sourceAt: Record<string, number> = { ...net.sourceAt };
-  for (const src of net.sources) sourceAt[src.id] ??= net.at;
-  sourceAt.rx = now;
-  if (live) sourceAt.nic = now;
-  return {
-    ...net,
-    at: live ? now : net.at,
-    sourceAt,
-    source: live
-      ? `antenne ${rx.endpoint} · ${rxAc.length} avions${net.aircraft.length ? ` + ${net.source}` : ""}`
-      : net.source,
-    aircraft,
-    localN: localN(aircraft),
-    sahelN: sahelCount(aircraft),
-    emergencies: aircraft.filter((a) => Boolean(a.emergency)),
-    jam,
-    sources,
-    errors: !live && rx.enabled && rx.lastError ? [...net.errors, `Antenne: ${rx.lastError}`] : net.errors,
   };
 }
 
@@ -801,8 +703,26 @@ async function pullAlerts(): Promise<{ alerts: SwpcAlert[]; errors: string[] }> 
   }
 }
 
+/** Le relevé RÉSEAU seul (sans l'antenne du poste) : pour le diagnostic des sources Internet. */
 export function peekLiveCache(): LivePicture | null {
   return cache?.data ?? lastGood;
+}
+
+/**
+ * L'image que voit la console — relevé réseau vieilli plus antenne du poste (voir image-poste) —
+ * sans déclencher de relevé Internet : pour l'assistant, le briefing, la relève, les commandes du
+ * poste et le bot. null tant que ni le réseau ni l'antenne n'ont rien donné.
+ */
+export async function imagePoste(): Promise<LivePicture | null> {
+  const rx = await import("./rx1090.server");
+  const now = Date.now();
+  return imageDuPoste(
+    peekLiveCache(),
+    rx.receiverStatus(now),
+    rx.receiverAircraft(now),
+    now,
+    () => emptyPicture("relevé Internet absent"),
+  );
 }
 
 async function pullPhenomena(): Promise<{ rows: Phenomenon[]; errors: string[] }> {
@@ -1090,12 +1010,7 @@ export const fetchLivePicture = createServerFn({ method: "GET" })
     // sous-corrigeait d'autant : jusqu'à 4,4 km à 800 km/h. On vieillit ICI, au seul endroit où
     // toutes les provenances de `net` se rejoignent, donc exactement une fois.
     const now = Date.now();
-    const netAge = Math.max(0, now - net.at) / 1000;
-    const pic = withReceiver(
-      { ...net, aircraft: ageLiveAc(net.aircraft, netAge) },
-      status,
-      rx.receiverAircraft(),
-    );
+    const pic = fusionAntenne(vieillir(net, now), status, rx.receiverAircraft(now), now);
     // Bande du poste pour l'inject REJEU RÉEL : seulement ce qui a vraiment été reçu. L'âge du
     // cache est déjà porté par `pic` ci-dessus — le rajouter ici le compterait deux fois.
     const rec = await import("./rejeu.server");
@@ -1323,7 +1238,7 @@ export const briefLivePicture = createServerFn({ method: "POST" })
     const ia = await import("./ia-poste.server");
     const indispo = ia.iaIndisponible();
     if (indispo) return { ok: false, error: `Briefing indisponible : ${indispo.erreur}` };
-    const pic = peekLiveCache();
+    const pic = await imagePoste();
     if (!pic) return { ok: false, error: "Pas encore d'ingest — attendre le 1090 / METAR" };
     const fttj = pic.metar.find((m) => m.icao === "FTTJ");
     const aoSig = pic.sigmets.filter((s) => s.inAo).slice(0, 6);
@@ -1403,18 +1318,19 @@ export const askAssistant = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<ReponseAssistant> => {
     if (!data.question) return { ok: false, error: "Question vide", notice: [], faits: [] };
     const notice = await (await import("./savoir-poste.server")).noticePour(data.question);
+    // L'image que voit la console, antenne du poste comprise.
+    const pic = await imagePoste();
     // Sans IA : la notice et les faits bruts du relevé, sans rédaction.
     const sansIa = (error: string): ReponseAssistant => ({
       ok: false,
       error,
       notice,
-      faits: faitsCapteurs(data.question, peekLiveCache(), Date.now(), notice.length, data.track),
+      faits: faitsCapteurs(data.question, pic, Date.now(), notice.length, data.track),
     });
     const ia = await import("./ia-poste.server");
     const indispo = ia.iaIndisponible();
     if (indispo) return sansIa(`Assistant indisponible : ${indispo.erreur}`);
     // On donne à l'assistant un résumé factuel de l'image live réelle s'il y en a une.
-    const pic = peekLiveCache();
     const fttj = pic?.metar.find((m) => m.icao === "FTTJ");
     const ctx = pic
       ? [

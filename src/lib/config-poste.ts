@@ -24,3 +24,17 @@ export function chargerConfigPoste(
   }
   return chargees;
 }
+
+/**
+ * Charge poste.env et dit au journal ce qui en a été lu. Appelé au lancement du serveur construit
+ * (plugin poste-au-demarrage) puis par le point d'entrée (seul à tourner en développement) : le
+ * second appel ne trouve plus rien à charger, la ligne de journal ne sort qu'une fois.
+ */
+export function chargerEtAnnoncer(
+  chemin = "poste.env",
+  cible: Record<string, string | undefined> = process.env,
+  journal: (ligne: string) => void = console.log,
+): void {
+  const reglages = chargerConfigPoste(chemin, cible);
+  if (reglages.length > 0) journal(`[poste] réglages lus dans poste.env : ${reglages.join(", ")}`);
+}

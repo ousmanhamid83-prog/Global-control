@@ -197,6 +197,11 @@ function ensure(): RxState {
   return st;
 }
 
+/** Ouvre la liaison (au lancement du serveur) ; ensuite elle vit avec lui et se relance seule. */
+export function ecouterAntenne(): void {
+  ensure();
+}
+
 /**
  * Juste après le démarrage du poste, laisse à la liaison le temps de s'ouvrir et à la première
  * paire de positions d'arriver (1,5 s au plus). Ensuite, ne fait jamais attendre.

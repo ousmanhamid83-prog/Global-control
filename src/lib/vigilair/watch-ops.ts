@@ -3,7 +3,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql } from "@/lib/db";
-import { peekLiveCache } from "./live-feeds";
+import { imagePoste } from "./live-feeds";
 import {
   EJECTED_MSG,
   insertOpsLog,
@@ -104,8 +104,8 @@ function asPayload(raw: WatchPayload): WatchCop & { note: string; snap: WatchSna
   };
 }
 
-function freezeSnap(cop: WatchCop, client: WatchSnap | null): WatchSnap {
-  const live = peekLiveCache();
+async function freezeSnap(cop: WatchCop, client: WatchSnap | null): Promise<WatchSnap> {
+  const live = await imagePoste();
   if (live) return snapFromPicture(live, cop);
   if (client && (client.fluxN > 0 || client.ac > 0 || client.metarFttj || client.rwy)) {
     return {
@@ -231,7 +231,7 @@ export const openWatch = createServerFn({ method: "POST" })
         `Quart déjà tenu par ${open.opened_label}. Faire la relève, ne pas ouvrir un second quart.`,
       );
     }
-    const snap = freezeSnap(data, data.snap);
+    const snap = await freezeSnap(data, data.snap);
     const row = await insertOpen({ staff, snap, note: data.note });
     return mapWatch(row);
   });
@@ -245,7 +245,7 @@ export const handoverWatch = createServerFn({ method: "POST" })
     await requireCopOpen();
     await touchLastSeen(context.userId);
     const open = await loadOpen();
-    const snap = freezeSnap(data, data.snap);
+    const snap = await freezeSnap(data, data.snap);
     if (!open) {
       const row = await insertOpen({ staff, snap, note: data.note });
       return mapWatch(row);
@@ -306,7 +306,7 @@ export const closeWatch = createServerFn({ method: "POST" })
     if (open.opened_by !== staff.userId && staff.role !== "superadmin") {
       throw new Error("Seul le titulaire ou le chef de division clôture sans relève.");
     }
-    const snap = freezeSnap(data, data.snap);
+    const snap = await freezeSnap(data, data.snap);
     const snapIn = parseSnap(open.snap_in) ?? snapFromPicture(null, asCop({}));
     const openedAtMs = Date.parse(open.opened_at) || Date.now();
     const aar = composeAar({

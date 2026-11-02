@@ -59,6 +59,13 @@ const PIC = {
     { lat: 9.0, lon: 18.0, n: 20, bad: 1, pct: 5, level: "low" },
   ],
   alerts: [],
+  // Toutes les sources du relevé ont répondu.
+  sources: ["1090", "metar", "taf", "sigmet", "swpc"].map((id) => ({
+    id,
+    label: id,
+    ok: true,
+    detail: "",
+  })),
 } as unknown as LivePicture;
 
 const MAINTENANT = AT + 42_000;
@@ -248,6 +255,51 @@ describe("réponse sans IA : les faits bruts des capteurs, selon le sujet de la 
       1,
     );
     assert.match(plein!, /^CD34 000000 A320 TT-ABC FL350 nic=8 à \d+ km MIL 7600$/);
+  });
+
+  it("SOURCE MUETTE : « inconnu » ou « non reçu », jamais un « aucun » qui rassurerait à tort", () => {
+    // Rien n'a répondu : pas de TAF non plus (sa source est « ok » dès qu'un TAF arrive).
+    const muet = { ...PIC, sources: [], taf: [] } as unknown as LivePicture;
+    assert.deepEqual(faitsCapteurs("Résume la situation", muet, MAINTENANT, 0).slice(1), [
+      "Urgences (7500/7600/7700) : inconnues, aucune trame 1090 reçue (antenne et ADS-B Internet muets).",
+      "Contacts militaires : inconnus, aucune trame 1090 reçue (antenne et ADS-B Internet muets).",
+      "Trafic 1090ES : inconnu, aucune trame 1090 reçue (antenne et ADS-B Internet muets).",
+      "GNSS dégradé (NIC/NACp des avions) : inconnu, aucune trame 1090 reçue (antenne et ADS-B Internet muets).",
+      "SIGMET : non reçus au dernier relevé.",
+      "METAR FTTJ : non reçu au dernier relevé.",
+      "Météo spatiale (NOAA SWPC) : non reçue au dernier relevé.",
+    ]);
+  });
+
+  it("SOURCE EN ÉCHEC : une source qui a répondu en erreur compte comme muette", () => {
+    const echec = {
+      ...PIC,
+      sources: PIC.sources.map((s) => ({ ...s, ok: s.id !== "sigmet" && s.id !== "metar" })),
+    } as LivePicture;
+    const f = faitsCapteurs("Résume la situation", echec, MAINTENANT, 0);
+    assert.ok(f.includes("SIGMET : non reçus au dernier relevé."));
+    assert.ok(f.includes("METAR FTTJ : non reçu au dernier relevé."));
+    // Le TAF, reçu par sa propre source, reste dit.
+    assert.ok(f.includes("TAF FTTJ 021100Z 0212/0312 05012KT CAVOK"));
+    assert.ok(f.includes("Urgences : 1"), "le 1090 a répondu : ses faits restent");
+  });
+
+  it("ANTENNE SEULE (poste hors ligne) : ses contacts sont dits, ce qui vient d'Internet non", () => {
+    const antenne = {
+      ...PIC,
+      sources: [{ id: "rx", label: "Antenne 1090 du poste", ok: true, detail: "" }],
+    } as unknown as LivePicture;
+    const f = faitsCapteurs("Résume la situation", antenne, MAINTENANT, 0);
+    assert.ok(f.includes("Urgences : 1"));
+    assert.ok(f.some((l) => l.startsWith("1090ES : 3 contacts en Afrique")));
+    assert.ok(f.includes("GNSS dégradé (NIC/NACp des avions) : 1 cellule(s)"));
+    assert.ok(
+      f.includes(
+        "Contacts militaires : inconnus, le marquage vient de l'ADS-B Internet, non reçu.",
+      ),
+    );
+    assert.ok(f.includes("SIGMET : non reçus au dernier relevé."));
+    assert.ok(f.includes("METAR FTTJ : non reçu au dernier relevé."));
   });
 
   it("CONTACTS PROCHES : la distance est la vraie distance au poste (FTTJ)", () => {

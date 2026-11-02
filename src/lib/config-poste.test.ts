@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { chargerConfigPoste } from "./config-poste.ts";
+import { chargerConfigPoste, chargerEtAnnoncer } from "./config-poste.ts";
 
 function fichier(contenu: string): string {
   const chemin = join(mkdtempSync(join(tmpdir(), "poste-")), "poste.env");
@@ -53,5 +53,19 @@ describe("poste.env : les réglages du poste chargés au démarrage", () => {
     const env: Record<string, string | undefined> = {};
     assert.deepEqual(chargerConfigPoste(join(tmpdir(), "absent-poste.env"), env), []);
     assert.deepEqual(env, {});
+  });
+
+  it("ANNONCÉ UNE FOIS : lancement (plugin) puis point d'entrée, une seule ligne de journal", () => {
+    const env: Record<string, string | undefined> = {};
+    const lignes: string[] = [];
+    const chemin = fichier(
+      "AFRICONTROL_1090=192.168.1.20:30002\nAFRICONTROL_IA=http://127.0.0.1:11434/v1\n",
+    );
+    chargerEtAnnoncer(chemin, env, (l) => lignes.push(l));
+    chargerEtAnnoncer(chemin, env, (l) => lignes.push(l));
+    assert.deepEqual(lignes, [
+      "[poste] réglages lus dans poste.env : AFRICONTROL_1090, AFRICONTROL_IA",
+    ]);
+    assert.equal(env.AFRICONTROL_1090, "192.168.1.20:30002");
   });
 });

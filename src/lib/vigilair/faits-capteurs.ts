@@ -90,15 +90,44 @@ export function contactsProches(ac: LiveAc[], n: number): string[] {
     );
 }
 
+/** Les sujets tirés des trames 1090, quand aucune n'est parvenue. */
+const MUETS_1090: Record<Exclude<Sujet, "meteo" | "sigmet" | "espace">, string> = {
+  urgences: "Urgences (7500/7600/7700) : inconnues",
+  militaires: "Contacts militaires : inconnus",
+  trafic: "Trafic 1090ES : inconnu",
+  gnss: "GNSS dégradé (NIC/NACp des avions) : inconnu",
+};
+
 const retrait = (lignes: string[]) => lignes.map((l) => `  ${l}`);
 
+/** La source a répondu au dernier relevé (identifiants des sources de l'image : « 1090 », « metar »…). */
+function recu(pic: LivePicture, id: string): boolean {
+  return pic.sources.some((s) => s.id === id && s.ok);
+}
+
+/** Des trames 1090 sont parvenues : par l'antenne du poste (« rx ») ou par l'ADS-B Internet. */
+function entendu(pic: LivePicture): boolean {
+  return recu(pic, "rx") || recu(pic, "1090");
+}
+
+/**
+ * Une source muette n'est jamais dite vide : « SIGMET : aucun » quand rien n'a été reçu rassurerait
+ * à tort. Hors ligne, l'antenne entend encore, mais METAR, SIGMET, météo spatiale et marquage
+ * militaire n'arrivent que par Internet.
+ */
 function lignesDe(s: Sujet, pic: LivePicture, n: number): string[] {
+  if (s !== "meteo" && s !== "sigmet" && s !== "espace" && !entendu(pic)) {
+    return [`${MUETS_1090[s]}, aucune trame 1090 reçue (antenne et ADS-B Internet muets).`];
+  }
   switch (s) {
     case "urgences":
       return pic.emergencies.length === 0
         ? ["Urgences (7500/7600/7700) : aucune."]
         : [`Urgences : ${pic.emergencies.length}`, ...retrait(contactsProches(pic.emergencies, 6))];
     case "militaires": {
+      if (!recu(pic, "1090")) {
+        return ["Contacts militaires : inconnus, le marquage vient de l'ADS-B Internet, non reçu."];
+      }
       const mil = pic.aircraft.filter((a) => a.military);
       return mil.length === 0
         ? ["Contacts militaires : aucun."]
@@ -132,6 +161,7 @@ function lignesDe(s: Sujet, pic: LivePicture, n: number): string[] {
           ];
     }
     case "sigmet": {
+      if (!recu(pic, "sigmet")) return ["SIGMET : non reçus au dernier relevé."];
       const ao = pic.sigmets.filter((x) => x.inAo);
       return ao.length === 0
         ? ["SIGMET touchant l'AO : aucun."]
@@ -149,15 +179,18 @@ function lignesDe(s: Sujet, pic: LivePicture, n: number): string[] {
       const metar = pic.metar.find((m) => m.icao === "FTTJ");
       const taf = pic.taf.find((t) => t.icao === "FTTJ");
       return [
-        !metar
-          ? "METAR FTTJ : absent du relevé (la station est parfois muette)."
-          : /^(METAR|SPECI)\b/.test(metar.raw)
-            ? metar.raw
-            : `METAR FTTJ : ${metar.raw}`,
+        !recu(pic, "metar")
+          ? "METAR FTTJ : non reçu au dernier relevé."
+          : !metar
+            ? "METAR FTTJ : absent du relevé (la station est parfois muette)."
+            : /^(METAR|SPECI)\b/.test(metar.raw)
+              ? metar.raw
+              : `METAR FTTJ : ${metar.raw}`,
         ...(!taf ? [] : [/^TAF\b/.test(taf.raw) ? taf.raw : `TAF FTTJ : ${taf.raw}`]),
       ];
     }
     case "espace":
+      if (!recu(pic, "swpc")) return ["Météo spatiale (NOAA SWPC) : non reçue au dernier relevé."];
       return [
         `Météo spatiale : Kp ${pic.space.kp} (${pic.space.gScale}), rayons X GOES ${pic.space.xrayClass}.`,
         pic.alerts.length === 0

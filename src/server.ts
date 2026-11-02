@@ -4,12 +4,10 @@
 // vraiment sur SIGTERM ou Ctrl+C (voir lib/arret-serveur).
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
 import { armerArret, delaiArret, filetArretUtile } from "./lib/arret-serveur";
-import { chargerConfigPoste } from "./lib/config-poste";
+import { chargerEtAnnoncer } from "./lib/config-poste";
 import { departSansErreur } from "./lib/depart-client";
 
-const reglages = chargerConfigPoste();
-if (reglages.length > 0)
-  console.log(`[poste] réglages lus dans poste.env : ${reglages.join(", ")}`);
+chargerEtAnnoncer();
 
 if (filetArretUtile(import.meta.env.DEV, process.env)) {
   armerArret(
