@@ -119,6 +119,18 @@ Assistant IA du poste (serveur sur place) — Capteurs > Outils
 - Capteurs > Outils > « Assistant IA du poste » : bouton « Tester le serveur » (réglé, sur le poste,
   répond, avec quel modèle) et un champ question libre. Le « Briefing situation » passe par le même
   serveur.
+- GARDE-FOU CONTRE L'INVENTION (src/lib/vigilair/ia-garde-fou.ts). Un petit modèle local peut
+  inventer une piste ; le prompt le lui interdit, mais un interdit n'est pas une preuve. Après
+  chaque réponse (assistant, briefing, compte rendu de quart), le poste recherche chaque élément
+  vérifiable qu'elle cite — indicatif (AFR123), adresse ICAO (3C6589), immatriculation (TT-ABC),
+  groupe de message (FEW040) — dans les données RÉELLEMENT envoyées au modèle. Ce qui n'y est pas
+  est signalé en clair sous la réponse : « ⚠ Non retrouvé dans les données fournies à l'IA : … ».
+  Rien n'est retiré : on montre ce que le modèle a dit et ce qui ne s'appuie sur rien. Un niveau
+  de vol, une piste d'aéroport ou un QNH déduits par le modèle ne sont pas signalés.
+  Mesuré sur le vrai serveur, avec un modèle qui invente : « AFR999 … adresse 4D2A11, niveau
+  FL350 » → AFR999 et 4D2A11 signalés, FL350 non ; une réponse sans identifiant passe telle
+  quelle. 12 tests, 10 mutations prises. Limite : le garde-fou vérifie les identifiants, pas le
+  raisonnement — une conclusion fausse bâtie sur de vraies pistes n'est pas détectée.
 
 Antenne 1090 du poste (clé SDR + dump1090)
 Lancer dump1090 avec le port brut AVR, et un port web qui ne prend pas 8080 (celui de AfriControl) :

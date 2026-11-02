@@ -13,6 +13,7 @@
  * Une adresse hors du réseau du poste (voir reseau-poste) est refusée avant tout envoi.
  */
 import { env } from "../env.server.ts";
+import { annoterReponse } from "./ia-garde-fou.ts";
 import { RESEAU_POSTE_EXEMPLES, serveurPoste } from "./reseau-poste.ts";
 
 export type ChatMsg = { role: "system" | "user" | "assistant"; content: string };
@@ -80,6 +81,20 @@ export async function iaChat(
   const texte = corps.choices?.[0]?.message?.content?.trim() ?? "";
   if (!texte) throw new Error("réponse vide du serveur d'IA");
   return texte;
+}
+
+/**
+ * Un échange avec l'IA du poste, passé au garde-fou : tout indicatif, adresse ICAO,
+ * immatriculation ou groupe codé que la réponse cite sans qu'il figure dans les messages envoyés
+ * est signalé en clair sous la réponse (voir ia-garde-fou). Pour tout ce que l'opérateur lit
+ * comme un fait : assistant, briefing, compte rendu de quart.
+ */
+export async function iaChatVerifie(
+  messages: ChatMsg[],
+  opts: { maxTokens?: number; temperature?: number } = {},
+): Promise<string> {
+  const texte = await iaChat(messages, opts);
+  return annoterReponse(texte, messages.map((m) => m.content).join("\n"));
 }
 
 /** Bouton « Tester le serveur » : réglé ? sur le poste ? répond ? avec quel modèle ? */

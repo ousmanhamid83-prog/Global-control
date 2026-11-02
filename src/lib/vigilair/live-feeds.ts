@@ -1353,7 +1353,7 @@ export const briefLivePicture = createServerFn({ method: "POST" })
       "Conclure: posture, ce qui est réel vs silence capteur, une action chef de division.",
     ].join("\n");
     try {
-      const text = await ia.iaChat([{ role: "user", content: prompt }], { maxTokens: 420 });
+      const text = await ia.iaChatVerifie([{ role: "user", content: prompt }], { maxTokens: 420 });
       return { ok: true, text };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "briefing échoué" };
@@ -1420,7 +1420,7 @@ export const askAssistant = createServerFn({ method: "POST" })
       (data.track ? `\n\nPiste ciblée par l'opérateur :\n${data.track}` : "") +
       `\n\nQuestion de l'opérateur : ${data.question}`;
     try {
-      const text = await ia.iaChat(
+      const text = await ia.iaChatVerifie(
         [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -1573,7 +1573,7 @@ export const shiftReport = createServerFn({ method: "POST" })
       "réel, signale-le comme exercice. Si les données sont minces, dis-le au lieu de broder.";
     const user = `${data.meta ? data.meta + "\n" : ""}Bulletins du journal (les plus récents en tête) :\n${data.events.join("\n")}`;
     try {
-      const text = await ia.iaChat(
+      const text = await ia.iaChatVerifie(
         [
           { role: "system", content: system },
           { role: "user", content: user },
