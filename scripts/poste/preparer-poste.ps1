@@ -11,6 +11,13 @@ serveur lit seul au démarrage (src/lib/config-poste.ts).
   -Zone S,N,O,E   relief sur cette zone, en degrés entiers ; PLUSIEURS zones (sur n'importe quels
                   continents) en les séparant par une virgule entre guillemets (défaut : le Tchad,
                   7,23,13,23 — 187 tuiles, 862 Mo). Ex. : -Zone "7,23,13,23","42,48,1,8"
+  -Imagerie       mosaïque Sentinel-2 HORS LIGNE (zooms 8 à 12), avec le compte Copernicus gratuit
+                  de l'opérateur : AFRICONTROL_SENTINEL_ID et _SECRET dans poste.env. Une tuile =
+                  une requête sur le quota mensuel du compte.
+  -ZoneImagerie S,N,O,E   zone de la mosaïque, en degrés décimaux (implique -Imagerie) ; PLUSIEURS
+                  zones entre guillemets, séparées par une virgule (défaut : le poste, FTTJ ± 0,55°
+                  — 274 tuiles). Ex. : -ZoneImagerie "11.6,12.7,14.5,15.6","13.2,13.9,20.5,21.2"
+                  Autres réglages (zooms, fenêtre, nuages) : node scripts\poste\imagerie-poste.mjs --help
   -Itineraire     serveur d'itinéraire OSRM du poste (Docker Desktop, carte OSM du Tchad, 151 Mo)
   -Signal         relais Signal du poste (Docker Desktop) : le détail des alertes, chiffré
                   jusqu'aux téléphones des destinataires
@@ -21,6 +28,8 @@ Relancer le script reprend là où il s'était arrêté : ce qui est déjà en p
 param(
   [string]$Modele = "",
   [string[]]$Zone = @("7,23,13,23"),
+  [switch]$Imagerie,
+  [string[]]$ZoneImagerie = @(),
   [switch]$Itineraire,
   [switch]$Signal,
   [switch]$SansBuild,
@@ -121,6 +130,18 @@ function Telecharger([string]$Fichier, [string[]]$Adresses) {
     }
   }
   return $false
+}
+
+# Zones S,N,O,E. Lancé par « powershell -File », -Zone "a","b" arrive en UNE seule chaîne (mesuré :
+# « 7,23,13,23,42,48,1,8 ») ; depuis une console PowerShell, en deux. Une zone a toujours quatre
+# nombres : on les regroupe par quatre, et les deux façons de lancer donnent les mêmes zones.
+# $null si le compte n'est pas un multiple de quatre.
+function Zones([string[]]$Valeurs) {
+  $nombres = @(($Valeurs -join ",").Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" })
+  if ($nombres.Count -eq 0 -or $nombres.Count % 4 -ne 0) { return $null }
+  $zones = @()
+  for ($i = 0; $i -lt $nombres.Count; $i += 4) { $zones += ($nombres[$i..($i + 3)] -join ",") }
+  return $zones
 }
 
 function DockerPret {
@@ -226,7 +247,12 @@ if (-not $SansRelief) {
   # Liste dédupliquée des tuiles couvrant TOUTES les zones demandées (n'importe quels continents) :
   # deux zones qui se chevauchent ne téléchargent pas deux fois le même degré carré.
   $aPrendre = New-Object System.Collections.Generic.HashSet[string]
-  foreach ($z in $Zone) {
+  $zonesRelief = Zones $Zone
+  if ($null -eq $zonesRelief) {
+    Write-Host "-Zone attend des zones de quatre degrés entiers S,N,O,E (reçu : $($Zone -join ' | '))"
+    exit 2
+  }
+  foreach ($z in $zonesRelief) {
     $bornes = $z.Split(",")
     if ($bornes.Count -ne 4 -or ($bornes | Where-Object { $_ -notmatch '^-?\d+$' })) {
       Write-Host "-Zone attend quatre degrés entiers S,N,O,E (reçu : $z)"
@@ -283,6 +309,39 @@ if (-not $SansRelief) {
   Ok "relief : $($tuiles.Count) tuiles dans data\relief ($mo Mo), dont $neuves téléchargées maintenant ; $mer en mer, sans tuile"
   if ($echecs -gt 0) {
     Rate "relief : $echecs tuiles n'ont pas pu être téléchargées — relancer le script pour les reprendre"
+  }
+}
+
+if ($Imagerie -or $ZoneImagerie.Count -gt 0) {
+  Etape "Imagerie hors ligne (mosaïque Sentinel-2, compte Copernicus de l'opérateur)"
+  # Le script de mosaïque fait tout (plan, garde-fous, reprise) : il lit poste.env ici même.
+  $argsImagerie = @()
+  # Mal formées (pas un multiple de quatre nombres), les zones passent telles quelles : le script
+  # de mosaïque dit alors quoi corriger.
+  $zonesImagerie = if ($ZoneImagerie.Count -gt 0) { Zones $ZoneImagerie } else { @() }
+  if ($null -eq $zonesImagerie) { $zonesImagerie = $ZoneImagerie }
+  foreach ($z in $zonesImagerie) { $argsImagerie += @("--zone", $z) }
+  # $ErrorActionPreference local : sous PowerShell 5.1, une ligne sur stderr lèverait une exception.
+  $ErrorActionPreference = "Continue"
+  & node scripts/poste/imagerie-poste.mjs @argsImagerie
+  $code = $LASTEXITCODE
+  $ErrorActionPreference = "Stop"
+  if ($code -eq 0) {
+    $plan = & node scripts/poste/imagerie-poste.mjs @argsImagerie --essai |
+      Where-Object { $_ -match '^  zooms ' } | Select-Object -Last 1
+    Ok "imagerie : $($plan.Trim()) — lues par le serveur, même hors ligne"
+  } elseif ($code -eq 1) {
+    Rate "imagerie : des tuiles n'ont pas pu être obtenues — relancer le script pour les reprendre"
+  } else {
+    Rate "imagerie : arrêtée (raison ci-dessus)"
+  }
+  $reglee = $env:AFRICONTROL_SENTINEL_ID -or
+    ((Test-Path $PosteEnv) -and (Select-String -Quiet -Path $PosteEnv -Pattern '^AFRICONTROL_SENTINEL_ID='))
+  if (-not $reglee) {
+    $AFaire.Add("Imagerie hors ligne : créer un client OAuth sur le compte Copernicus (gratuit) :")
+    $AFaire.Add("  https://shapps.dataspace.copernicus.eu/dashboard/#/account/settings → User Settings → OAuth clients → Create ;")
+    $AFaire.Add("  l'écrire dans poste.env : AFRICONTROL_SENTINEL_ID=… et AFRICONTROL_SENTINEL_SECRET=…")
+    $AFaire.Add("  (le même compte sert à l'imagerie fraîche de la console), puis relancer avec -Imagerie.")
   }
 }
 

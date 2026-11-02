@@ -19,7 +19,7 @@ const MOTS_VIDES = new Set(
   (
     "les des une dans pour par sur avec sans que qui quoi quel quelle quels quelles est sont ete etre " +
     "faire fait peut peux veux dois comment pourquoi quand aux ces cet cette son ses leur leurs mon " +
-    "mes ton tes nous vous ils elles pas plus moins tout tous toute toutes comme mais donc alors " +
+    "moi mes ton tes nous vous ils elles pas plus moins tout tous toute toutes comme mais donc alors " +
     "aussi tres bien deja encore ici avoir ont elle lui car entre vers chez dont apres sous puis " +
     "depuis selon chaque meme poste console"
   ).split(" "),

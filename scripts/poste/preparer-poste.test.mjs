@@ -1,7 +1,7 @@
 // Les deux scripts de préparation du poste (Linux et Windows) doivent rester d'accord entre eux, avec
 // le serveur qui lit poste.env et avec l'écran Division où l'on colle l'adresse du relais Signal.
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -101,4 +101,111 @@ test("script Windows en UTF-8 avec BOM : sans lui, PowerShell 5.1 lit les accent
 test("script Linux : syntaxe bash valide", () => {
   const r = spawnSync("bash", ["-n", join(ICI, "preparer-poste.sh")], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
+});
+
+test("imagerie : les deux scripts confient tout au même script de mosaïque, zones répétables", () => {
+  for (const texte of [SH, PS1]) {
+    assert.ok(texte.includes("node scripts/poste/imagerie-poste.mjs"), "même script de mosaïque");
+    assert.ok(
+      texte.includes("https://shapps.dataspace.copernicus.eu/dashboard/#/account/settings"),
+      "même marche à suivre pour le compte Copernicus",
+    );
+  }
+  assert.ok(
+    /--zone-imagerie\) IMAGERIE=1; ZONES_IMAGERIE\+=\(/.test(SH),
+    "--zone-imagerie répétable",
+  );
+  assert.ok(/\[string\[\]\]\$ZoneImagerie/.test(PS1), "-ZoneImagerie en tableau côté Windows");
+  // Les identifiants restent à l'opérateur : aucun script ne les écrit dans poste.env (voir aussi
+  // le test des clés écrites, plus haut).
+  assert.ok(!/regler AFRICONTROL_SENTINEL|Regler "AFRICONTROL_SENTINEL/.test(SH + PS1));
+});
+
+// PowerShell 7 si la machine l'a (pwsh, ou PWSH=chemin) ; sinon ces tests sont sautés.
+const PWSH = process.env.PWSH ?? "pwsh";
+const SANS_PWSH = spawnSync(PWSH, ["-NoProfile", "-Command", "exit 0"]).status !== 0;
+
+test(
+  'PowerShell : -Zone "a","b" lancé par -File donne bien deux zones',
+  { skip: SANS_PWSH },
+  () => {
+    // Lancé par « powershell -File », -Zone "a","b" arrive en une seule chaîne de huit nombres :
+    // c'est ainsi que le relief multi-zones échouait (« -Zone attend quatre degrés entiers »).
+    const essai = [
+      '$src = Get-Content -Raw "' + join(ICI, "preparer-poste.ps1") + '"',
+      "$ast = [System.Management.Automation.Language.Parser]::ParseInput($src, [ref]$null, [ref]$null)",
+      '$f = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq "Zones" }, $true)[0]',
+      "Invoke-Expression $f.Extent.Text",
+      '(Zones @("7,23,13,23,42,48,1,8")) -join " ; "',
+      '(Zones @("7,23,13,23", "42,48,1,8")) -join " ; "',
+      '(Zones @("11.6,12.7,14.5,15.6")) -join " ; "',
+      '$null -eq (Zones @("7,23,13"))',
+    ].join("\n");
+    const r = spawnSync(PWSH, ["-NoProfile", "-Command", essai], { encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.stdout.trim().split(/\r?\n/), [
+      "7,23,13,23 ; 42,48,1,8",
+      "7,23,13,23 ; 42,48,1,8",
+      "11.6,12.7,14.5,15.6",
+      "True",
+    ]);
+  },
+);
+
+test("script Linux --zone-imagerie : de bout en bout contre un faux compte Copernicus", async () => {
+  const { createServer } = await import("node:http");
+  const { mkdtempSync, readdirSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const srv = createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      if (req.url === "/jeton") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ access_token: "jeton", expires_in: 3600 }));
+        return;
+      }
+      const jpeg = Buffer.alloc(5000, 7);
+      jpeg.set([0xff, 0xd8, 0xff]);
+      res.writeHead(200, { "content-type": "image/jpeg" });
+      res.end(jpeg);
+    });
+  });
+  await new Promise((ok) => srv.listen(0, "127.0.0.1", ok));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  const dossier = mkdtempSync(join(tmpdir(), "mosaique-"));
+  try {
+    const r = await new Promise((ok) => {
+      const p = spawn(
+        "bash",
+        [join(ICI, "preparer-poste.sh"), "--sans-build", "--sans-ia", "--sans-relief"].concat([
+          "--zone-imagerie",
+          "12.0,12.2,15.0,15.2",
+        ]),
+        {
+          env: {
+            PATH: process.env.PATH,
+            AFRICONTROL_SENTINEL_ID: "client",
+            AFRICONTROL_SENTINEL_SECRET: "secret",
+            AFRICONTROL_SENTINEL_TOKEN: `${base}/jeton`,
+            AFRICONTROL_SENTINEL_API: `${base}/process`,
+            AFRICONTROL_IMAGERIE_TUILES: dossier,
+          },
+        },
+      );
+      let sortie = "";
+      p.stdout.on("data", (d) => (sortie += d));
+      p.stderr.on("data", (d) => (sortie += d));
+      p.on("close", (code) => ok({ code, sortie }));
+    });
+    assert.equal(r.code, 0, r.sortie);
+    assert.match(r.sortie, /✓ imagerie : zooms 8 à 12 : (\d+) tuiles, dont \1 déjà là/);
+    const n = Number(r.sortie.match(/zooms 8 à 12 : (\d+) tuiles/)[1]);
+    const ecrites = readdirSync(dossier, { recursive: true }).filter((f) =>
+      String(f).endsWith(".jpg"),
+    );
+    assert.equal(ecrites.length, n);
+  } finally {
+    await new Promise((ok) => srv.close(ok));
+    rmSync(dossier, { recursive: true, force: true });
+  }
 });

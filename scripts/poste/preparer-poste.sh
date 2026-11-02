@@ -11,6 +11,13 @@
 #   --zone S,N,O,E   relief sur cette zone, en degrés entiers ; RÉPÉTABLE pour couvrir plusieurs
 #                    théâtres sur n'importe quels continents (défaut : le Tchad, 7,23,13,23 —
 #                    187 tuiles, 862 Mo). Ex. : --zone 7,23,13,23 --zone 42,48,1,8
+#   --imagerie       mosaïque Sentinel-2 HORS LIGNE (zooms 8 à 12), avec le compte Copernicus
+#                    gratuit de l'opérateur : AFRICONTROL_SENTINEL_ID et _SECRET dans poste.env.
+#                    Une tuile = une requête sur le quota mensuel du compte.
+#   --zone-imagerie S,N,O,E   zone de la mosaïque, en degrés décimaux (implique --imagerie) ;
+#                    RÉPÉTABLE (défaut : le poste, FTTJ ± 0,55° — 274 tuiles).
+#                    Ex. : --zone-imagerie 11.6,12.7,14.5,15.6 --zone-imagerie 13.2,13.9,20.5,21.2
+#                    Autres réglages (zooms, fenêtre, nuages) : node scripts/poste/imagerie-poste.mjs --help
 #   --itineraire     serveur d'itinéraire OSRM du poste (Docker, carte OSM du Tchad, 151 Mo)
 #   --signal         relais Signal du poste (Docker) : le détail des alertes, chiffré jusqu'aux
 #                    téléphones des destinataires
@@ -27,11 +34,14 @@ SIGNAL_IMAGE=bbernhard/signal-cli-rest-api:0.101
 
 MODELE=""
 ZONES=()
-BUILD=1 IA=1 RELIEF=1 ITINERAIRE=0 SIGNAL=0
+ZONES_IMAGERIE=()
+BUILD=1 IA=1 RELIEF=1 IMAGERIE=0 ITINERAIRE=0 SIGNAL=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --modele) MODELE=${2:?--modele attend un nom de modèle}; shift ;;
     --zone) ZONES+=("${2:?--zone attend S,N,O,E}"); shift ;;
+    --imagerie) IMAGERIE=1 ;;
+    --zone-imagerie) IMAGERIE=1; ZONES_IMAGERIE+=("${2:?--zone-imagerie attend S,N,O,E}"); shift ;;
     --itineraire) ITINERAIRE=1 ;;
     --signal) SIGNAL=1 ;;
     --sans-build) BUILD=0 ;;
@@ -244,6 +254,30 @@ if [ "$RELIEF" = 1 ]; then
   ok "relief : $presentes tuiles dans data/relief ($(du -sh data/relief | cut -f1)), dont $neuves téléchargées maintenant ; $mer en mer, sans tuile"
   if [ "$echecs" -gt 0 ]; then
     rate "relief : $echecs tuiles n'ont pas pu être téléchargées — relancer le script pour les reprendre"
+  fi
+fi
+
+if [ "$IMAGERIE" = 1 ]; then
+  etape "Imagerie hors ligne (mosaïque Sentinel-2, compte Copernicus de l'opérateur)"
+  # Le script de mosaïque fait tout (plan, garde-fous, reprise) : il lit poste.env ici même.
+  args=()
+  for zone in ${ZONES_IMAGERIE[@]+"${ZONES_IMAGERIE[@]}"}; do args+=(--zone "$zone"); done
+  if node scripts/poste/imagerie-poste.mjs ${args[@]+"${args[@]}"}; then code=0; else code=$?; fi
+  if [ "$code" = 0 ]; then
+    plan=$(node scripts/poste/imagerie-poste.mjs ${args[@]+"${args[@]}"} --essai | sed -n 's/^  zooms /zooms /p')
+    ok "imagerie : $plan — lues par le serveur, même hors ligne"
+  elif [ "$code" = 1 ]; then
+    rate "imagerie : des tuiles n'ont pas pu être obtenues — relancer le script pour les reprendre"
+  else
+    rate "imagerie : arrêtée (raison ci-dessus)"
+  fi
+  if [ -z "${AFRICONTROL_SENTINEL_ID:-}" ] && ! grep -qs '^AFRICONTROL_SENTINEL_ID=' "$POSTE_ENV"; then
+    A_FAIRE+=(
+      "Imagerie hors ligne : créer un client OAuth sur le compte Copernicus (gratuit) :"
+      "  https://shapps.dataspace.copernicus.eu/dashboard/#/account/settings → User Settings → OAuth clients → Create ;"
+      "  l'écrire dans poste.env : AFRICONTROL_SENTINEL_ID=… et AFRICONTROL_SENTINEL_SECRET=…"
+      "  (le même compte sert à l'imagerie fraîche de la console), puis relancer avec --imagerie."
+    )
   fi
 fi
 

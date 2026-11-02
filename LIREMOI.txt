@@ -27,7 +27,8 @@ Préparer le poste en une commande (une fois, en ligne)
 - Dans le dossier AfriControl :
     Linux   : bash scripts/poste/preparer-poste.sh --itineraire --signal
     Windows : powershell -ExecutionPolicy Bypass -File scripts\poste\preparer-poste.ps1 -Itineraire -Signal
-  Sans --itineraire ni --signal : serveur, IA et relief seulement, sans Docker.
+  Sans --itineraire ni --signal : serveur, IA et relief seulement, sans Docker. --imagerie ajoute
+  la mosaïque hors ligne (compte Copernicus de l'opérateur, voir plus bas).
 - Ce que fait le script, avec un essai à chaque étape et un bilan à la fin (code de sortie 1 si
   une étape a échoué) :
   · construit le serveur autonome (npm ci, build node-server) ;
@@ -42,6 +43,18 @@ Préparer le poste en une commande (une fois, en ligne)
     de Go), le script prévient avant de se lancer. Le poste lit ces tuiles lui-même : plus de
     serveur de relief, plus de Docker pour le relief. Liaison lente : copier data/relief depuis
     une autre machine (clé USB) revient au même ;
+  · imagerie hors ligne (--imagerie ; Windows -Imagerie) : mosaïque Sentinel-2 en vraies couleurs
+    des zones choisies, zooms 8 à 12, dans public/sentinel (ou AFRICONTROL_IMAGERIE_TUILES), là
+    où la console la lit sans réseau. Défaut : le poste, FTTJ ± 0,55° (274 tuiles). Zones en
+    degrés décimaux, RÉPÉTABLES : --zone-imagerie 11.6,12.7,14.5,15.6 --zone-imagerie
+    13.2,13.9,20.5,21.2 (Windows : -ZoneImagerie "11.6,12.7,14.5,15.6","13.2,13.9,20.5,21.2").
+    Il faut le compte Copernicus gratuit de l'opérateur, le même que l'imagerie satellite fraîche de la
+    console : client OAuth créé sur https://shapps.dataspace.copernicus.eu/dashboard/#/account/settings
+    (User Settings → OAuth clients → Create), puis AFRICONTROL_SENTINEL_ID et
+    AFRICONTROL_SENTINEL_SECRET dans poste.env — le script ne les écrit jamais lui-même. Une tuile
+    = une requête sur le quota mensuel du compte : le script compte avant de lancer, prévient
+    au-delà de 2000 et refuse au-delà de 10 000 sans --oui. Autres réglages (zooms jusqu'à 14,
+    fenêtre, nuages, essai à blanc) : node scripts/poste/imagerie-poste.mjs --help ;
   · itinéraire (--itineraire, Docker) : carte OpenStreetMap du Tchad (151 Mo), graphe OSRM
     préparé, serveur sur 127.0.0.1:5810 qui redémarre avec la machine ; essai N'Djamena → Abéché ;
   · relais Signal (--signal, Docker) : signal-cli-rest-api sur 127.0.0.1:8085, qui redémarre
@@ -587,6 +600,31 @@ Symbologie APP-6 et radar
   159/115/77. À DIRE FRANCHEMENT : rien n'a pu être vérifié contre le vrai compte Copernicus
   (pas d'identifiants ici) ; le défaut et la correction s'appuient sur la documentation officielle
   et sur un test qui exécute le script de rendu. 4 tests, 9 mutations prises.
+- LA MOSAÏQUE HORS LIGNE SE CONSTRUIT SUR LE POSTE (nouveau, scripts/poste/imagerie-poste.mjs,
+  --imagerie des scripts de préparation). Pour les zones choisies, il demande au compte
+  Copernicus de l'opérateur chaque tuile 256 px en JPEG, composite Sentinel-2 L2A le moins
+  nuageux des 12 derniers mois (scènes à 20 % de nuages au plus), et l'écrit dans
+  public/sentinel/<z>/<x>/<y>.jpg : la console l'affiche aussitôt, sans réseau (couverture relue
+  toute seule). Il compte avant de lancer (tuiles, requêtes, unités de traitement), reprend où il
+  s'était arrêté, attend ce que le service demande sur un 429, renouvelle le jeton sur un 401,
+  s'arrête net sur un refus du compte (quota épuisé, identifiants faux) ou un réseau coupé, ne
+  garde pas une réponse qui n'est pas un JPEG, et n'écrit pas une tuile uniforme (zone sans
+  donnée : mesuré, un JPEG 256 px uni pèse 1,1 Ko, la plus petite vraie tuile livrée 4,2 Ko).
+  Quota : de l'ordre de 10 000 requêtes par mois sur un compte gratuit d'après le forum
+  Copernicus — chiffre non trouvé dans la documentation officielle, le tableau de bord du compte
+  fait foi. Vérifié contre un faux compte Copernicus qui sert les vraies tuiles livrées : 22
+  tuiles écrites, octets identiques, puis servies par le serveur construit et affichées dans un
+  vrai navigateur, imagerie en ligne coupée (22 demandes, toutes en 200, 0 erreur). Scripts de
+  préparation essayés pour de vrai, Linux et Windows (PowerShell 7) ; règles de compatibilité
+  PowerShell 5.1 : aucun problème. 12 + 7 tests, 22 + 10 mutations prises. PAS ESSAYÉ contre le
+  vrai compte : faute d'identifiants, le rendu réel des tuiles reste à voir sur le poste.
+- RELIEF MULTI-ZONES SOUS WINDOWS (corrigé ; mon erreur au chantier précédent). Lancé comme le
+  LIREMOI l'indique (powershell -File …), -Zone "7,23,13,23","42,48,1,8" arrive en UNE chaîne
+  de huit nombres : le script s'arrêtait sur « -Zone attend quatre degrés entiers ». Je ne
+  l'avais essayé que depuis une console PowerShell, où les deux zones arrivent bien séparées.
+  Une zone ayant toujours quatre nombres, le script les regroupe maintenant par quatre : les deux
+  façons de lancer donnent les mêmes zones (relief et imagerie). Vérifié sous PowerShell 7 par
+  -File, avec deux zones de relief et deux d'imagerie ; un test le garde.
 - LE SERVEUR S'ARRÊTE VRAIMENT (corrigé, défaut d'origine). Sur SIGTERM ou Ctrl+C, le serveur
   HTTP du framework ferme l'écoute puis rend la main sans jamais terminer le processus. Après une
   session, la minuterie de reconnexion du lien 1090 le gardait vivant À VIE : la console ne
