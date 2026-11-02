@@ -25,6 +25,8 @@ import { Route as SentinelleRouteImport } from './routes/sentinelle'
 import { Route as TableauRouteImport } from './routes/tableau'
 import { Route as TraceRouteImport } from './routes/trace'
 import { Route as ZonesRouteImport } from './routes/zones'
+import { Route as ApiMosaiqueRouteImport } from './routes/api/mosaique'
+import { Route as ApiMosaiqueCouvertureRouteImport } from './routes/api/mosaique-couverture'
 import { Route as ApiSatRouteImport } from './routes/api/sat'
 import { Route as ApiTileRouteImport } from './routes/api/tile'
 import { Route as ApiZoneGpsRouteImport } from './routes/api/zone-gps'
@@ -110,6 +112,16 @@ const ZonesRoute = ZonesRouteImport.update({
   path: '/zones',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMosaiqueRoute = ApiMosaiqueRouteImport.update({
+  id: '/api/mosaique',
+  path: '/api/mosaique',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMosaiqueCouvertureRoute = ApiMosaiqueCouvertureRouteImport.update({
+  id: '/api/mosaique-couverture',
+  path: '/api/mosaique-couverture',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiSatRoute = ApiSatRouteImport.update({
   id: '/api/sat',
   path: '/api/sat',
@@ -148,6 +160,8 @@ export interface FileRoutesByFullPath {
   '/tableau': typeof TableauRoute
   '/trace': typeof TraceRoute
   '/zones': typeof ZonesRoute
+  '/api/mosaique': typeof ApiMosaiqueRoute
+  '/api/mosaique-couverture': typeof ApiMosaiqueCouvertureRoute
   '/api/sat': typeof ApiSatRoute
   '/api/tile': typeof ApiTileRoute
   '/api/zone-gps': typeof ApiZoneGpsRoute
@@ -170,6 +184,8 @@ export interface FileRoutesByTo {
   '/tableau': typeof TableauRoute
   '/trace': typeof TraceRoute
   '/zones': typeof ZonesRoute
+  '/api/mosaique': typeof ApiMosaiqueRoute
+  '/api/mosaique-couverture': typeof ApiMosaiqueCouvertureRoute
   '/api/sat': typeof ApiSatRoute
   '/api/tile': typeof ApiTileRoute
   '/api/zone-gps': typeof ApiZoneGpsRoute
@@ -193,6 +209,8 @@ export interface FileRoutesById {
   '/tableau': typeof TableauRoute
   '/trace': typeof TraceRoute
   '/zones': typeof ZonesRoute
+  '/api/mosaique': typeof ApiMosaiqueRoute
+  '/api/mosaique-couverture': typeof ApiMosaiqueCouvertureRoute
   '/api/sat': typeof ApiSatRoute
   '/api/tile': typeof ApiTileRoute
   '/api/zone-gps': typeof ApiZoneGpsRoute
@@ -217,6 +235,8 @@ export interface FileRouteTypes {
     | '/tableau'
     | '/trace'
     | '/zones'
+    | '/api/mosaique'
+    | '/api/mosaique-couverture'
     | '/api/sat'
     | '/api/tile'
     | '/api/zone-gps'
@@ -239,6 +259,8 @@ export interface FileRouteTypes {
     | '/tableau'
     | '/trace'
     | '/zones'
+    | '/api/mosaique'
+    | '/api/mosaique-couverture'
     | '/api/sat'
     | '/api/tile'
     | '/api/zone-gps'
@@ -261,6 +283,8 @@ export interface FileRouteTypes {
     | '/tableau'
     | '/trace'
     | '/zones'
+    | '/api/mosaique'
+    | '/api/mosaique-couverture'
     | '/api/sat'
     | '/api/tile'
     | '/api/zone-gps'
@@ -284,6 +308,8 @@ export interface RootRouteChildren {
   TableauRoute: typeof TableauRoute
   TraceRoute: typeof TraceRoute
   ZonesRoute: typeof ZonesRoute
+  ApiMosaiqueRoute: typeof ApiMosaiqueRoute
+  ApiMosaiqueCouvertureRoute: typeof ApiMosaiqueCouvertureRoute
   ApiSatRoute: typeof ApiSatRoute
   ApiTileRoute: typeof ApiTileRoute
   ApiZoneGpsRoute: typeof ApiZoneGpsRoute
@@ -404,6 +430,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ZonesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/mosaique': {
+      id: '/api/mosaique'
+      path: '/api/mosaique'
+      fullPath: '/api/mosaique'
+      preLoaderRoute: typeof ApiMosaiqueRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mosaique-couverture': {
+      id: '/api/mosaique-couverture'
+      path: '/api/mosaique-couverture'
+      fullPath: '/api/mosaique-couverture'
+      preLoaderRoute: typeof ApiMosaiqueCouvertureRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/sat': {
       id: '/api/sat'
       path: '/api/sat'
@@ -452,6 +492,8 @@ const rootRouteChildren: RootRouteChildren = {
   TableauRoute: TableauRoute,
   TraceRoute: TraceRoute,
   ZonesRoute: ZonesRoute,
+  ApiMosaiqueRoute: ApiMosaiqueRoute,
+  ApiMosaiqueCouvertureRoute: ApiMosaiqueCouvertureRoute,
   ApiSatRoute: ApiSatRoute,
   ApiTileRoute: ApiTileRoute,
   ApiZoneGpsRoute: ApiZoneGpsRoute,

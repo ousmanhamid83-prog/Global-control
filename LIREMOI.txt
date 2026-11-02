@@ -166,8 +166,9 @@ Imagerie satellite de nuit — honnêtement
   laisse la main. Le bouton affiche « Auto · Nuit » seulement quand il a réellement basculé.
 - Imagerie qui semble floue/sombre alors qu'on est EN LIGNE : laisser 10–20 s au premier affichage
   d'une zone (l'imagerie fine Esri 0,3 m charge progressivement, tuile par tuile). Tant qu'elle
-  n'est pas arrivée, le poste montre la mosaïque locale plus grossière (37 m) si elle est installée,
-  sinon du sombre. En ligne, l'imagerie fine finit toujours par remplacer la locale.
+  n'est pas arrivée, le poste montre la mosaïque locale plus grossière si elle est installée (sa
+  résolution réelle s'affiche dans le bandeau GSD), sinon du sombre. En ligne, l'imagerie fine
+  finit toujours par remplacer la locale.
 
 Couverture imagerie par continent — quelle couche pour voir le monde
 - Pour une vue qui couvre Afrique + Moyen-Orient + Europe + Russie + Asie en continu : utiliser la
@@ -652,6 +653,28 @@ Symbologie APP-6 et radar
   temps que le disjoncteur ouvre), puis 4 ms une fois ouvert. En ligne, rien ne change : tuile z5
   géostationnaire 200 en 2,4 s, tuile z12 Esri 200 en 0,3 s. 8 tests sur le disjoncteur, 7
   mutations prises ; fumée 7/7, hydratation 0/16.
+  À SAVOIR : quand une source publique est dégradée, ses tuiles échouent désormais VITE (502) au
+  lieu de rester suspendues, et le limiteur du proxy peut répondre 429 aux relances du navigateur.
+  Vu pendant des épisodes de dégradation : des centaines d'erreurs de chargement de tuiles dans la
+  console du navigateur, mais les 7 pages montées et une hydratation propre — là où, avant, la
+  console gelait. Réseau sain, mesuré au même moment sur l'ancienne et la nouvelle version : 0
+  erreur des deux côtés.
+- MOSAÏQUE LOCALE : N'IMPORTE QUELLE ZONE, MÊME INSTALLÉE APRÈS LE BUILD (corrigé). La mosaïque hors
+  ligne avait deux défauts. Sa couverture était FIGÉE dans le code : trois rectangles autour de
+  FTTJ, si bien qu'une tuile installée ailleurs n'était jamais demandée. Et le navigateur la
+  chargeait comme fichier statique : en production, le serveur ne sert que les fichiers copiés au
+  moment du build. Mesuré : tuile posée après le build → HTTP 404, carte sombre hors ligne. Or le
+  script de préparation construit d'abord, puis installe.
+  Désormais : le serveur relève la couverture dans les fichiers présents (mosaique-couverture.ts,
+  rectangles EXACTS, jamais une tuile absente revendiquée) et lit chaque tuile sur le disque à la
+  demande (/api/mosaique) ; le navigateur demande la couverture puis seulement ces tuiles.
+  Mesuré après, tuiles posées APRÈS le build sur deux zones (N'Djamena et les Alpes) avec un trou
+  volontaire : couverture exacte relevée (le trou contourné) ; tuiles installées → 200 ; trou et
+  tuile absente → 404 ; paramètre manquant → 400 ; chemin piégé (« ../../etc ») → 404, aucun
+  fichier lu. Dans le navigateur, imagerie distante coupée : la couverture relevée une fois, les 5
+  tuiles installées en vue demandées et servies (200), le trou jamais demandé, 0 demande à l'ancien
+  chemin statique, 0 erreur. 7 tests (dont 50 formes tirées au hasard dépliées tuile par tuile),
+  8 mutations prises.
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
   pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée
@@ -1283,9 +1306,14 @@ Liaison Internet du site (wifi opérateur / Starlink / Thuraya) — Capteurs > O
   installer les packs de tuiles.
 - Packs de tuiles hors-ligne (mosaïque locale quand il n'y a pas de ligne) : EXTRAIRE les archives
   AfriControl-2-tuiles-z8.zip et AfriControl-3-tuiles-z10-z12.zip À LA RACINE du dossier — elles
-  créent public/sentinel/<z>/<x>/<y>.jpg (c'est là que le poste les lit). Fournies à part du zip de
-  code pour ne pas l'alourdir. En ligne (wifi/Starlink/Thuraya), elles ne sont PAS nécessaires :
-  l'imagerie fine vient du réseau ; elles ne servent que si le lien tombe.
+  créent public/sentinel/<z>/<x>/<y>.jpg (c'est là que le poste les lit ; AFRICONTROL_IMAGERIE_TUILES
+  pour un autre dossier). Fournies à part du zip de code pour ne pas l'alourdir. En ligne
+  (wifi/Starlink/Thuraya), elles ne sont PAS nécessaires : l'imagerie fine vient du réseau ; elles
+  ne servent que si le lien tombe.
+- Toute tuile posée là s'affiche hors ligne, sur N'IMPORTE QUELLE zone : le poste relève lui-même
+  ce qui est installé (plus le seul carré autour de FTTJ). Et elle s'affiche même posée APRÈS le
+  build : le serveur la lit sur le disque à chaque demande (/api/mosaique). Une zone ajoutée pendant
+  que le poste tourne apparaît en quelques minutes, sans redémarrer.
 
 Derrière un proxy d'entreprise
 Le serveur du poste (Node) n'utilise un proxy que si on le lui dit :

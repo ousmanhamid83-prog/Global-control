@@ -1,9 +1,8 @@
 /** Proxy tuiles same-origin : NASA / EUMETSAT voient l'IP serveur, jamais celle du poste. */
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { tileToLat, tileToLon } from "./geo";
+import { lireTuileLocale } from "./mosaique-locale.server.ts";
 import {
   estTuileGrise,
   missFromStatus,
@@ -316,16 +315,6 @@ function note(layer: SatLayer, scene: string, src: string) {
   } else if (newer(meta.relAt, iso)) {
     meta.relAt = iso;
     meta.relSrc = src;
-  }
-}
-
-async function localTile(z: number, x: number, y: number): Promise<Uint8Array | null> {
-  const file = path.join(process.cwd(), "public", "sentinel", String(z), String(x), `${y}.jpg`);
-  try {
-    const buf = await readFile(file);
-    return new Uint8Array(buf);
-  } catch {
-    return null;
   }
 }
 
@@ -727,7 +716,7 @@ async function serveTileInner(z: number, x: number, y: number, layer: SatLayer):
     // de réseau, ou que Copernicus refuse — c'est le cas du poste isolé au bout de l'antenne. Elle est
     // créditée comme telle (« mosaïque embarquée »), jamais présentée comme une image fraîche.
     const offline = async () => {
-      const loc = await localTile(z, x, y);
+      const loc = await lireTuileLocale(z, x, y);
       if (!loc) return null;
       const src = "mosaïque embarquée (hors ligne)";
       meta.s2Src = src;
