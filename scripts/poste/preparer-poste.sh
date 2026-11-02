@@ -8,8 +8,9 @@
 #
 #   --modele NOM     modèle d'IA (défaut selon la mémoire : qwen2.5:7b dès 15 Go, qwen2.5:3b dès
 #                    7 Go, sinon qwen2.5:1.5b)
-#   --zone S,N,O,E   relief sur cette zone, en degrés entiers (défaut : le Tchad, 7,23,13,23 —
-#                    187 tuiles, 862 Mo)
+#   --zone S,N,O,E   relief sur cette zone, en degrés entiers ; RÉPÉTABLE pour couvrir plusieurs
+#                    théâtres sur n'importe quels continents (défaut : le Tchad, 7,23,13,23 —
+#                    187 tuiles, 862 Mo). Ex. : --zone 7,23,13,23 --zone 42,48,1,8
 #   --itineraire     serveur d'itinéraire OSRM du poste (Docker, carte OSM du Tchad, 151 Mo)
 #   --signal         relais Signal du poste (Docker) : le détail des alertes, chiffré jusqu'aux
 #                    téléphones des destinataires
@@ -25,12 +26,12 @@ OSRM_IMAGE=ghcr.io/project-osrm/osrm-backend:v26.11.0-debian
 SIGNAL_IMAGE=bbernhard/signal-cli-rest-api:0.101
 
 MODELE=""
-ZONE="7,23,13,23"
+ZONES=()
 BUILD=1 IA=1 RELIEF=1 ITINERAIRE=0 SIGNAL=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --modele) MODELE=${2:?--modele attend un nom de modèle}; shift ;;
-    --zone) ZONE=${2:?--zone attend S,N,O,E}; shift ;;
+    --zone) ZONES+=("${2:?--zone attend S,N,O,E}"); shift ;;
     --itineraire) ITINERAIRE=1 ;;
     --signal) SIGNAL=1 ;;
     --sans-build) BUILD=0 ;;
@@ -41,6 +42,8 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+# Défaut : le Tchad, quand aucune --zone n'est donnée.
+if [ ${#ZONES[@]} -eq 0 ]; then ZONES=("7,23,13,23"); fi
 
 BILAN=()
 A_FAIRE=()
@@ -184,40 +187,57 @@ fi
 
 if [ "$RELIEF" = 1 ]; then
   etape "Relief (tuiles Copernicus GLO-90, lues par le poste lui-même)"
-  IFS=, read -r sud nord ouest est <<<"$ZONE"
-  for v in "$sud" "$nord" "$ouest" "$est"; do
-    if ! [[ "$v" =~ ^-?[0-9]+$ ]]; then
-      echo "--zone attend quatre degrés entiers S,N,O,E (reçu : $ZONE)" >&2
-      exit 2
-    fi
-  done
-  mkdir -p data/relief
-  total=$(((nord - sud + 1) * (est - ouest + 1)))
-  n=0 neuves=0 mer=0 echecs=0
-  for lat in $(seq "$sud" "$nord"); do
-    for lon in $(seq "$ouest" "$est"); do
-      n=$((n + 1))
-      ns=N ew=E
-      if [ "$lat" -lt 0 ]; then ns=S; fi
-      if [ "$lon" -lt 0 ]; then ew=W; fi
-      nom=$(printf 'Copernicus_DSM_COG_30_%s%02d_00_%s%03d_00_DEM' "$ns" "${lat#-}" "$ew" "${lon#-}")
-      fichier=data/relief/$nom.tif
-      if [ -f "$fichier" ]; then continue; fi
-      printf '\r  tuile %d/%d ' "$n" "$total"
-      code=$(curl -sL --retry 3 --retry-delay 3 -m 600 -o "$fichier.part" -w '%{http_code}' \
-        "https://copernicus-dem-90m.s3.amazonaws.com/$nom/$nom.tif" 2>/dev/null) || true
-      # Une vraie tuile commence par l'en-tête TIFF « II » ; un portail captif renverrait du HTML.
-      if [ "$code" = 200 ] && [ "$(head -c 2 "$fichier.part")" = II ]; then
-        mv "$fichier.part" "$fichier"
-        neuves=$((neuves + 1))
-      elif [ "$code" = 404 ]; then
-        rm -f "$fichier.part" # pas de tuile : la mer
-        mer=$((mer + 1))
-      else
-        rm -f "$fichier.part"
-        echecs=$((echecs + 1))
+  # Liste dédupliquée des tuiles couvrant TOUTES les zones demandées (n'importe quels continents) :
+  # deux zones qui se chevauchent ne téléchargent pas deux fois le même degré carré.
+  declare -A a_prendre=()
+  for zone in "${ZONES[@]}"; do
+    IFS=, read -r sud nord ouest est <<<"$zone"
+    for v in "$sud" "$nord" "$ouest" "$est"; do
+      if ! [[ "$v" =~ ^-?[0-9]+$ ]]; then
+        echo "--zone attend quatre degrés entiers S,N,O,E (reçu : $zone)" >&2
+        exit 2
       fi
     done
+    if [ "$sud" -gt "$nord" ] || [ "$ouest" -gt "$est" ]; then
+      echo "--zone : S≤N et O≤E attendus (reçu : $zone)" >&2
+      exit 2
+    fi
+    for lat in $(seq "$sud" "$nord"); do
+      for lon in $(seq "$ouest" "$est"); do
+        ns=N ew=E
+        if [ "$lat" -lt 0 ]; then ns=S; fi
+        if [ "$lon" -lt 0 ]; then ew=W; fi
+        a_prendre["$(printf 'Copernicus_DSM_COG_30_%s%02d_00_%s%03d_00_DEM' "$ns" "${lat#-}" "$ew" "${lon#-}")"]=1
+      done
+    done
+  done
+  mkdir -p data/relief
+  total=${#a_prendre[@]}
+  # Garde-fou : un continent entier, c'est des milliers de tuiles et des dizaines de Go, des heures
+  # de téléchargement. On prévient et on laisse 5 s pour arrêter (Ctrl+C) avant de se lancer.
+  if [ "$total" -gt 2000 ]; then
+    echo "  ATTENTION : $total tuiles demandées (environ $((total * 45 / 10000)) Go). Ctrl+C pour arrêter ; sinon ça continue dans 5 s…"
+    sleep 5
+  fi
+  n=0 neuves=0 mer=0 echecs=0
+  for nom in "${!a_prendre[@]}"; do
+    n=$((n + 1))
+    fichier=data/relief/$nom.tif
+    if [ -f "$fichier" ]; then continue; fi
+    printf '\r  tuile %d/%d ' "$n" "$total"
+    code=$(curl -sL --retry 3 --retry-delay 3 -m 600 -o "$fichier.part" -w '%{http_code}' \
+      "https://copernicus-dem-90m.s3.amazonaws.com/$nom/$nom.tif" 2>/dev/null) || true
+    # Une vraie tuile commence par l'en-tête TIFF « II » ; un portail captif renverrait du HTML.
+    if [ "$code" = 200 ] && [ "$(head -c 2 "$fichier.part")" = II ]; then
+      mv "$fichier.part" "$fichier"
+      neuves=$((neuves + 1))
+    elif [ "$code" = 404 ]; then
+      rm -f "$fichier.part" # pas de tuile : la mer
+      mer=$((mer + 1))
+    else
+      rm -f "$fichier.part"
+      echecs=$((echecs + 1))
+    fi
   done
   echo
   presentes=$(find data/relief -maxdepth 1 -name 'Copernicus_DSM_COG_*_DEM.tif' | wc -l)

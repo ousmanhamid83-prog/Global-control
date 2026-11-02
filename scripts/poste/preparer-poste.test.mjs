@@ -67,10 +67,31 @@ test("relief : les noms de tuiles des scripts sont ceux que le serveur lit", () 
   // degré carré de l'hémisphère sud-ouest.
   assert.ok(SH.includes("'Copernicus_DSM_COG_30_%s%02d_00_%s%03d_00_DEM'"));
   assert.ok(PS1.includes('"Copernicus_DSM_COG_30_{0}{1:D2}_00_{2}{3:D3}_00_DEM"'));
-  for (const nom of [nomSh("N", 12, "E", 15), nomSh("S", 4, "W", 73)]) {
-    assert.match(`${nom}.tif`, nomServeur);
-  }
-  assert.ok(SH.includes('ZONE="7,23,13,23"') && PS1.includes('$Zone = "7,23,13,23"'));
+  // Un degré carré sur chaque continent habité : le format des deux scripts doit produire un nom
+  // que le serveur accepte, où que ce soit sur Terre.
+  const partout = [
+    nomSh("N", 12, "E", 15), // Tchad (Afrique)
+    nomSh("N", 45, "E", 6), // Alpes (Europe)
+    nomSh("N", 27, "E", 86), // Himalaya (Asie)
+    nomSh("N", 39, "W", 107), // Rocheuses (Amérique du Nord)
+    nomSh("S", 14, "W", 73), // Andes (Amérique du Sud)
+    nomSh("S", 34, "E", 150), // Sydney (Océanie)
+  ];
+  for (const nom of partout) assert.match(`${nom}.tif`, nomServeur);
+  // Défaut Tchad quand aucune zone n'est passée, dans les deux scripts.
+  assert.ok(SH.includes('ZONES=("7,23,13,23")'), "défaut Tchad côté Linux");
+  assert.ok(PS1.includes('$Zone = @("7,23,13,23")'), "défaut Tchad côté Windows");
+});
+
+test("relief multi-continents : --zone est répétable, avec un garde-fou sur les gros lots", () => {
+  // Linux : --zone accumule dans un tableau ; Windows : -Zone est un tableau de chaînes.
+  assert.ok(/--zone\) ZONES\+=\(/.test(SH), "--zone répétable côté Linux");
+  assert.ok(/\[string\[\]\]\$Zone/.test(PS1), "-Zone en tableau côté Windows");
+  // Les deux dédupliquent les tuiles (deux zones qui se chevauchent n'en téléchargent pas deux).
+  assert.ok(/declare -A a_prendre/.test(SH), "déduplication côté Linux");
+  assert.ok(/HashSet\[string\]/.test(PS1), "déduplication côté Windows");
+  // Garde-fou : au-delà de 2000 tuiles, on prévient avant de lancer des dizaines de Go.
+  assert.ok(SH.includes("2000") && PS1.includes("2000"), "garde-fou sur un très gros lot");
 });
 
 test("script Windows en UTF-8 avec BOM : sans lui, PowerShell 5.1 lit les accents de travers", () => {

@@ -8,8 +8,9 @@ serveur lit seul au démarrage (src/lib/config-poste.ts).
 
   -Modele NOM     modèle d'IA (défaut selon la mémoire : qwen2.5:7b dès 15 Go, qwen2.5:3b dès
                   7 Go, sinon qwen2.5:1.5b)
-  -Zone S,N,O,E   relief sur cette zone, en degrés entiers (défaut : le Tchad, 7,23,13,23 —
-                  187 tuiles, 862 Mo)
+  -Zone S,N,O,E   relief sur cette zone, en degrés entiers ; PLUSIEURS zones (sur n'importe quels
+                  continents) en les séparant par une virgule entre guillemets (défaut : le Tchad,
+                  7,23,13,23 — 187 tuiles, 862 Mo). Ex. : -Zone "7,23,13,23","42,48,1,8"
   -Itineraire     serveur d'itinéraire OSRM du poste (Docker Desktop, carte OSM du Tchad, 151 Mo)
   -Signal         relais Signal du poste (Docker Desktop) : le détail des alertes, chiffré
                   jusqu'aux téléphones des destinataires
@@ -19,7 +20,7 @@ Relancer le script reprend là où il s'était arrêté : ce qui est déjà en p
 #>
 param(
   [string]$Modele = "",
-  [string]$Zone = "7,23,13,23",
+  [string[]]$Zone = @("7,23,13,23"),
   [switch]$Itineraire,
   [switch]$Signal,
   [switch]$SansBuild,
@@ -220,44 +221,60 @@ if (-not $SansIA) {
 
 if (-not $SansRelief) {
   Etape "Relief (tuiles Copernicus GLO-90, lues par le poste lui-même)"
-  $bornes = $Zone.Split(",")
-  if ($bornes.Count -ne 4 -or ($bornes | Where-Object { $_ -notmatch '^-?\d+$' })) {
-    Write-Host "-Zone attend quatre degrés entiers S,N,O,E (reçu : $Zone)"
-    exit 2
-  }
-  $sud, $nord, $ouest, $est = $bornes | ForEach-Object { [int]$_ }
   $dossierRelief = Join-Path $Racine (Join-Path "data" "relief")
   New-Item -ItemType Directory -Force -Path $dossierRelief | Out-Null
-  $total = ($nord - $sud + 1) * ($est - $ouest + 1)
-  $n = 0; $neuves = 0; $mer = 0; $echecs = 0
-  for ($lat = $sud; $lat -le $nord; $lat++) {
-    for ($lon = $ouest; $lon -le $est; $lon++) {
-      $n++
-      $ns = if ($lat -lt 0) { "S" } else { "N" }
-      $ew = if ($lon -lt 0) { "W" } else { "E" }
-      $nom = "Copernicus_DSM_COG_30_{0}{1:D2}_00_{2}{3:D3}_00_DEM" -f $ns, [Math]::Abs($lat), $ew, [Math]::Abs($lon)
-      $fichier = Join-Path $dossierRelief "$nom.tif"
-      if (Test-Path $fichier) { continue }
-      Write-Host -NoNewline "`r  tuile $n/$total "
-      try {
-        Invoke-WebRequest -UseBasicParsing -TimeoutSec 600 -Uri "https://copernicus-dem-90m.s3.amazonaws.com/$nom/$nom.tif" -OutFile "$fichier.part"
-        # Une vraie tuile commence par l'en-tête TIFF « II » ; un portail captif renverrait du HTML.
-        $flux = [IO.File]::OpenRead("$fichier.part")
-        $entete = @($flux.ReadByte(), $flux.ReadByte())
-        $flux.Close()
-        if ($entete[0] -eq 0x49 -and $entete[1] -eq 0x49) {
-          Move-Item -Force "$fichier.part" $fichier
-          $neuves++
-        } else {
-          Remove-Item -Force "$fichier.part"
-          $echecs++
-        }
-      } catch {
-        if (Test-Path "$fichier.part") { Remove-Item -Force "$fichier.part" }
-        $statut = 0
-        if ($_.Exception.Response) { $statut = [int]$_.Exception.Response.StatusCode }
-        if ($statut -eq 404) { $mer++ } else { $echecs++ } # 404 : pas de tuile, la mer
+  # Liste dédupliquée des tuiles couvrant TOUTES les zones demandées (n'importe quels continents) :
+  # deux zones qui se chevauchent ne téléchargent pas deux fois le même degré carré.
+  $aPrendre = New-Object System.Collections.Generic.HashSet[string]
+  foreach ($z in $Zone) {
+    $bornes = $z.Split(",")
+    if ($bornes.Count -ne 4 -or ($bornes | Where-Object { $_ -notmatch '^-?\d+$' })) {
+      Write-Host "-Zone attend quatre degrés entiers S,N,O,E (reçu : $z)"
+      exit 2
+    }
+    $sud, $nord, $ouest, $est = $bornes | ForEach-Object { [int]$_ }
+    if ($sud -gt $nord -or $ouest -gt $est) {
+      Write-Host "-Zone : S<=N et O<=E attendus (reçu : $z)"
+      exit 2
+    }
+    for ($lat = $sud; $lat -le $nord; $lat++) {
+      for ($lon = $ouest; $lon -le $est; $lon++) {
+        $ns = if ($lat -lt 0) { "S" } else { "N" }
+        $ew = if ($lon -lt 0) { "W" } else { "E" }
+        [void]$aPrendre.Add(("Copernicus_DSM_COG_30_{0}{1:D2}_00_{2}{3:D3}_00_DEM" -f $ns, [Math]::Abs($lat), $ew, [Math]::Abs($lon)))
       }
+    }
+  }
+  $total = $aPrendre.Count
+  # Garde-fou : un continent entier, c'est des milliers de tuiles et des dizaines de Go.
+  if ($total -gt 2000) {
+    Write-Host "  ATTENTION : $total tuiles demandees (environ $([Math]::Round($total * 0.0045)) Go). Ctrl+C pour arreter ; sinon ca continue dans 5 s..."
+    Start-Sleep -Seconds 5
+  }
+  $n = 0; $neuves = 0; $mer = 0; $echecs = 0
+  foreach ($nom in $aPrendre) {
+    $n++
+    $fichier = Join-Path $dossierRelief "$nom.tif"
+    if (Test-Path $fichier) { continue }
+    Write-Host -NoNewline "`r  tuile $n/$total "
+    try {
+      Invoke-WebRequest -UseBasicParsing -TimeoutSec 600 -Uri "https://copernicus-dem-90m.s3.amazonaws.com/$nom/$nom.tif" -OutFile "$fichier.part"
+      # Une vraie tuile commence par l'en-tête TIFF « II » ; un portail captif renverrait du HTML.
+      $flux = [IO.File]::OpenRead("$fichier.part")
+      $entete = @($flux.ReadByte(), $flux.ReadByte())
+      $flux.Close()
+      if ($entete[0] -eq 0x49 -and $entete[1] -eq 0x49) {
+        Move-Item -Force "$fichier.part" $fichier
+        $neuves++
+      } else {
+        Remove-Item -Force "$fichier.part"
+        $echecs++
+      }
+    } catch {
+      if (Test-Path "$fichier.part") { Remove-Item -Force "$fichier.part" }
+      $statut = 0
+      if ($_.Exception.Response) { $statut = [int]$_.Exception.Response.StatusCode }
+      if ($statut -eq 404) { $mer++ } else { $echecs++ } # 404 : pas de tuile, la mer
     }
   }
   Write-Host ""

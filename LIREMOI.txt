@@ -36,7 +36,10 @@ Préparer le poste en une commande (une fois, en ligne)
     sinon qwen2.5:1.5b ; --modele / -Modele pour un autre), le télécharge et lui fait répondre
     une question d'essai ;
   · relief : télécharge les tuiles Copernicus GLO-90 du Tchad dans data/relief (187 tuiles,
-    862 Mo ; --zone S,N,O,E / -Zone pour une autre zone). Le poste les lit lui-même : plus de
+    862 Mo). --zone S,N,O,E est RÉPÉTABLE pour couvrir plusieurs théâtres sur N'IMPORTE QUELS
+    continents, sans doublon (ex. Linux : --zone 7,23,13,23 --zone 42,48,1,8 ; Windows :
+    -Zone "7,23,13,23","42,48,1,8"). Au-delà de 2000 tuiles (un continent entier, des dizaines
+    de Go), le script prévient avant de se lancer. Le poste lit ces tuiles lui-même : plus de
     serveur de relief, plus de Docker pour le relief. Liaison lente : copier data/relief depuis
     une autre machine (clé USB) revient au même ;
   · itinéraire (--itineraire, Docker) : carte OpenStreetMap du Tchad (151 Mo), graphe OSRM
@@ -595,8 +598,11 @@ Symbologie APP-6 et radar
   · poste.env : le serveur lit seul ses réglages au démarrage (src/lib/config-poste.ts ; 4 tests,
     3 mutations prises) ;
   · relief embarqué : le poste lit ses tuiles Copernicus (src/lib/vigilair/geo-poste.server.ts,
-    bibliothèque geotiff, MIT) ; plus de serveur de relief. Tuiles réelles : FTTJ 294 m, Komé
-    387 m, point hors tuile « non mesuré » ; 9 tests, 5 mutations prises ;
+    bibliothèque geotiff, MIT) ; plus de serveur de relief. Fonctionne sur TOUS LES CONTINENTS
+    (--zone répétable) : prouvé avec de vraies tuiles sur six continents — FTTJ 294 m, Mont Blanc
+    4793 m, Everest 8685 m, Denver 1598 m, Cusco 3338 m, Sydney 56 m — et « non mesuré » là où il
+    n'y a pas de tuile, jamais une altitude inventée. 9 tests côté serveur, 5 mutations ; le test
+    des scripts couvre la déduplication et un degré carré sur chaque continent ;
   · relais Signal du poste : une adresse de webhook en …/v2/send est lue comme le relais
     signal-cli-rest-api ; la console lui envoie {message, number, recipients}, numéros pris dans
     l'adresse (« +235 » gardé tel quel). Hors du réseau du poste, ce relais ne reçoit que le
@@ -1142,10 +1148,12 @@ Navigation directe jusqu'au site (Capteurs > Navigation)
   place une fois, en ligne ; ensuite tout tourne hors ligne.
     Relief — des tuiles Copernicus DEM dans data/relief, que le poste lit lui-même
       (AFRICONTROL_RELIEF_TUILES pour un autre dossier). Le script pose les tuiles GLO-90 du
-      Tchad. Des tuiles GLO-30 (30 m, nommées …COG_10…, compartiment public copernicus-dem-30m)
-      posées au même endroit passent avant, là où elles existent. Un point sans donnée reste
-      « non mesuré ». Un serveur opentopodata du réseau du poste reste possible et prime s'il
-      est réglé : AFRICONTROL_RELIEF=http://127.0.0.1:5100/v1/<jeu de données>.
+      Tchad par défaut, mais --zone est RÉPÉTABLE : on couvre autant de théâtres qu'on veut, sur
+      n'importe quels continents, en une seule passe (sans doublon). Des tuiles GLO-30 (30 m,
+      nommées …COG_10…, compartiment public copernicus-dem-30m) posées au même endroit passent
+      avant, là où elles existent. Un point sans tuile reste « non mesuré », jamais inventé. Un
+      serveur opentopodata du réseau du poste reste possible et prime s'il est réglé :
+      AFRICONTROL_RELIEF=http://127.0.0.1:5100/v1/<jeu de données>.
     Itinéraire — un serveur OSRM du réseau du poste (AFRICONTROL_ITINERAIRE), préparé par le
       script avec --itineraire : carte OSM du Tchad, graphe, conteneur sur 127.0.0.1:5810.
   Une adresse hors du réseau du poste est refusée avant tout envoi.
