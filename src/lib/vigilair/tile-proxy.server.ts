@@ -2,6 +2,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { tileToLat, tileToLon } from "./geo";
+import { enTeteSur } from "./entete-http.ts";
 import { lireTuileLocale } from "./mosaique-locale.server.ts";
 import {
   estTuileGrise,
@@ -846,7 +847,7 @@ function img(bytes: Uint8Array, via: string, scene: string, mime?: string): Resp
       "X-Content-Type-Options": "nosniff",
       "Referrer-Policy": "no-referrer",
       "X-AfriControl-Tile": via,
-      ...(scene ? { "X-AfriControl-Sat": scene } : {}),
+      ...(scene ? { "X-AfriControl-Sat": enTeteSur(scene) } : {}),
     },
   });
 }

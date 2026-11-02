@@ -570,6 +570,23 @@ Symbologie APP-6 et radar
   le plugin : la 3e requête gèle encore 1,25 à 1,36 s. Reste : une requête envoyée dans les deux
   premières secondes de vie du serveur attend la fin de la création (~1,3 s). Le réduire
   demanderait de restaurer une base pré-créée (mesuré : 0,26 s au lieu de 1,3 s), pas fait.
+- L'IMAGERIE SENTINEL-2 FRAÎCHE NE POUVAIT PAS S'AFFICHER (deux défauts d'origine, corrigés).
+  Premier : chaque tuile réussie finissait en 502. Son crédit, posé en en-tête HTTP, disait
+  « ≤ 20 j » ; un en-tête n'accepte que des caractères Latin-1, la réponse levait une exception, et
+  le repli la changeait en 502. Mesuré contre un faux compte Copernicus : 502 avant ; après, 200
+  « S2LIVE », puis « HIT:S2LIVE » depuis le cache. Les en-têtes passent désormais tous par
+  src/lib/vigilair/entete-http.ts (accents gardés, « ≤ » devenu « <= ») ; 5 tests, 7 mutations.
+  Second : l'image sortait blanche. Le script de
+  rendu envoyé à Copernicus rendait des valeurs de 0 à 255 ; or, d'après la documentation de
+  Sentinel Hub, la sortie par défaut attend des valeurs de 0 à 1 et ramène à 255 tout ce qui
+  dépasse 1 : presque chaque pixel saturait. S'y ajoutait un gamma inversé (puissance 2,5 au lieu
+  de 0,4), qui assombrissait au lieu d'adoucir. Remplacé par le script « vraies couleurs » de
+  référence de Sentinel Hub (gain 2,5), dans scripts/sentinel-rendu.mjs, partagé par la console
+  (tuiles fraîches, comparateur avant/après) et par le script de mosaïque : les deux envoient la
+  même requête. Calculé sur un sol sahélien typique : ancien rendu 255/255/255 (blanc), nouveau
+  159/115/77. À DIRE FRANCHEMENT : rien n'a pu être vérifié contre le vrai compte Copernicus
+  (pas d'identifiants ici) ; le défaut et la correction s'appuient sur la documentation officielle
+  et sur un test qui exécute le script de rendu. 4 tests, 9 mutations prises.
 - LE SERVEUR S'ARRÊTE VRAIMENT (corrigé, défaut d'origine). Sur SIGTERM ou Ctrl+C, le serveur
   HTTP du framework ferme l'écoute puis rend la main sans jamais terminer le processus. Après une
   session, la minuterie de reconnexion du lien 1090 le gardait vivant À VIE : la console ne

@@ -13,9 +13,12 @@
  */
 
 import { env } from "@/lib/env.server";
-
-const CDSE_TOKEN = "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token";
-const CDSE_API = "https://sh.dataspace.copernicus.eu/api/v1/process";
+import {
+  CDSE_JETON,
+  CDSE_PROCESS,
+  corpsProcess,
+  tuile3857,
+} from "../../../scripts/sentinel-rendu.mjs";
 
 const ORIGIN_3857 = 20037508.342789244;
 
@@ -30,10 +33,10 @@ export function sentinelConfigured(): boolean {
 }
 
 function tokenUrl(): string {
-  return env("AFRICONTROL_SENTINEL_TOKEN") ?? CDSE_TOKEN;
+  return env("AFRICONTROL_SENTINEL_TOKEN") ?? CDSE_JETON;
 }
 function apiUrl(): string {
-  return env("AFRICONTROL_SENTINEL_API") ?? CDSE_API;
+  return env("AFRICONTROL_SENTINEL_API") ?? CDSE_PROCESS;
 }
 
 const g = globalThis as unknown as { __afriSHToken?: { token: string; exp: number } };
@@ -72,15 +75,6 @@ export async function sentinelCheck(): Promise<{ configured: boolean; ok: boolea
   }
 }
 
-function tileBbox3857(z: number, x: number, y: number): [number, number, number, number] {
-  const size = (2 * ORIGIN_3857) / 2 ** z;
-  const minX = -ORIGIN_3857 + x * size;
-  const maxX = minX + size;
-  const maxY = ORIGIN_3857 - y * size;
-  const minY = maxY - size;
-  return [minX, minY, maxX, maxY];
-}
-
 /** Lon/lat (WGS84) → mètres Web Mercator (EPSG:3857). */
 function lonLatTo3857(lon: number, lat: number): [number, number] {
   const x = (lon / 180) * ORIGIN_3857;
@@ -88,19 +82,15 @@ function lonLatTo3857(lon: number, lat: number): [number, number] {
   return [x, y];
 }
 
-// True color Sentinel-2 L2A, étirement doux. Rien n'est ajouté à l'image : trois bandes réelles.
-const EVALSCRIPT = `//VERSION=3
-function setup(){return {input:["B02","B03","B04"],output:{bands:3}};}
-function evaluatePixel(s){const g=1.0/0.4;return [Math.min(1,s.B04*2.5)**g,Math.min(1,s.B03*2.5)**g,Math.min(1,s.B02*2.5)**g].map(v=>Math.round(v*255));}`;
-
 const WINDOW_DAYS = 20;
 
 export type S2Tile = { bytes: Uint8Array; src: string } | null;
 
 /**
  * Un appel Process API Copernicus : une image PNG réelle pour une emprise 3857, une taille et une
- * fenêtre de dates. Composite « moins nuageux » sur la fenêtre — rien n'est ajouté, trois bandes
- * réelles. null si non configuré ou réponse vide (pas de passage / trop de nuages).
+ * fenêtre de dates. Composite « moins nuageux » sur la fenêtre, rendu en vraies couleurs (voir
+ * scripts/sentinel-rendu.mjs, partagé avec le script de mosaïque) — rien n'est ajouté, trois
+ * bandes réelles. null si non configuré ou réponse vide (pas de passage / trop de nuages).
  */
 async function sentinelProcess(
   bbox: [number, number, number, number],
@@ -112,30 +102,15 @@ async function sentinelProcess(
 ): Promise<Uint8Array | null> {
   const t = await token();
   if (!t) return null;
-  const payload = {
-    input: {
-      bounds: {
-        bbox,
-        properties: { crs: "http://www.opengis.net/def/crs/EPSG/0/3857" },
-      },
-      data: [
-        {
-          type: "sentinel-2-l2a",
-          dataFilter: {
-            timeRange: { from: from.toISOString(), to: to.toISOString() },
-            maxCloudCoverage: maxCloud,
-            mosaickingOrder: "leastCC",
-          },
-        },
-      ],
-    },
-    output: {
-      width,
-      height,
-      responses: [{ identifier: "default", format: { type: "image/png" } }],
-    },
-    evalscript: EVALSCRIPT,
-  };
+  const payload = corpsProcess({
+    bbox,
+    largeur: width,
+    hauteur: height,
+    du: from,
+    au: to,
+    nuagesMax: maxCloud,
+    format: "image/png",
+  });
   const res = await fetch(apiUrl(), {
     method: "POST",
     headers: {
@@ -162,7 +137,7 @@ async function sentinelProcess(
 export async function sentinelTile(z: number, x: number, y: number): Promise<S2Tile> {
   const to = new Date();
   const from = new Date(to.getTime() - WINDOW_DAYS * 86_400_000);
-  const buf = await sentinelProcess(tileBbox3857(z, x, y), 256, 256, from, to);
+  const buf = await sentinelProcess(tuile3857(z, x, y), 256, 256, from, to);
   if (!buf) return null;
   return {
     bytes: buf,
