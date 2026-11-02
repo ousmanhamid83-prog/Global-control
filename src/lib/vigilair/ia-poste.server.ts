@@ -14,12 +14,10 @@
  */
 import { env } from "../env.server.ts";
 import { annoterReponse } from "./ia-garde-fou.ts";
+import { IA_DELAI_S } from "./ia-limites.ts";
 import { RESEAU_POSTE_EXEMPLES, serveurPoste } from "./reseau-poste.ts";
 
 export type ChatMsg = { role: "system" | "user" | "assistant"; content: string };
-
-/** Un modèle local sur un processeur peut être lent : on lui laisse le temps de rédiger. */
-const DELAI_REPONSE_MS = 120_000;
 
 function adresseIa(): { base: string } | { erreur: string; reglee: boolean } {
   const s = serveurPoste(env("AFRICONTROL_IA"));
@@ -74,7 +72,8 @@ export async function iaChat(
       stream: false,
       messages,
     }),
-    signal: AbortSignal.timeout(DELAI_REPONSE_MS),
+    // Un modèle local sur un processeur peut être lent : on lui laisse le temps de rédiger.
+    signal: AbortSignal.timeout(IA_DELAI_S * 1000),
   });
   if (!res.ok) throw new Error(`serveur d'IA ${res.status}`);
   const corps = (await res.json()) as { choices?: { message?: { content?: string } }[] };
@@ -88,13 +87,22 @@ export async function iaChat(
  * immatriculation ou groupe codé que la réponse cite sans qu'il figure dans les messages envoyés
  * est signalé en clair sous la réponse (voir ia-garde-fou). Pour tout ce que l'opérateur lit
  * comme un fait : assistant, briefing, compte rendu de quart.
+ *
+ * `documentation` : les extraits de la notice du poste, tels qu'insérés dans les messages. Ils
+ * partent au modèle mais ne valent pas données : un exemple de la notice cité comme une piste est
+ * signalé « tiré de la notice, pas des capteurs ».
  */
 export async function iaChatVerifie(
   messages: ChatMsg[],
   opts: { maxTokens?: number; temperature?: number } = {},
+  documentation = "",
 ): Promise<string> {
   const texte = await iaChat(messages, opts);
-  return annoterReponse(texte, messages.map((m) => m.content).join("\n"));
+  const donnees = messages
+    .map((m) => m.content)
+    .join("\n")
+    .replace(documentation, "");
+  return annoterReponse(texte, donnees, documentation);
 }
 
 /** Bouton « Tester le serveur » : réglé ? sur le poste ? répond ? avec quel modèle ? */

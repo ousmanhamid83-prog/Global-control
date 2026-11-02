@@ -31,6 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { ReponseIa } from "@/components/vigilair/reponse-ia";
 import { Crosshair, EyeOff, FilePlus2, FileText, Fingerprint, Mic, RadioTower, Sparkles } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
@@ -629,7 +630,7 @@ function AssistantAsk({ track }: { track: Track }) {
       </div>
       {err ? <p className="text-xs text-warn">{err}</p> : null}
       {answer ? (
-        <p className="whitespace-pre-wrap text-xs leading-relaxed text-fg">{answer}</p>
+        <ReponseIa texte={answer} className="text-xs" />
       ) : (
         <p className="text-[11px] text-muted-foreground">
           Raisonne sur les données réelles de la piste. La clé reste au serveur ; réception seule.

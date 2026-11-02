@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Download, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ReponseIa } from "@/components/vigilair/reponse-ia";
 import { originLabel, PLATFORM_BY_ID, sensorLabel } from "@/lib/vigilair/catalog";
 import { formatCoord } from "@/lib/vigilair/geo";
 import { formatDate } from "@/lib/vigilair/format";
@@ -92,9 +93,7 @@ export function ShiftReportCard() {
         — ce n'est pas une pièce scellée.
       </p>
       {err ? <p className="text-xs text-warn">{err}</p> : null}
-      {report ? (
-        <p className="whitespace-pre-wrap text-sm leading-relaxed text-fg">{report}</p>
-      ) : null}
+      {report ? <ReponseIa texte={report} className="text-sm" /> : null}
     </div>
   );
 }

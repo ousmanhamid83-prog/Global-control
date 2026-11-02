@@ -131,6 +131,50 @@ Assistant IA du poste (serveur sur place) — Capteurs > Outils
   FL350 » → AFR999 et 4D2A11 signalés, FL350 non ; une réponse sans identifiant passe telle
   quelle. 12 tests, 10 mutations prises. Limite : le garde-fou vérifie les identifiants, pas le
   raisonnement — une conclusion fausse bâtie sur de vraies pistes n'est pas détectée.
+- LA NOTICE DU POSTE DANS L'ASSISTANT (src/lib/vigilair/savoir-poste.ts). Une question sur
+  l'usage de la console trouve sa réponse dans ce LIREMOI, cherché SUR PLACE : il est embarqué
+  dans le serveur au build (la notice de cette version du code), découpé en passages, et ceux qui
+  partagent au moins deux mots avec la question (sans accents, racine sur cinq lettres) sont
+  joints à la question, 1 800 caractères au plus ; un long passage est resserré sur ses lignes
+  utiles, « […] » à chaque coupe. Le modèle les reçoit marqués « PAS des données capteurs ».
+  Sans serveur d'IA, ou s'il ne répond pas, ces passages s'affichent seuls, sous « Ce que dit la
+  notice du poste — recherche locale, pas une réponse d'IA » : la notice répond sans modèle.
+  Le garde-fou en tient compte : un identifiant que la réponse ne tire que de la notice (ses
+  exemples AFR123, 3C6589, TT-ABC) est signalé à part, « ℹ Tiré de la notice du poste, pas des
+  capteurs », et n'est jamais compté comme une donnée.
+  Mesuré sur 46 questions d'usage écrites comme un opérateur : la bonne réponse est dans ce qui
+  part au modèle pour 42. Dont 12 écrites APRÈS les réglages, pour vérifier qu'ils ne collaient
+  pas aux premières : 10 sur 12, puis 11 une fois « sous » ajouté aux mots vides (oubli vu sur
+  l'une d'elles). Sur 10 questions à propos de l'image live, 4 tirent aussi un passage : un à
+  propos (le trafic du théâtre → pourquoi le scope y est vide), trois sans rapport mais courts.
+  Recherche en 3 à 4 ms. Une notion en deux mots qui se suivent (le titre d'une section, souvent)
+  départage les passages à égalité. Essayés puis retirés faute de gain mesuré : pondération des
+  mots rares, bonus aux mots du titre, préférence aux passages courts, coupe nette des longs
+  passages (elle perdait la réponse). Sur le vrai serveur, sans IA, la question de test sur le
+  relais Signal rend 2 passages (QR à scanner, signal-cli-rest-api) en 80 ms, une question live
+  n'en rend aucun ; avec un modèle qui cite TT-ABC et un indicatif inventé : ℹ pour TT-ABC
+  (présent dans la notice jointe), ⚠ pour l'inventé. Un identifiant écrit dans cette notice est
+  donc, quand son passage est joint, « tiré de la notice » : c'est pourquoi elle n'en cite pas
+  d'autres que ses exemples. 24 tests, 28 mutations prises. Limite : c'est une correspondance
+  de mots, pas une compréhension — deux mots de même racine se confondent (« contrôle » et
+  « contrat »), et une question tournée avec d'autres mots que ceux de la notice peut la manquer.
+- L'ASSISTANT VOIT LES CONTACTS, AVEC LEUR DISTANCE. Avant, il ne recevait que des totaux : une
+  question sur un avion précis restait sans réponse. Il reçoit maintenant les 10 contacts 1090 les
+  plus proches de FTTJ (indicatif, adresse, type, immatriculation, niveau, NIC, distance au poste)
+  et la liste des urgences. La distance est là exprès : sur l'image réelle du 2 novembre 2026, le
+  plus proche était à 2 493 km, et sans elle rien ne disait au modèle que « le plus proche » n'est
+  pas proche. Le briefing utilise la même liste (12 contacts, distance comprise).
+- LIMITES DITES À L'ÉCRAN (Capteurs > Outils > Assistant). Avant de poser sa question,
+  l'opérateur lit ce que l'assistant voit, ce qu'il ne voit pas (caméras, drones, phonie, journal,
+  Internet) et ce qu'il ne fait pas (commander, émettre, identifier une personne, décider,
+  garantir ses dires). Les chiffres affichés (10 contacts, 1 800 caractères de notice, question de
+  1 000 caractères, abandon à 120 s) viennent du fichier que le serveur applique
+  (src/lib/vigilair/ia-limites.ts) : l'écran ne peut pas promettre autre chose. Pendant la
+  rédaction, un compteur de secondes ; après, le temps de réponse mesuré et le nombre d'extraits
+  de la notice joints. Les mentions du garde-fou (⚠ invention possible, ℹ exemple de la notice)
+  sont détachées du texte et colorées, dans l'assistant, le dossier d'une piste, le briefing et
+  le compte rendu de quart. Vérifié dans un vrai navigateur, avec et sans serveur d'IA : 0 erreur
+  console.
 
 Antenne 1090 du poste (clé SDR + dump1090)
 Lancer dump1090 avec le port brut AVR, et un port web qui ne prend pas 8080 (celui de AfriControl) :

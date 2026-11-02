@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, it } from "node:test";
-import { iaChat, iaCheck, iaIndisponible } from "./ia-poste.server.ts";
+import { iaChat, iaChatVerifie, iaCheck, iaIndisponible } from "./ia-poste.server.ts";
 
 const VARIABLES = ["AFRICONTROL_IA", "AFRICONTROL_IA_MODELE", "AFRICONTROL_IA_CLE"];
 
@@ -122,6 +122,41 @@ describe("IA du poste : un serveur sur le réseau du poste, jamais un service pu
       assert.ok(s.recues.every((r) => r.chemin === "/v1/chat/completions"));
       assert.equal(JSON.parse(s.recues[0]!.corps).model, "qwen2.5:7b");
       assert.equal(s.recues[0]!.auth, "Bearer jeton-local");
+    } finally {
+      await s.fermer();
+    }
+  });
+
+  it("NOTICE JOINTE : elle part au modèle, mais ses exemples ne valent pas données", async () => {
+    const s = await serveurLocal((r, res) =>
+      r.chemin === "/v1/models"
+        ? commeOllama(r, res)
+        : json(res, 200, {
+            choices: [{ message: { content: "TT-ABC suit AFR123, puis ZZZ999." } }],
+          }),
+    );
+    try {
+      process.env.AFRICONTROL_IA = s.base;
+      const notice = "[Assistant IA du poste — Garde-fou]\nexemples : AFR123, TT-ABC";
+      const texte = await iaChatVerifie(
+        [
+          { role: "system", content: "Assistant du poste." },
+          {
+            role: "user",
+            content: `Image live : AFR123 3c6589 FL350\n\nNotice :\n${notice}\n\nQuestion : qui approche ?`,
+          },
+        ],
+        {},
+        notice,
+      );
+      assert.match(JSON.parse(s.recues[1]!.corps).messages[1].content, /exemples : AFR123, TT-ABC/);
+      assert.match(texte, /⚠ Non retrouvé dans les données fournies à l'IA : ZZZ999\./);
+      assert.match(texte, /ℹ Tiré de la notice du poste, pas des capteurs : TT-ABC\./);
+      assert.doesNotMatch(
+        texte,
+        /: [^\n]*AFR123/,
+        "AFR123 est dans l'image live : rien à signaler",
+      );
     } finally {
       await s.fermer();
     }

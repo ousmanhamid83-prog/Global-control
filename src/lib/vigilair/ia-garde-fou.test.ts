@@ -72,3 +72,35 @@ describe("garde-fou de l'IA : ce que la réponse cite doit venir des données", 
     assert.deepEqual(elementsCites(r), []);
   });
 });
+
+describe("garde-fou de l'IA : la notice jointe n'est pas une donnée", () => {
+  // Extrait réel du LIREMOI : il cite des identifiants d'exemple.
+  const NOTICE =
+    "vérifiable qu'elle cite — indicatif (AFR123), adresse ICAO (3C6589), immatriculation (TT-ABC), " +
+    "groupe de message (FEW040) — dans les données RÉELLEMENT envoyées au modèle.";
+  const SANS_PISTE = "METAR FTTJ: FTTJ 020530Z VRB03KT 9999 33/12 Q1009 NOSIG";
+
+  it("EXEMPLE DE LA NOTICE présenté comme du trafic : signalé à part, « pas des capteurs »", () => {
+    const r = annoterReponse("TT-ABC est en approche.", SANS_PISTE, NOTICE);
+    assert.match(r, /\n\nℹ Tiré de la notice du poste, pas des capteurs : TT-ABC\./);
+    assert.doesNotMatch(r, /⚠/, "pas une invention : il est dans la notice");
+  });
+
+  it("INVENTÉ ET EXEMPLE dans la même réponse : chacun sous sa propre mention", () => {
+    const r = annoterReponse("AFR123 suit ZZZ999.", SANS_PISTE, NOTICE);
+    assert.match(r, /⚠ Non retrouvé dans les données fournies à l'IA : ZZZ999\./);
+    assert.match(r, /ℹ Tiré de la notice du poste, pas des capteurs : AFR123\./);
+    assert.ok(r.indexOf("⚠") < r.indexOf("ℹ"), "l'invention d'abord, c'est le plus grave");
+  });
+
+  it("DONNÉE RÉELLE aussi citée par la notice : c'est une donnée, rien à signaler", () => {
+    const r = "Nuages FEW040 sur FTTJ.";
+    assert.equal(annoterReponse(r, DONNEES, NOTICE), r);
+  });
+
+  it("SANS NOTICE : comportement d'origine, tout absent est une invention possible", () => {
+    const r = annoterReponse("TT-ABC est en approche.", SANS_PISTE);
+    assert.match(r, /⚠ Non retrouvé dans les données fournies à l'IA : TT-ABC\./);
+    assert.doesNotMatch(r, /ℹ/);
+  });
+});

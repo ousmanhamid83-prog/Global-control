@@ -45,7 +45,15 @@ import {
   setContinentSweep,
   type AircraftLookup,
   type DiagRow,
+  type ReponseAssistant,
 } from "@/lib/vigilair/live-feeds";
+import {
+  IA_CONTACTS_VUS,
+  IA_DELAI_S,
+  IA_NOTICE_BUDGET,
+  IA_QUESTION_MAX,
+} from "@/lib/vigilair/ia-limites";
+import { ReponseIa } from "@/components/vigilair/reponse-ia";
 import type { ArchiveMeta } from "@/lib/vigilair/archive.server";
 import type { AtcSegment, AtcStatus } from "@/lib/vigilair/atc.server";
 import { rejeuClock } from "@/lib/vigilair/rejeu";
@@ -1286,6 +1294,110 @@ function DiagnosticSection({ onGoTab }: { onGoTab: (id: Tab) => void }) {
   );
 }
 
+/**
+ * Les limites de l'assistant, dites à l'opérateur avant qu'il ne pose sa question. Les chiffres
+ * viennent de ia-limites, que le serveur applique : l'écran ne promet que ce que fait le serveur.
+ */
+function LimitesIa() {
+  return (
+    <div className="grid gap-3 rounded-sm border border-border bg-bg/60 p-3 text-xs text-muted-foreground md:grid-cols-3">
+      <div>
+        <p className="mb-1 font-medium text-fg">Ce qu'il voit</p>
+        <ul className="list-disc space-y-0.5 pl-4">
+          <li>Le dernier relevé : nombre de contacts 1090, urgences, METAR FTTJ, Kp, SIGMET de l'AO.</li>
+          <li>Les {IA_CONTACTS_VUS} contacts 1090 les plus proches de FTTJ, avec leur distance.</li>
+          <li>La piste ciblée, quand la question part de son dossier.</li>
+          <li>
+            Les extraits de la notice du poste qui répondent à la question (≤ {IA_NOTICE_BUDGET}{" "}
+            caractères).
+          </li>
+        </ul>
+      </div>
+      <div>
+        <p className="mb-1 font-medium text-fg">Ce qu'il ne voit pas</p>
+        <ul className="list-disc space-y-0.5 pl-4">
+          <li>Les images des caméras et des drones, la phonie ATC.</li>
+          <li>Le journal et l'historique : seul le dernier relevé lui est donné.</li>
+          <li>Internet : il ne cherche rien en ligne.</li>
+        </ul>
+      </div>
+      <div>
+        <p className="mb-1 font-medium text-fg">Ce qu'il ne fait pas</p>
+        <ul className="list-disc space-y-0.5 pl-4">
+          <li>Commander un capteur ou émettre : réception seule.</li>
+          <li>Identifier une personne : ni visage, ni plaque.</li>
+          <li>Décider : il propose, l'opérateur valide.</li>
+          <li>
+            Garantir ses dires : un indicatif, une adresse ICAO ou une immatriculation cités sans
+            appui dans les données sont signalés sous la réponse — les identifiants sont vérifiés,
+            pas le raisonnement.
+          </li>
+          <li>
+            Question de {IA_QUESTION_MAX} caractères au plus ; abandon après {IA_DELAI_S} s.
+          </li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+/** Pendant que le serveur du poste rédige : le temps écoulé, pour voir que rien n'est figé. */
+function Redaction({ depuis }: { depuis: number }) {
+  const now = useWallClock();
+  const s = Math.max(0, Math.round((now - depuis) / 1000));
+  return (
+    <p className="text-xs text-muted-foreground" aria-live="polite">
+      Réponse en préparation… {s} s (abandon à {IA_DELAI_S} s)
+    </p>
+  );
+}
+
+/** Une réponse de l'assistant : texte vérifié, temps mesuré, extraits de la notice. */
+function ReponseAssistantVue({ rep, duree }: { rep: ReponseAssistant; duree: number | null }) {
+  return (
+    <div className="space-y-2">
+      {rep.ok ? (
+        <ReponseIa texte={rep.text} className="text-sm" />
+      ) : (
+        <p className="text-sm text-warn">{rep.error}</p>
+      )}
+      {rep.ok && duree != null ? (
+        <p className="text-[11px] text-muted-foreground">
+          Réponse en {duree.toFixed(1)} s
+          {rep.notice.length > 0
+            ? ` · ${rep.notice.length} extrait${rep.notice.length > 1 ? "s" : ""} de la notice joint${rep.notice.length > 1 ? "s" : ""} à la question`
+            : ""}
+          .
+        </p>
+      ) : null}
+      {!rep.ok && rep.notice.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Aucun passage de la notice du poste ne répond à cette question.
+        </p>
+      ) : null}
+      {rep.notice.length > 0 ? (
+        <details open={!rep.ok} className="rounded-sm border border-border bg-bg/60 p-2 text-xs">
+          <summary className="cursor-pointer text-muted-foreground">
+            {rep.ok
+              ? "Extraits de la notice joints à la question"
+              : "Ce que dit la notice du poste — recherche locale, pas une réponse d'IA"}
+          </summary>
+          <div className="mt-2 space-y-3">
+            {rep.notice.map((p, i) => (
+              <div key={`${i}-${p.titre}`}>
+                <p className="font-medium text-fg">{p.titre}</p>
+                <pre className="mt-1 whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-muted-foreground">
+                  {p.texte}
+                </pre>
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
 function AssistantSection() {
   const [st, setSt] = useState<{
     configured: boolean;
@@ -1295,9 +1407,9 @@ function AssistantSection() {
   } | null>(null);
   const [testing, setTesting] = useState(false);
   const [q, setQ] = useState("");
-  const [answer, setAnswer] = useState<string | null>(null);
-  const [answerErr, setAnswerErr] = useState<string | null>(null);
-  const [asking, setAsking] = useState(false);
+  const [rep, setRep] = useState<ReponseAssistant | null>(null);
+  const [depuis, setDepuis] = useState<number | null>(null);
+  const [duree, setDuree] = useState<number | null>(null);
 
   const test = () => {
     setTesting(true);
@@ -1314,16 +1426,18 @@ function AssistantSection() {
 
   const ask = () => {
     const question = q.trim();
-    if (!question) return;
-    setAsking(true);
-    setAnswerErr(null);
+    if (!question || depuis != null) return;
+    const t0 = Date.now();
+    setDepuis(t0);
     askAssistant({ data: { question } })
-      .then((r) => {
-        if (r.ok) setAnswer(r.text);
-        else setAnswerErr(r.error);
-      })
-      .catch((e: unknown) => setAnswerErr(e instanceof Error ? e.message : "assistant échoué"))
-      .finally(() => setAsking(false));
+      .then(setRep)
+      .catch((e: unknown) =>
+        setRep({ ok: false, error: e instanceof Error ? e.message : "assistant échoué", notice: [] }),
+      )
+      .finally(() => {
+        setDuree((Date.now() - t0) / 1000);
+        setDepuis(null);
+      });
   };
 
   const tone = !st ? "default" : !st.configured ? "warn" : st.ok ? "ok" : "crit";
@@ -1347,52 +1461,56 @@ function AssistantSection() {
         </div>
       </div>
       <p className="text-sm text-muted-foreground">
-        Question libre sur l'image live. Elle part du serveur du poste vers <strong>ton</strong>{" "}
-        serveur de modèle, sur le réseau du poste : ni la question, ni l'image, ni les bulletins ne
-        vont à un service public. L'assistant raisonne sur les capteurs réels du dernier ingest — il
-        n'invente pas de pistes et ne commande rien.
+        Question libre sur l'image live ou sur l'usage de la console. Elle part du serveur du poste
+        vers <strong>ton</strong> serveur de modèle, sur le réseau du poste : ni la question, ni
+        l'image, ni les bulletins ne vont à un service public. Pour une question d'usage, la notice
+        du poste (LIREMOI) est cherchée sur place et jointe — sans serveur d'IA, ses passages
+        s'affichent seuls.
       </p>
+      <LimitesIa />
       {st?.error ? <p className="font-mono text-xs text-crit">{st.error}</p> : null}
+      <div className="flex gap-2">
+        <Input
+          value={q}
+          maxLength={IA_QUESTION_MAX}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              ask();
+            }
+          }}
+          placeholder={
+            st?.configured
+              ? "ex. Résume la posture sur le Sahel"
+              : "ex. Comment relier le téléphone Signal ?"
+          }
+          aria-label="Question à l'assistant"
+        />
+        <Button type="button" onClick={ask} disabled={depuis != null || !q.trim()}>
+          {depuis != null ? "…" : "Demander"}
+        </Button>
+      </div>
+      {depuis != null ? <Redaction depuis={depuis} /> : null}
+      {rep && depuis == null ? <ReponseAssistantVue rep={rep} duree={duree} /> : null}
       {!st?.configured ? (
         <div className="space-y-2 rounded-sm border border-border bg-bg/60 p-3 text-xs text-muted-foreground">
           <p className="text-fg">Brancher un serveur de modèle sur le réseau du poste</p>
           <p>
-            Ollama, llama.cpp (llama-server), vLLM ou LM Studio — API compatible OpenAI. Poser son
-            adresse au lancement du serveur :
+            Le plus simple : le script de préparation installe Ollama, choisit le modèle selon la
+            mémoire, et écrit AFRICONTROL_IA dans poste.env, que le serveur relit seul au démarrage.
           </p>
           <pre className="overflow-x-auto rounded-xs bg-bg px-2 py-1.5 font-mono text-[11px] text-fg">
-            AFRICONTROL_IA=http://127.0.0.1:11434/v1 PORT=8080 node .output/server/index.mjs
+            {"bash scripts/poste/preparer-poste.sh\n" +
+              "powershell -ExecutionPolicy Bypass -File scripts\\poste\\preparer-poste.ps1"}
           </pre>
           <p>
-            Modèle : AFRICONTROL_IA_MODELE (sinon, le premier que le serveur annonce). Une adresse
-            hors du réseau du poste est refusée avant tout envoi.
+            À la main : tout serveur compatible OpenAI (Ollama, llama.cpp, vLLM, LM Studio), son
+            adresse au lancement — AFRICONTROL_IA=http://127.0.0.1:11434/v1 — et, au besoin,
+            AFRICONTROL_IA_MODELE. Une adresse hors du réseau du poste est refusée avant tout envoi.
           </p>
         </div>
-      ) : (
-        <>
-          <div className="flex gap-2">
-            <Input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  ask();
-                }
-              }}
-              placeholder="ex. Résume la posture sur le Sahel"
-              aria-label="Question à l'assistant"
-            />
-            <Button type="button" onClick={ask} disabled={asking || !q.trim()}>
-              {asking ? "…" : "Demander"}
-            </Button>
-          </div>
-          {answerErr ? <p className="text-sm text-warn">{answerErr}</p> : null}
-          {answer ? (
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-fg">{answer}</p>
-          ) : null}
-        </>
-      )}
+      ) : null}
     </section>
   );
 }
@@ -1506,9 +1624,7 @@ function ToolsPanel({ onGoTab }: { onGoTab: (id: Tab) => void }) {
           {briefing ? "Rédaction…" : "Briefing chef de division"}
         </Button>
         {briefErr ? <p className="text-sm text-warn">{briefErr}</p> : null}
-        {brief ? (
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-fg">{brief}</p>
-        ) : null}
+        {brief ? <ReponseIa texte={brief} className="text-sm" /> : null}
       </section>
       <ArchivesSection />
       <SentinelSection />

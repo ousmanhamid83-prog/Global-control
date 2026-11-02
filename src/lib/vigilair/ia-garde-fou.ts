@@ -51,21 +51,38 @@ function echapper(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Éléments cités par la réponse qu'on ne retrouve pas, mot entier, dans les données fournies. */
-export function nonVerifies(reponse: string, donnees: string): string[] {
-  return elementsCites(reponse).filter(
-    (jeton) =>
-      !new RegExp(`(?<![0-9A-Za-z-])${echapper(jeton)}(?![0-9A-Za-z-])`, "i").test(donnees),
-  );
+/** Le jeton figure-t-il, mot entier, dans le texte ? */
+function present(jeton: string, texte: string): boolean {
+  return new RegExp(`(?<![0-9A-Za-z-])${echapper(jeton)}(?![0-9A-Za-z-])`, "i").test(texte);
 }
 
-/** La réponse, suivie d'un avertissement en clair si elle cite ce que les données ne contiennent pas. */
-export function annoterReponse(reponse: string, donnees: string): string {
-  const inconnus = nonVerifies(reponse, donnees);
-  if (inconnus.length === 0) return reponse;
-  return (
-    `${reponse.trimEnd()}\n\n` +
-    `⚠ Non retrouvé dans les données fournies à l'IA : ${inconnus.join(", ")}. ` +
-    "Possible invention du modèle : ne pas s'y fier sans contrôle sur les capteurs."
-  );
+/** Éléments cités par la réponse qu'on ne retrouve pas, mot entier, dans les données fournies. */
+export function nonVerifies(reponse: string, donnees: string): string[] {
+  return elementsCites(reponse).filter((jeton) => !present(jeton, donnees));
+}
+
+/**
+ * La réponse, suivie d'un avertissement en clair si elle cite ce que les données ne contiennent pas.
+ *
+ * `documentation` : extraits de la notice du poste joints à la question. Ils ne comptent PAS comme
+ * données : la notice donne des exemples (AFR123, 3C6589, TT-ABC) qui ne sont jamais du trafic. Un
+ * identifiant qu'on n'y retrouve que là est signalé à part — tiré de la notice, pas des capteurs.
+ */
+export function annoterReponse(reponse: string, donnees: string, documentation = ""): string {
+  const absents = nonVerifies(reponse, donnees);
+  if (absents.length === 0) return reponse;
+  const notice = absents.filter((jeton) => present(jeton, documentation));
+  const inventes = absents.filter((jeton) => !notice.includes(jeton));
+  let texte = reponse.trimEnd();
+  if (inventes.length > 0) {
+    texte +=
+      `\n\n⚠ Non retrouvé dans les données fournies à l'IA : ${inventes.join(", ")}. ` +
+      "Possible invention du modèle : ne pas s'y fier sans contrôle sur les capteurs.";
+  }
+  if (notice.length > 0) {
+    texte +=
+      `\n\nℹ Tiré de la notice du poste, pas des capteurs : ${notice.join(", ")}. ` +
+      "Exemple ou réglage de la documentation — jamais une piste en cours.";
+  }
+  return texte;
 }
