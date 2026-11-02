@@ -611,6 +611,12 @@ Symbologie APP-6 et radar
     Windows) ; 12 mutations prises.
   grok.com : rien à faire, l'aperçu de développement de la plateforme n'est pas touché par le
   refus d'encadrement.
+- FAILLE XSS CRITIQUE DE TANSTACK START CORRIGÉE (GHSA-qx66-fv34-fjm8). Une faille du cadre
+  TanStack Start laissait un lien piégé vers une fonction serveur renvoyer du HTML choisi par
+  l'attaquant, exécuté sur l'origine de la console. Corrigée en passant aux versions patchées
+  (@tanstack/react-start 1.169.4, start-server-core 1.169.45) ; vérifié que l'avis a disparu et
+  que les fonctions serveur répondent toujours. Détail et point sur l'avis better-auth restant
+  sous « Audit des dépendances ».
 - LE QUART NE MONTRE PLUS RIEN DE FIGÉ. Le tableau de quart affichait la valeur GELÉE à la prise
   de poste comme si c'était l'état courant : « 1090 au gel · 162 » restait à 162 des heures durant
   pendant que le ciel changeait. Mesuré sur un quart réellement ouvert : la vraie valeur est passée
@@ -1177,7 +1183,20 @@ Durcissement défensif
   capteurs coupés, frame-ancestors 'self' : aucun autre site ne peut afficher la console dans un
   cadre). Aucune télémétrie tierce. Les sources externes (1090ES, météo…) sont
   interrogées PAR LE SERVEUR : l'adresse IP de l'opérateur n'est jamais exposée aux agrégateurs.
-- Audit des dépendances : 0 vulnérabilité (npm audit, dépendances de production).
+- Audit des dépendances (npm audit, dépendances de production, 2 novembre 2026) :
+  · CORRIGÉ — faille XSS critique de TanStack Start (GHSA-qx66-fv34-fjm8) : un lien piégé vers une
+    fonction serveur pouvait renvoyer du HTML choisi par l'attaquant, exécuté sur l'origine de la
+    console. Corrigée en passant à @tanstack/react-start 1.169.4 et start-server-core 1.169.45
+    (le correctif de l'éditeur, qui borne l'entrée cliente aux champs publics et valide la
+    réponse au bord serveur). Vérifié : l'avis a disparu de npm audit, les fonctions serveur GET
+    et POST répondent toujours normalement, fumée 7/7, hydratation 0/16, deux builds verts.
+  · RESTE — better-auth 1.6.30 (3 avis, dont 1 critique) : connexion par appareil sans détail du
+    client, proxy OAuth et state réutilisable en Magic Link. AUCUN ne s'applique au poste tel
+    qu'il tourne : ces chemins exigent les plugins deviceAuthorization, oAuthProxy ou magicLink,
+    qu'AfriControl n'active pas (il n'utilise que genericOAuth et bearer), ET l'authentification
+    est COUPÉE par défaut sur le poste isolé. Le correctif (better-auth 1.7.15) est une mise à
+    jour mineure, à faire au prochain passage sur l'authentification multi-agents ; non appliqué
+    ici pour ne pas toucher à l'auth sans la retester de bout en bout.
 
 En ligne (wifi) : domaines contactés par le poste
 Sur un PC avec Internet, rien à régler. Derrière un pare-feu ou dans un environnement cloud,
