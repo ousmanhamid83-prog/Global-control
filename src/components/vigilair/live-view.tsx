@@ -54,6 +54,17 @@ import {
   IA_QUESTION_MAX,
 } from "@/lib/vigilair/ia-limites";
 import { ReponseIa } from "@/components/vigilair/reponse-ia";
+import { basculerCommande, lancerCommande, lireCommandes } from "@/lib/vigilair/commandes-api";
+import {
+  COMMANDES,
+  LIBELLE_CANAL,
+  commandeActive,
+  suggestions,
+  type Bascules,
+  type Canal,
+  type Commande,
+} from "@/lib/vigilair/commandes-poste";
+import type { EtatBascules, ResultatCommande } from "@/lib/vigilair/commandes-poste.server";
 import type { ArchiveMeta } from "@/lib/vigilair/archive.server";
 import type { AtcSegment, AtcStatus } from "@/lib/vigilair/atc.server";
 import { rejeuClock } from "@/lib/vigilair/rejeu";
@@ -1414,7 +1425,27 @@ function ReponseAssistantVue({ rep, duree }: { rep: ReponseAssistant; duree: num
   );
 }
 
-function AssistantSection() {
+/** Le résultat d'une commande du poste : ses lignes telles quelles, et le temps qu'elle a pris. */
+function ResultatCommandeVue({ res, allerRetour }: { res: ResultatCommande; allerRetour: number }) {
+  return (
+    <div className="space-y-2">
+      <pre
+        className={cn(
+          "whitespace-pre-wrap rounded-sm border border-border bg-bg/60 p-2 font-mono text-[11px] leading-relaxed",
+          res.ok ? "text-fg" : "text-warn",
+        )}
+      >
+        {res.lignes.join("\n")}
+      </pre>
+      <p className="text-[11px] text-muted-foreground">
+        {res.commande ? `/${res.commande} · ` : ""}exécutée sur le poste en{" "}
+        {res.ms.toLocaleString("fr-FR")} ms · aller-retour {Math.round(allerRetour)} ms.
+      </p>
+    </div>
+  );
+}
+
+function AssistantSection({ bascules }: { bascules: Bascules }) {
   const [st, setSt] = useState<{
     configured: boolean;
     ok: boolean;
@@ -1426,6 +1457,13 @@ function AssistantSection() {
   const [rep, setRep] = useState<ReponseAssistant | null>(null);
   const [depuis, setDepuis] = useState<number | null>(null);
   const [duree, setDuree] = useState<number | null>(null);
+  const [res, setRes] = useState<{ r: ResultatCommande; allerRetour: number } | null>(null);
+  const [choix, setChoix] = useState(0);
+  const [fermees, setFermees] = useState(false);
+  const propositions = useMemo(
+    () => (fermees ? [] : suggestions(q, "console", bascules)),
+    [q, bascules, fermees],
+  );
 
   const test = () => {
     setTesting(true);
@@ -1440,9 +1478,43 @@ function AssistantSection() {
     test();
   }, []);
 
+  // Une ligne qui commence par « / » est une commande du poste : réponse en millisecondes.
+  const commander = (texte: string) => {
+    const t0 = performance.now();
+    lancerCommande({ data: { texte } })
+      .then((r) => {
+        setRep(null);
+        setRes({ r, allerRetour: performance.now() - t0 });
+      })
+      .catch((e: unknown) =>
+        setRes({
+          r: {
+            ok: false,
+            commande: null,
+            lignes: [e instanceof Error ? e.message : "commande échouée"],
+            ms: 0,
+          },
+          allerRetour: performance.now() - t0,
+        }),
+      );
+  };
+
+  // Compléter la saisie avec une commande proposée ; la lancer si elle n'attend rien.
+  const completer = (c: Commande) => {
+    const attend = c.argument?.startsWith("<") === true;
+    setQ(`/${c.nom}${attend ? " " : ""}`);
+    setChoix(0);
+    if (!attend) commander(`/${c.nom}`);
+  };
+
   const ask = () => {
     const question = q.trim();
     if (!question || depuis != null) return;
+    if (question.startsWith("/")) {
+      commander(question);
+      return;
+    }
+    setRes(null);
     const t0 = Date.now();
     setDepuis(t0);
     askAssistant({ data: { question } })
@@ -1495,25 +1567,83 @@ function AssistantSection() {
         <Input
           value={q}
           maxLength={IA_QUESTION_MAX}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setChoix(0);
+            setFermees(false);
+          }}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
+            const n = propositions.length;
+            if (n > 0 && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
               e.preventDefault();
-              ask();
+              setChoix((i) => (i + (e.key === "ArrowDown" ? 1 : n - 1)) % n);
+            } else if (n > 0 && e.key === "Tab") {
+              e.preventDefault();
+              setQ(`/${propositions[choix % n]!.nom} `);
+              setChoix(0);
+            } else if (n > 0 && e.key === "Escape") {
+              setFermees(true);
+            } else if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              // Mot de commande pas encore complet (« /me ») : la proposition choisie.
+              const exact = propositions.some(
+                (c) => `/${c.nom}` === q.trim() || c.alias.some((a) => `/${a}` === q.trim()),
+              );
+              if (n > 0 && !exact) completer(propositions[choix % n]!);
+              else ask();
             }
           }}
           placeholder={
             st?.configured
-              ? "ex. Résume la posture sur le Sahel"
-              : "ex. Comment relier le téléphone Signal ?"
+              ? "Question, ou « / » pour une commande — ex. /situation"
+              : "ex. Comment relier le téléphone Signal ? — ou /aide"
           }
-          aria-label="Question à l'assistant"
+          aria-label="Question à l'assistant ou commande du poste"
+          aria-autocomplete="list"
+          aria-expanded={propositions.length > 0}
+          aria-controls="commandes-proposees"
         />
         <Button type="button" onClick={ask} disabled={depuis != null || !q.trim()}>
           {depuis != null ? "…" : "Demander"}
         </Button>
       </div>
+      {propositions.length > 0 ? (
+        <ul
+          id="commandes-proposees"
+          role="listbox"
+          aria-label="Commandes du poste"
+          className="max-h-56 overflow-y-auto rounded-sm border border-border bg-bg/80 py-1 text-xs"
+        >
+          {propositions.map((c, i) => {
+            const active = commandeActive(c, "console", bascules);
+            return (
+              <li
+                key={c.nom}
+                role="option"
+                aria-selected={i === choix % propositions.length}
+                className={cn(
+                  "flex cursor-pointer items-baseline gap-2 px-2 py-1",
+                  i === choix % propositions.length ? "bg-surface" : "",
+                  active ? "" : "opacity-60",
+                )}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  completer(c);
+                }}
+              >
+                <span className="font-mono text-fg">
+                  /{c.nom}
+                  {c.argument ? ` ${c.argument}` : ""}
+                </span>
+                <span className="text-muted-foreground">{c.resume}</span>
+                {active ? null : <span className="ml-auto text-warn">désactivée</span>}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
       {depuis != null ? <Redaction depuis={depuis} /> : null}
+      {res ? <ResultatCommandeVue res={res.r} allerRetour={res.allerRetour} /> : null}
       {rep && depuis == null ? <ReponseAssistantVue rep={rep} duree={duree} /> : null}
       {!st?.configured ? (
         <div className="space-y-2 rounded-sm border border-border bg-bg/60 p-3 text-xs text-muted-foreground">
@@ -1537,7 +1667,101 @@ function AssistantSection() {
   );
 }
 
+/**
+ * Commandes du poste : chacune activée ou non, pour la console et pour le bot Signal. Le chef de
+ * division bascule ; l'effet est immédiat et le changement va au journal.
+ */
+function CommandesSection({
+  etat,
+  onChange,
+}: {
+  etat: EtatBascules | null;
+  onChange: (e: EtatBascules) => void;
+}) {
+  const { isSuperadmin } = useStaff();
+  const [occupe, setOccupe] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const bascules = etat?.bascules ?? {};
+
+  const basculer = (c: Commande, canal: Canal) => {
+    const actif = !commandeActive(c, canal, bascules);
+    const t0 = performance.now();
+    setOccupe(`${c.nom}:${canal}`);
+    basculerCommande({ data: { nom: c.nom, canal, actif } })
+      .then((e) => {
+        onChange(e);
+        setMsg(
+          `/${c.nom} ${actif ? "activée" : "désactivée"} pour ${LIBELLE_CANAL[canal]} en ${Math.round(performance.now() - t0)} ms${e.enregistrement === "memoire" ? " — disque en lecture seule : valable jusqu'au redémarrage" : ""}.`,
+        );
+      })
+      .catch((err: unknown) => setMsg(err instanceof Error ? err.message : "refusé"))
+      .finally(() => setOccupe(null));
+  };
+
+  return (
+    <section className="space-y-3 rounded-md border border-border bg-surface p-4 col-span-2 hud">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-medium">Commandes du poste · console et bot Signal</h2>
+        <Badge tone={etat ? "ok" : "default"}>
+          {!etat ? "…" : etat.enregistrement === "fichier" ? "enregistrées sur le poste" : "jusqu'au redémarrage"}
+        </Badge>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Tape « / » dans l'assistant : chaque commande répond en quelques millisecondes depuis l'image
+        du poste, sans réseau ni modèle. Certaines partent désactivées pour le bot (positions des
+        contacts, marquage militaire) : {isSuperadmin ? "toi seul, chef de division, les actives" : "seul le chef de division les active"}, et chaque bascule est
+        écrite au journal.
+      </p>
+      {msg ? <p className="font-mono text-xs text-muted-foreground">{msg}</p> : null}
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-left text-muted-foreground">
+            <th className="py-1 font-normal">Commande</th>
+            <th className="py-1 font-normal">Console</th>
+            <th className="py-1 font-normal">Bot Signal</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border/60">
+          {COMMANDES.map((c) => (
+            <tr key={c.nom}>
+              <td className="py-1.5 pr-2">
+                <span className="font-mono text-fg">/{c.nom}</span>{" "}
+                <span className="text-muted-foreground">{c.resume}</span>
+              </td>
+              {(["console", "bot"] as const).map((canal) => {
+                const actif = commandeActive(c, canal, bascules);
+                return (
+                  <td key={canal} className="py-1.5 pr-2">
+                    <Button
+                      size="sm"
+                      variant={actif ? "outline" : "ghost"}
+                      aria-pressed={actif}
+                      aria-label={`/${c.nom} pour ${LIBELLE_CANAL[canal]}`}
+                      disabled={!isSuperadmin || c.fixe === true || !etat || occupe != null}
+                      onClick={() => basculer(c, canal)}
+                    >
+                      <span className={actif ? "text-ok" : "text-muted-foreground"}>
+                        {c.fixe ? "toujours" : actif ? "activée" : "désactivée"}
+                      </span>
+                    </Button>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
 function ToolsPanel({ onGoTab }: { onGoTab: (id: Tab) => void }) {
+  const [commandes, setCommandes] = useState<EtatBascules | null>(null);
+  useEffect(() => {
+    lireCommandes()
+      .then(setCommandes)
+      .catch(() => setCommandes(null));
+  }, []);
   const [hex, setHex] = useState("");
   const [lookup, setLookup] = useState<AircraftLookup | null>(null);
   const [looking, setLooking] = useState(false);
@@ -1650,7 +1874,8 @@ function ToolsPanel({ onGoTab }: { onGoTab: (id: Tab) => void }) {
       </section>
       <ArchivesSection />
       <SentinelSection />
-      <AssistantSection />
+      <AssistantSection bascules={commandes?.bascules ?? {}} />
+      <CommandesSection etat={commandes} onChange={setCommandes} />
       <section className="rounded-md border border-border bg-surface p-4 col-span-2 hud">
         <h2 className="text-sm font-medium">Ce qui est réel</h2>
         <ul className="mt-2 grid gap-2 text-sm text-muted-foreground grid-cols-2">

@@ -11,7 +11,15 @@ import type { LiveAc, LivePicture } from "./live-adsb.ts";
 export type Sujet = "trafic" | "urgences" | "militaires" | "meteo" | "espace" | "sigmet" | "gnss";
 
 /** Ordre de présentation des faits, du plus urgent au plus général. */
-const ORDRE: Sujet[] = ["urgences", "militaires", "trafic", "gnss", "sigmet", "meteo", "espace"];
+export const ORDRE: Sujet[] = [
+  "urgences",
+  "militaires",
+  "trafic",
+  "gnss",
+  "sigmet",
+  "meteo",
+  "espace",
+];
 
 // Mots qui désignent chaque sujet, sur la question en minuscules et sans accents.
 const SUJETS: [Sujet, RegExp][] = [
@@ -208,6 +216,18 @@ function age(ms: number): string {
   return s < 90 ? `${s} s` : `${Math.round(s / 60)} min`;
 }
 
+export const PAS_DE_RELEVE = "Pas encore de relevé des capteurs (1090ES / METAR en attente).";
+
+/** L'heure UTC du relevé et son âge, en tête de toute réponse tirée de l'image. */
+export function enTeteReleve(pic: LivePicture, maintenant: number): string {
+  return `Dernier relevé des capteurs : ${new Date(pic.at).toISOString().slice(11, 19)} UTC, il y a ${age(maintenant - pic.at)}.`;
+}
+
+/** Les faits des sujets donnés, dans cet ordre ; `n` contacts par liste. */
+export function faitsSujets(sujets: Sujet[], pic: LivePicture, n: number): string[] {
+  return sujets.flatMap((s) => lignesDe(s, pic, n));
+}
+
 /**
  * Les faits du dernier relevé qui répondent à la question, une ligne par valeur ; [] quand les
  * capteurs n'ont rien à y répondre — question d'usage, ou question sans sujet reconnu à laquelle
@@ -228,12 +248,8 @@ export function faitsCapteurs(
     sujets = [...ORDRE];
   }
   const tete = piste ? ["Piste ciblée (champs reçus) :", ...retrait(piste.split("\n"))] : [];
-  if (!pic) return [...tete, "Pas encore de relevé des capteurs (1090ES / METAR en attente)."];
+  if (!pic) return [...tete, PAS_DE_RELEVE];
   // Vue d'ensemble : trois contacts par liste ; un sujet précis : cinq.
   const n = sujets.length >= ORDRE.length ? 3 : 5;
-  return [
-    ...tete,
-    `Dernier relevé des capteurs : ${new Date(pic.at).toISOString().slice(11, 19)} UTC, il y a ${age(maintenant - pic.at)}.`,
-    ...sujets.flatMap((s) => lignesDe(s, pic, n)),
-  ];
+  return [...tete, enTeteReleve(pic, maintenant), ...faitsSujets(sujets, pic, n)];
 }
