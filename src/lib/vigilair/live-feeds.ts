@@ -1004,20 +1004,17 @@ function refreshNetwork(): Promise<LivePicture> {
 }
 
 /**
- * Le relevé Internet rafraîchi s'il a plus de 20 s, sans attendre plus de `attenteMs` : c'est la
- * console ouverte qui relève d'habitude ; le bot Signal, lui, peut répondre la nuit sans console.
- * Au-delà de l'attente, le relevé continue et la commande lit le précédent, dont elle dit l'âge.
+ * Pour le bot Signal, qui répond sans console ouverte (c'est la console qui relève Internet
+ * d'habitude) : l'âge du relevé Internet que lira la commande, et s'il a plus de 20 s, un nouveau
+ * relevé lancé pour la commande suivante. Rien ne l'attend : il prend plus d'une seconde et demie
+ * (mesuré), la commande répond tout de suite avec ce que le poste a, et dit son âge.
  */
-export async function rafraichirReleve(attenteMs: number): Promise<void> {
-  if (releve.cache && Date.now() - releve.cache.at < TTL_MS) return;
-  let minuterie: ReturnType<typeof setTimeout> | undefined;
-  await Promise.race([
-    refreshNetwork(),
-    new Promise<void>((fin) => {
-      minuterie = setTimeout(fin, attenteMs);
-    }),
-  ]);
-  clearTimeout(minuterie);
+export function releveInternetPourBot(): { ageMs: number | null; frais: boolean } {
+  const lu = peekLiveCache();
+  const ageMs = lu ? Date.now() - lu.at : null;
+  const frais = ageMs != null && ageMs < TTL_MS;
+  if (!frais) void refreshNetwork();
+  return { ageMs, frais };
 }
 
 export const fetchLivePicture = createServerFn({ method: "GET" })

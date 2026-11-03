@@ -129,6 +129,31 @@ export function decider(
   return { action: "executer", commande: m.texte.slice(0, IA_QUESTION_MAX) };
 }
 
+/** Commandes qui ne lisent pas le relevé des capteurs : son âge n'a rien à y faire. */
+const SANS_RELEVE = new Set(["aide", "notice", "recherche"]);
+
+/** « 45 s », « 12 min », « 3 h ». */
+export function dureeLisible(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 90) return `${s} s`;
+  const min = Math.round(s / 60);
+  return min < 90 ? `${min} min` : `${Math.round(min / 60)} h`;
+}
+
+/**
+ * Sous une commande réussie qui a lu le relevé : la ligne qui dit que sa part Internet est vieille
+ * ou absente (sans console ouverte, personne ne l'a rafraîchie) ; null quand elle est fraîche.
+ */
+export function noteReleve(
+  r: { ok: boolean; commande: string | null },
+  releve: { ageMs: number | null; frais: boolean },
+): string | null {
+  if (!r.ok || r.commande == null || SANS_RELEVE.has(r.commande) || releve.frais) return null;
+  return releve.ageMs == null
+    ? "Pas encore de relevé Internet au poste : le premier est en cours, pour la commande suivante."
+    : `Relevé Internet du poste vieux de ${dureeLisible(releve.ageMs)} : un nouveau est en cours, pour la commande suivante.`;
+}
+
 /** Longueur maximale d'une réponse du bot, en caractères. */
 export const REPONSE_MAX = 3500;
 

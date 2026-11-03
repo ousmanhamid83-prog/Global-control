@@ -9,12 +9,19 @@
  * là, src/server.ts lit poste.env, la console ouvre la liaison et relance le bot, comme avant.
  */
 import { definePlugin } from "nitro";
+import { filetArretUtile } from "../../src/lib/arret-serveur";
 import { chargerEtAnnoncer } from "../../src/lib/config-poste";
-import { assurerBot } from "../../src/lib/vigilair/bot-signal.server";
+import { assurerBot, suspendreBot } from "../../src/lib/vigilair/bot-signal.server";
 import { ecouterAntenne } from "../../src/lib/vigilair/rx1090.server";
 
 export default definePlugin(() => {
   chargerEtAnnoncer();
   ecouterAntenne();
   void assurerBot();
+  // Le serveur qui s'arrête en douceur ne relève plus le relais Signal (voir suspendreBot). Là
+  // seulement où srvx retient déjà les signaux : ailleurs (CI, tests), un écouteur de plus
+  // empêcherait Node de s'arrêter sur SIGTERM.
+  if (filetArretUtile(false, process.env)) {
+    for (const signal of ["SIGTERM", "SIGINT"] as const) process.once(signal, suspendreBot);
+  }
 });

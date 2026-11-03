@@ -9,7 +9,9 @@ import {
   decider,
   listeAutorises,
   masquer,
+  dureeLisible,
   messagesRecus,
+  noteReleve,
   numeroE164,
   reponseBot,
   type MessageRecu,
@@ -191,6 +193,41 @@ describe("bot Signal : décision", () => {
       action: "repondre",
       texte: AIDE_BOT,
     });
+  });
+});
+
+describe("bot Signal : âge du relevé Internet sous la réponse", () => {
+  it("DURÉE LISIBLE : secondes, minutes, heures", () => {
+    assert.equal(dureeLisible(45_000), "45 s");
+    assert.equal(dureeLisible(89_000), "89 s");
+    assert.equal(dureeLisible(90_000), "2 min");
+    assert.equal(dureeLisible(89 * 60_000), "89 min");
+    assert.equal(dureeLisible(90 * 60_000), "2 h");
+    assert.equal(dureeLisible(3 * 3_600_000), "3 h");
+    assert.equal(dureeLisible(-5000), "0 s", "horloge du poste qui recule");
+  });
+
+  it("VIEUX OU ABSENT : dit sous une commande réussie qui a lu le relevé ; frais, rien", () => {
+    const vieux = { ageMs: 3 * 3_600_000, frais: false };
+    assert.equal(
+      noteReleve({ ok: true, commande: "meteo" }, vieux),
+      "Relevé Internet du poste vieux de 3 h : un nouveau est en cours, pour la commande suivante.",
+    );
+    assert.equal(
+      noteReleve({ ok: true, commande: "situation" }, { ageMs: null, frais: false }),
+      "Pas encore de relevé Internet au poste : le premier est en cours, pour la commande suivante.",
+    );
+    assert.equal(noteReleve({ ok: true, commande: "meteo" }, { ageMs: 5000, frais: true }), null);
+  });
+
+  it("PAS DE NOTE : commande refusée, inconnue, ou qui ne lit pas le relevé", () => {
+    const vieux = { ageMs: 3 * 3_600_000, frais: false };
+    assert.equal(noteReleve({ ok: false, commande: "trafic" }, vieux), null);
+    assert.equal(noteReleve({ ok: false, commande: null }, vieux), null);
+    assert.equal(noteReleve({ ok: true, commande: null }, vieux), null);
+    for (const c of ["aide", "notice", "recherche"]) {
+      assert.equal(noteReleve({ ok: true, commande: c }, vieux), null, c);
+    }
   });
 });
 

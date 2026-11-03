@@ -24,6 +24,7 @@ import {
   listeAutorises,
   masquer,
   messagesRecus,
+  noteReleve,
   numeroE164,
   reponseBot,
   type MessageRecu,
@@ -40,11 +41,13 @@ export const BOT_PAR_MINUTE = 6;
 const RELEVE_DELAI_MS = 30_000;
 /** Plancher entre deux relèves : un relais qui répond aussitôt ne fait pas tourner le bot à vide. */
 const RELEVE_MIN_MS = 250;
-const ENVOI_DELAI_MS = 15_000;
-/** Réponse du relais attendue : /v1/about, poignée de main de la websocket. */
+/**
+ * Un appel qui lance signal-cli (envoi, liste des comptes) : ≈ 250 ms d'habitude, mais plus de 5 s
+ * au tout premier appel d'un relais qui démarre sur une machine chargée (vu à l'essai).
+ */
+const SIGNAL_CLI_DELAI_MS = 15_000;
+/** Réponse du relais lui-même, sans signal-cli : /v1/about, poignée de main de la websocket. */
 const RELAIS_DELAI_MS = 5_000;
-/** Attente du relevé Internet avant d'exécuter, quand aucune console ne l'a rafraîchi. */
-const RELEVE_INTERNET_MS = 1_500;
 /** Pause après un échec : 1 s, doublée à chaque échec, 30 s au plus. */
 const PAUSE_MAX_MS = 30_000;
 /** Une websocket fermée avant ce délai compte comme un échec (la pause s'allonge). */
@@ -99,11 +102,14 @@ export type Poste = {
 
 const posteReel: Poste = {
   async executer(texte, expediteur) {
-    // Sans console ouverte, personne ne rafraîchit le relevé Internet : le bot le demande.
-    await (await import("./live-feeds")).rafraichirReleve(RELEVE_INTERNET_MS);
+    // Sans console ouverte, personne ne relève Internet : le bot lance le relevé pour la commande
+    // suivante, sans l'attendre, et la réponse dit l'âge de celui qu'elle a lu.
+    const releve = (await import("./live-feeds")).releveInternetPourBot();
     const { lancer } = await import("./commandes-poste.server");
     const { journalBot } = await import("./journal-poste.server");
-    return lancer(texte, "bot", journalBot(expediteur));
+    const r = await lancer(texte, "bot", journalBot(expediteur));
+    const note = noteReleve(r, releve);
+    return note ? { ...r, lignes: [...r.lignes, note] } : r;
   },
   async journal(de, titre, detail, severite) {
     const { insertOpsLog } = await import("./staff");
@@ -126,6 +132,8 @@ type Interne = {
   enregistrement: "fichier" | "memoire";
   /** Change à chaque démarrage et à chaque arrêt : une écoute d'avant le voit et s'arrête. */
   gen: number;
+  /** Le serveur s'arrête : plus aucune nouvelle relève (voir suspendreBot). */
+  fermeture: boolean;
   ecoute: boolean;
   mode: string | null;
   dernierContact: number | null;
@@ -166,6 +174,7 @@ async function etat(): Promise<Interne> {
     actif: false,
     enregistrement: "fichier",
     gen: 0,
+    fermeture: false,
     ecoute: false,
     mode: null,
     dernierContact: null,
@@ -276,7 +285,7 @@ async function envoyer(conf: Conf, destinataire: string, message: string): Promi
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ message, number: conf.numero, recipients: [destinataire] }),
-      signal: AbortSignal.timeout(ENVOI_DELAI_MS),
+      signal: AbortSignal.timeout(SIGNAL_CLI_DELAI_MS),
     });
     return r.ok ? null : erreurRelais(conf, r.status, lireErreur(await r.text()));
   } catch (err) {
@@ -387,8 +396,8 @@ function traiter(e: Interne, gen: number, conf: Conf, poste: Poste, recus: Messa
 }
 
 /** Une réponse JSON du relais ; sinon, ce n'est pas un relais signal-cli-rest-api qui répond. */
-async function lireRelais(conf: Conf, chemin: string): Promise<unknown> {
-  const r = await fetch(`${conf.base}${chemin}`, { signal: AbortSignal.timeout(RELAIS_DELAI_MS) });
+async function lireRelais(conf: Conf, chemin: string, delaiMs: number): Promise<unknown> {
+  const r = await fetch(`${conf.base}${chemin}`, { signal: AbortSignal.timeout(delaiMs) });
   const corps = await r.text();
   if (!r.ok) throw new ErreurRelais(erreurRelais(conf, r.status, lireErreur(corps)));
   try {
@@ -402,7 +411,7 @@ async function lireRelais(conf: Conf, chemin: string): Promise<unknown> {
 }
 
 async function modeRelais(conf: Conf): Promise<string> {
-  const about = (await lireRelais(conf, "/v1/about")) as { mode?: unknown } | null;
+  const about = (await lireRelais(conf, "/v1/about", RELAIS_DELAI_MS)) as { mode?: unknown } | null;
   return typeof about?.mode === "string" ? about.mode : "normal";
 }
 
@@ -412,14 +421,19 @@ async function modeRelais(conf: Conf): Promise<string> {
  * bot paraîtrait à l'écoute, et rien n'arriverait jamais.
  */
 async function verifierCompte(conf: Conf): Promise<void> {
-  const comptes = (await lireRelais(conf, "/v1/accounts")) as string[];
+  const comptes = (await lireRelais(conf, "/v1/accounts", SIGNAL_CLI_DELAI_MS)) as string[];
   if (!comptes.includes(conf.numero)) throw new ErreurRelais(pasLie(conf));
 }
 
-/** Mode native ou normal : relever le relais en continu, tant que cette écoute est la bonne. */
+/** Une écoute continue tant qu'elle est la bonne et que le serveur ne ferme pas. */
+function vivante(e: Interne, gen: number): boolean {
+  return e.gen === gen && !e.fermeture;
+}
+
+/** Mode native ou normal : relever le relais en continu, tant que cette écoute est vivante. */
 async function relever(e: Interne, gen: number, conf: Conf, poste: Poste): Promise<void> {
   const url = `${conf.base}/v1/receive/${conf.numero}?timeout=1&ignore_attachments=true&ignore_stories=true`;
-  while (e.gen === gen) {
+  while (vivante(e, gen)) {
     const t0 = Date.now();
     const r = await fetch(url, { signal: AbortSignal.timeout(RELEVE_DELAI_MS) });
     const corps = await r.text();
@@ -448,9 +462,10 @@ function ecouterWs(e: Interne, gen: number, conf: Conf, poste: Poste): Promise<v
     const ws = new WebSocket(`${conf.base.replace(/^http/, "ws")}/v1/receive/${conf.numero}`);
     e.socket = ws;
     let ouvertA = 0;
-    // Une promesse ne se règle qu'une fois : les règlements suivants sont sans effet.
+    // Une promesse ne se règle qu'une fois : les règlements suivants sont sans effet. Un échec
+    // après la coupure du bot ou du serveur n'est pas dit : l'écoute le voit et s'arrête.
     const regler = (erreur: string | null) =>
-      erreur === null || e.gen !== gen ? fini() : echoue(new ErreurRelais(erreur));
+      erreur === null ? fini() : echoue(new ErreurRelais(erreur));
     // Poignée de main restée sans réponse : réglée d'abord, close() ensuite.
     const delai = setTimeout(() => {
       regler(`Relais Signal injoignable à ${conf.base} (websocket : pas de réponse à temps).`);
@@ -491,7 +506,7 @@ function ecouterWs(e: Interne, gen: number, conf: Conf, poste: Poste): Promise<v
 async function ecouter(e: Interne, gen: number, poste: Poste): Promise<void> {
   let attente = 0;
   let echecA = 0;
-  while (e.gen === gen) {
+  while (vivante(e, gen)) {
     const conf = reglage();
     if ("erreur" in conf) {
       // Rien à écouter avant que poste.env soit réglé et le serveur relancé.
@@ -504,7 +519,7 @@ async function ecouter(e: Interne, gen: number, poste: Poste): Promise<void> {
       if (e.mode.startsWith("json-rpc")) await ecouterWs(e, gen, conf, poste);
       else await relever(e, gen, conf, poste);
     } catch (err) {
-      if (e.gen !== gen) return;
+      if (!vivante(e, gen)) return;
       noter(e, err instanceof ErreurRelais ? err.message : injoignable(conf, err));
       // Le relais a répondu depuis le dernier échec : une panne nouvelle repart d'une seconde.
       const repart = (e.dernierContact ?? 0) > echecA;
@@ -556,6 +571,19 @@ export async function lireEtatBot(): Promise<EtatBot> {
 export async function assurerBot(poste: Poste = posteReel): Promise<void> {
   const e = await etat();
   if (e.actif && !e.ecoute) demarrer(e, poste);
+}
+
+/**
+ * Le serveur s'arrête (SIGTERM, Ctrl+C) : plus aucune nouvelle relève. Sans cela, pendant ses
+ * secondes de fermeture, il prenait au relais des messages qu'il n'avait plus le temps de traiter
+ * (vu à l'essai : un message perdu). La relève en cours va à son terme et ses messages sont
+ * traités ; l'état enregistré ne change pas : le bot reprend au prochain démarrage.
+ */
+export function suspendreBot(): void {
+  const e = g.__afriBot;
+  if (!e) return;
+  e.fermeture = true;
+  e.socket?.close();
 }
 
 /** Le chef active ou coupe le bot : effet immédiat, puis enregistré sur le poste. */

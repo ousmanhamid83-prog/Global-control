@@ -13,6 +13,7 @@ import {
   assurerBot,
   basculerBot,
   lireEtatBot,
+  suspendreBot,
   type EtatBot,
   type Poste,
 } from "./bot-signal.server.ts";
@@ -393,6 +394,7 @@ describe("bot Signal : relais en mode native (relève continue)", () => {
     assert.deepEqual(f.executees, [["/meteo", CHEF]], "le périmé n'est pas exécuté");
     assert.equal((await etat()).echanges[1]!.commande, "—");
     assert.match(f.journal[0]!, /\/meteo par le bot Signal/, "rien d'exécuté, rien au journal pour le périmé");
+    assert.equal((await etat()).erreur, null, "aucune erreur en chemin");
   });
 
   it("COMMANDE QUI PLANTE, RÉSULTAT MALFORMÉ : dits, et les messages suivants passent", async () => {
@@ -566,6 +568,26 @@ describe("bot Signal : relais en mode native (relève continue)", () => {
     assert.equal((await etat()).ecoute, false);
   });
 
+  it("ARRÊT DU SERVEUR : la relève en cours va à son terme et répond, puis plus rien ; reste actif", async () => {
+    const f = fauxPoste();
+    relais.retenir = true;
+    await basculerBot(true, f.poste);
+    await attendreQue(() => relais.retenues.length === 1);
+    suspendreBot();
+    relais.retenir = false;
+    json(relais.retenues.shift()!, 200, [enveloppe(CHEF, "/meteo")]);
+    await attendreQue(() => relais.envois.length === 1);
+    assert.deepEqual(f.executees, [["/meteo", CHEF]], "le message déjà relevé n'est pas perdu");
+    await dormir(500);
+    assert.equal(relais.releves, 1, "plus aucune relève");
+    await assurerBot(f.poste); // une console qui lit l'état pendant la fermeture
+    await dormir(300);
+    assert.equal(relais.releves, 1, "la lecture de l'état ne relance pas l'écoute");
+    const e = await etat();
+    assert.deepEqual([e.actif, e.ecoute, e.erreur], [true, false, null]);
+    assert.deepEqual(JSON.parse(readFileSync("data/bot-signal.json", "utf8")), { actif: true });
+  });
+
   it("COUPÉ PENDANT UNE RELÈVE QUI ÉCHOUE : aucune panne affichée pour un bot coupé", async () => {
     relais.retenir = true;
     await basculerBot(true, fauxPoste().poste);
@@ -615,6 +637,18 @@ describe("bot Signal : relais en mode json-rpc (websocket)", () => {
     await dormir(5600 - (Date.now() - reconnecte));
     assert.equal(relais.sockets.size, 1);
     assert.equal((await etat()).erreur, null);
+  });
+
+  it("ARRÊT DU SERVEUR EN JSON-RPC : websocket fermée, sans reconnexion ni panne affichée", async () => {
+    relais.mode = "json-rpc";
+    await basculerBot(true, fauxPoste().poste);
+    await attendreQue(() => relais.sockets.size === 1);
+    suspendreBot();
+    await attendreQue(() => relais.sockets.size === 0);
+    await dormir(1500);
+    assert.equal(relais.connexions, 1, "pas de reconnexion");
+    const e = await etat();
+    assert.deepEqual([e.ecoute, e.erreur], [false, null]);
   });
 
   it("TRAME INVALIDE DU RELAIS : websocket fermée (pas « injoignable »), puis reconnexion", async () => {
