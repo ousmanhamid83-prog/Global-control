@@ -140,16 +140,39 @@ const continentCache = new Map<string, { at: number; ac: LiveAc[] }>();
  * publiques). Le chef de division peut activer le balayage total — toutes les cellules à chaque
  * relevé — pour la photo continentale la plus complète. Toujours de la lecture passive.
  */
-let continentSweep = false;
+/**
+ * État du relevé réseau, PARTAGÉ par toutes les copies de ce module. Le serveur construit en
+ * contient plusieurs (les fonctions serveur sont découpées à part) : en variables de module, le
+ * relevé remplissait la sienne, et les commandes, l'agent et la relève en lisaient une autre,
+ * toujours vide. Mesuré en ligne : METAR FTTJ à la console, « non reçu » à /meteo.
+ */
+type EtatReleve = {
+  /** Dernier relevé utilisable, valable TTL_MS. */
+  cache: { at: number; data: LivePicture } | null;
+  /** Dernier bon relevé, gardé en secours. */
+  lastGood: LivePicture | null;
+  /** Relevé Internet en cours (un seul à la fois). */
+  netPending: Promise<LivePicture> | null;
+  netLast: LivePicture | null;
+  continentSweep: boolean;
+  /** Feux FIRMS, gardés le temps de leur TTL. */
+  firms: { at: number; rows: Phenomenon[]; error: string | null; ttl: number } | null;
+};
+const releve = ((globalThis as { __afriReleve?: EtatReleve }).__afriReleve ??= {
+  cache: null,
+  lastGood: null,
+  netPending: null,
+  netLast: null,
+  continentSweep: false,
+  firms: null,
+});
 export function getContinentSweep(): boolean {
-  return continentSweep;
+  return releve.continentSweep;
 }
 export function setContinentSweepFlag(on: boolean): void {
-  continentSweep = on;
+  releve.continentSweep = on;
 }
 
-let cache: { at: number; data: LivePicture } | null = null;
-let lastGood: LivePicture | null = null;
 
 async function fetchText(url: string, ms: number): Promise<string> {
   const ctrl = new AbortController();
@@ -194,12 +217,11 @@ const FIRMS_URLS: { sensor: string; url: string }[] = [
   },
 ];
 
-let firmsCache: { at: number; rows: Phenomenon[]; error: string | null; ttl: number } | null = null;
 const FIRMS_TTL_MS = 15 * 1000;
 
 async function pullFirms(): Promise<{ rows: Phenomenon[]; errors: string[] }> {
-  if (firmsCache && Date.now() - firmsCache.at < firmsCache.ttl) {
-    return { rows: firmsCache.rows, errors: firmsCache.error ? [firmsCache.error] : [] };
+  if (releve.firms && Date.now() - releve.firms.at < releve.firms.ttl) {
+    return { rows: releve.firms.rows, errors: releve.firms.error ? [releve.firms.error] : [] };
   }
   const errors: string[] = [];
   const take = async (where: string, limit: number): Promise<unknown[]> => {
@@ -222,7 +244,7 @@ async function pullFirms(): Promise<{ rows: Phenomenon[]; errors: string[] }> {
   if (features.length > 0) {
     const rows = parseEsriFirms({ features });
     if (rows.length > 0) {
-      firmsCache = { at: Date.now(), rows, error: null, ttl: FIRMS_TTL_MS };
+      releve.firms = { at: Date.now(), rows, error: null, ttl: FIRMS_TTL_MS };
       return { rows, errors: [] };
     }
   }
@@ -235,13 +257,13 @@ async function pullFirms(): Promise<{ rows: Phenomenon[]; errors: string[] }> {
         errors.push(`FIRMS ${src.sensor}: aucun point`);
         continue;
       }
-      firmsCache = { at: Date.now(), rows, error: null, ttl: FIRMS_TTL_MS };
+      releve.firms = { at: Date.now(), rows, error: null, ttl: FIRMS_TTL_MS };
       return { rows, errors: [] };
     } catch (e) {
       errors.push(`FIRMS ${src.sensor}: ${e instanceof Error ? e.message : "échec"}`);
     }
   }
-  firmsCache = { at: Date.now(), rows: [], error: errors[0] ?? "FIRMS échec", ttl: 60_000 };
+  releve.firms = { at: Date.now(), rows: [], error: errors[0] ?? "FIRMS échec", ttl: 60_000 };
   return { rows: [], errors };
 }
 
@@ -315,7 +337,7 @@ async function pullAdsb(): Promise<{
   // Balayage total (chef) : toutes les cellules Afrique + ancres mondiales à chaque relevé, pour un
   // radar « tous continents » avec de vrais contacts. Sinon les 3 cellules les plus anciennes, par
   // courtoisie API — et, au démarrage, tout ce qui manque d'un coup.
-  const rotation = continentSweep
+  const rotation = releve.continentSweep
     ? [...CONTINENT_CELLS, ...WORLD_CELLS]
     : cellulesDuReleve(
         CONTINENT_CELLS,
@@ -378,7 +400,7 @@ async function pullAdsb(): Promise<{
     errors: [...new Set(errors)].slice(0, 4),
     source:
       ok > 0
-        ? `1090ES adsb.lol / adsb.fi · théâtre : ${couv.texte} · ${continentSweep ? `monde ${continentLive}/${CONTINENT_CELLS.length + WORLD_CELLS.length} · balayage total` : `continent ${continentLive}/${CONTINENT_CELLS.length}`} · ${ac.length} squitters`
+        ? `1090ES adsb.lol / adsb.fi · théâtre : ${couv.texte} · ${releve.continentSweep ? `monde ${continentLive}/${CONTINENT_CELLS.length + WORLD_CELLS.length} · balayage total` : `continent ${continentLive}/${CONTINENT_CELLS.length}`} · ${ac.length} squitters`
         : `1090ES indisponible — ${couv.texte}`,
     ok: ok > 0,
   };
@@ -619,7 +641,7 @@ function emptyPicture(err: string): LivePicture {
     sources: [],
     errors: [err],
     phenomena: [],
-    continentSweep,
+    continentSweep: releve.continentSweep,
   };
 }
 
@@ -703,7 +725,7 @@ async function pullAlerts(): Promise<{ alerts: SwpcAlert[]; errors: string[] }> 
 
 /** Le relevé RÉSEAU seul (sans l'antenne du poste) : pour le diagnostic des sources Internet. */
 export function peekLiveCache(): LivePicture | null {
-  return cache?.data ?? lastGood;
+  return releve.cache?.data ?? releve.lastGood;
 }
 
 /**
@@ -791,7 +813,7 @@ function sigmetsAsPhenomena(rows: { fir: string; hazard: string; raw: string; co
 /** Image des sources Internet (agrégateurs 1090ES, NOAA, NASA…), mise en cache 20 s. */
 async function pullNetwork(): Promise<LivePicture> {
   const now = Date.now();
-  if (cache && now - cache.at < TTL_MS) return cache.data;
+  if (releve.cache && now - releve.cache.at < TTL_MS) return releve.cache.data;
   try {
     const data = await Promise.race([
       (async () => {
@@ -913,7 +935,7 @@ async function pullNetwork(): Promise<LivePicture> {
           sources,
           errors: [...adsb.errors, ...wx.errors, ...sig.errors, ...apt.errors, ...swpc.errors, ...nat.errors],
           phenomena,
-          continentSweep,
+          continentSweep: releve.continentSweep,
         } satisfies LivePicture;
       })(),
       new Promise<LivePicture>((resolve) => {
@@ -931,56 +953,54 @@ async function pullNetwork(): Promise<LivePicture> {
     let next = data;
     if (
       data.aircraft.length === 0 &&
-      lastGood &&
-      lastGood.aircraft.length > 0 &&
-      Date.now() - lastGood.at < 180_000 &&
+      releve.lastGood &&
+      releve.lastGood.aircraft.length > 0 &&
+      Date.now() - releve.lastGood.at < 180_000 &&
       rateLimited
     ) {
       // Les avions du dernier bon relevé, sous l'heure de la NOUVELLE image : il faut les vieillir
       // d'autant, sinon ils paraissent jusqu'à 3 min plus frais qu'ils ne sont.
-      const aircraft = ageLiveAc(lastGood.aircraft, (data.at - lastGood.at) / 1000);
+      const aircraft = ageLiveAc(releve.lastGood.aircraft, (data.at - releve.lastGood.at) / 1000);
       next = {
         ...data,
         aircraft,
-        localN: lastGood.localN,
-        sahelN: lastGood.sahelN,
+        localN: releve.lastGood.localN,
+        sahelN: releve.lastGood.sahelN,
         emergencies: aircraft.filter((a) => Boolean(a.emergency)),
-        jam: lastGood.jam,
-        source: `${lastGood.source} · cache 1090`,
+        jam: releve.lastGood.jam,
+        source: `${releve.lastGood.source} · cache 1090`,
       };
     }
     if (usable || next.aircraft.length > 0) {
-      cache = { at: Date.now(), data: next };
-      lastGood = next;
+      releve.cache = { at: Date.now(), data: next };
+      releve.lastGood = next;
       return next;
     }
-    if (lastGood && Date.now() - lastGood.at < 120_000) {
+    if (releve.lastGood && Date.now() - releve.lastGood.at < 120_000) {
       return {
-        ...lastGood,
+        ...releve.lastGood,
         errors: [...data.errors, "cache conservé"].slice(0, 6),
       };
     }
     return data;
   } catch (e) {
-    if (lastGood) return lastGood;
+    if (releve.lastGood) return releve.lastGood;
     return emptyPicture(e instanceof Error ? e.message : "ingest échoué");
   }
 }
 
-let netPending: Promise<LivePicture> | null = null;
-let netLast: LivePicture | null = null;
 
 /** Un seul relevé Internet à la fois, même quand le poste interroge souvent. */
 function refreshNetwork(): Promise<LivePicture> {
-  netPending ??= pullNetwork()
+  releve.netPending ??= pullNetwork()
     .then((p) => {
-      netLast = p;
+      releve.netLast = p;
       return p;
     })
     .finally(() => {
-      netPending = null;
+      releve.netPending = null;
     });
-  return netPending;
+  return releve.netPending;
 }
 
 export const fetchLivePicture = createServerFn({ method: "GET" })
@@ -990,15 +1010,15 @@ export const fetchLivePicture = createServerFn({ method: "GET" })
     await rx.receiverReady();
     const status = rx.receiverStatus();
     let net: LivePicture;
-    if (cache && Date.now() - cache.at < TTL_MS) {
-      net = cache.data;
+    if (releve.cache && Date.now() - releve.cache.at < TTL_MS) {
+      net = releve.cache.data;
     } else if (!status.connected) {
       net = await refreshNetwork();
     } else {
       // Antenne branchée : les pistes locales n'attendent jamais un Internet lent ou coupé.
       const pending = refreshNetwork();
       net =
-        netLast ??
+        releve.netLast ??
         (await Promise.race([pending, new Promise<null>((r) => setTimeout(() => r(null), 1500))])) ??
         emptyPicture("relevé Internet en cours");
     }
@@ -1144,7 +1164,7 @@ export const setContinentSweep = createServerFn({ method: "POST" })
     await requireSuperadmin(context.userId);
     setContinentSweepFlag(data.on);
     // Le cache réseau est invalidé pour que le balayage parte au prochain relevé, pas dans 20 s.
-    cache = null;
+    releve.cache = null;
     return { on: getContinentSweep() };
   });
 
