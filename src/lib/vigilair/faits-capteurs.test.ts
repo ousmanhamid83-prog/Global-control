@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { contactsProches, faitsCapteurs, sujetsDe } from "./faits-capteurs.ts";
+import {
+  ORDRE,
+  contactsProches,
+  enTeteReleve,
+  faitsSujets,
+  sujetsDe,
+  type Sujet,
+} from "./faits-capteurs.ts";
 import type { LiveAc, LivePicture } from "./live-adsb.ts";
 
 function avion(p: Partial<LiveAc>): LiveAc {
@@ -70,7 +77,13 @@ const PIC = {
 
 const MAINTENANT = AT + 42_000;
 
-describe("réponse sans IA : les faits bruts des capteurs, selon le sujet de la question", () => {
+/** Les faits de sujets donnés, l'heure du relevé en tête : ce que servent les commandes. */
+const faits = (sujets: Sujet[], pic: LivePicture, n = 5) => [
+  enTeteReleve(pic, MAINTENANT),
+  ...faitsSujets(sujets, pic, n),
+];
+
+describe("faits bruts des capteurs, sujet par sujet", () => {
   it("SUJETS : la question dit de quoi on parle", () => {
     assert.deepEqual(sujetsDe("Y a-t-il des urgences en cours ?"), ["urgences"]);
     assert.deepEqual(sujetsDe("Quel temps fait-il à FTTJ ?"), ["meteo"]);
@@ -100,39 +113,29 @@ describe("réponse sans IA : les faits bruts des capteurs, selon le sujet de la 
 
   it("USAGE : « comment régler le GPS ? » n'est pas une question pour les capteurs", () => {
     assert.equal(sujetsDe("Comment régler le GPS du poste ?"), null);
-    assert.deepEqual(faitsCapteurs("Comment régler le GPS du poste ?", PIC, MAINTENANT, 0), []);
-  });
-
-  it("SANS SUJET : la notice répond si elle a trouvé ; sinon, la vue d'ensemble plutôt que rien", () => {
-    assert.deepEqual(faitsCapteurs("Comment marche le garde-fou ?", PIC, MAINTENANT, 2), []);
-    const tout = faitsCapteurs("Et maintenant ?", PIC, MAINTENANT, 0);
-    assert.ok(
-      tout.some((l) => l.startsWith("METAR FTTJ")) && tout.some((l) => l.startsWith("Urgences")),
-    );
   });
 
   it("EN-TÊTE : l'heure UTC du relevé (même sur un poste réglé à l'heure de N'Djamena) et son âge", () => {
     const tz = process.env.TZ;
     process.env.TZ = "Africa/Ndjamena";
     try {
-      const [tete] = faitsCapteurs("Y a-t-il des urgences ?", PIC, MAINTENANT, 0);
+      const tete = enTeteReleve(PIC, MAINTENANT);
       assert.equal(tete, "Dernier relevé des capteurs : 12:00:00 UTC, il y a 42 s.");
     } finally {
       if (tz === undefined) delete process.env.TZ;
       else process.env.TZ = tz;
     }
-    const [vieux] = faitsCapteurs("Y a-t-il des urgences ?", PIC, AT + 5 * 60_000, 0);
-    assert.match(vieux!, /il y a 5 min\.$/);
+    assert.match(enTeteReleve(PIC, AT + 5 * 60_000), /il y a 5 min\.$/);
   });
 
   it("URGENCES : chaque contact en urgence, avec son code et sa distance au poste", () => {
-    const f = faitsCapteurs("Y a-t-il des urgences ?", PIC, MAINTENANT, 0);
+    const f = faits(["urgences"], PIC);
     assert.equal(f[1], "Urgences : 1");
     assert.match(f[2]!, /^ {2}AFR123 06a1f0 A320 FL350 nic=8 à \d+ km 7700$/);
   });
 
   it("MÉTÉO : le METAR et le TAF FTTJ tels que reçus, mot pour mot", () => {
-    assert.deepEqual(faitsCapteurs("Quel temps fait-il ?", PIC, MAINTENANT, 0).slice(1), [
+    assert.deepEqual(faits(["meteo"], PIC).slice(1), [
       "METAR FTTJ : FTTJ 021200Z 05010KT 9999 FEW040 35/10 Q1008",
       "TAF FTTJ 021100Z 0212/0312 05012KT CAVOK",
     ]);
@@ -144,26 +147,23 @@ describe("réponse sans IA : les faits bruts des capteurs, selon le sujet de la 
       metar: [{ icao: "FTTJ", raw: "METAR FTTJ 021500Z 03007KT 8000 NSC 39/M01 Q1008 NOSIG" }],
       taf: [{ icao: "FTTJ", raw: "0212/0312 05012KT CAVOK" }],
     } as LivePicture;
-    assert.deepEqual(faitsCapteurs("Quel temps fait-il ?", recu, MAINTENANT, 0).slice(1), [
+    assert.deepEqual(faits(["meteo"], recu).slice(1), [
       "METAR FTTJ 021500Z 03007KT 8000 NSC 39/M01 Q1008 NOSIG",
       "TAF FTTJ : 0212/0312 05012KT CAVOK",
     ]);
     const speci = { ...recu, metar: [{ icao: "FTTJ", raw: "SPECI FTTJ 021520Z 27025G40KT" }] };
-    assert.equal(
-      faitsCapteurs("Quel temps fait-il ?", speci as LivePicture, MAINTENANT, 0)[1],
-      "SPECI FTTJ 021520Z 27025G40KT",
-    );
+    assert.equal(faits(["meteo"], speci as LivePicture)[1], "SPECI FTTJ 021520Z 27025G40KT");
   });
 
   it("MÉTÉO ABSENTE : dit qu'elle manque, n'invente rien", () => {
     const sans = { ...PIC, metar: [], taf: [] } as LivePicture;
-    assert.deepEqual(faitsCapteurs("Quel temps fait-il ?", sans, MAINTENANT, 0).slice(1), [
+    assert.deepEqual(faits(["meteo"], sans).slice(1), [
       "METAR FTTJ : absent du relevé (la station est parfois muette).",
     ]);
   });
 
   it("TRAFIC : les plus proches d'abord, chacun avec sa distance (le Caire en dernier)", () => {
-    const f = faitsCapteurs("Combien d'avions ?", PIC, MAINTENANT, 0);
+    const f = faits(["trafic"], PIC);
     assert.match(f[1]!, /^1090ES : 3 contacts en Afrique, 2 au Sahel, 1 à moins de 120 km/);
     assert.deepEqual(
       f.slice(2).map((l) => l.trim().split(" ")[0]),
@@ -172,7 +172,7 @@ describe("réponse sans IA : les faits bruts des capteurs, selon le sujet de la 
   });
 
   it("MILITAIRES, SIGMET, GNSS, ESPACE : seulement ce qui compte (AO, cellules chaudes)", () => {
-    const f = faitsCapteurs("Résume la situation", PIC, MAINTENANT, 0);
+    const f = faits(ORDRE, PIC, 3);
     assert.ok(f.includes("Contacts militaires : 1, les plus proches de FTTJ :"));
     assert.ok(f.includes("SIGMET touchant l'AO : 1") && f.includes("  FTTT TS EMBD"));
     assert.ok(!f.some((l) => l.includes("LFFF")), "un SIGMET hors AO n'est pas rapporté");
@@ -190,7 +190,7 @@ describe("réponse sans IA : les faits bruts des capteurs, selon le sujet de la 
       sigmets: [],
       jam: [],
     } as LivePicture;
-    const f = faitsCapteurs("Résume la situation", calme, MAINTENANT, 0);
+    const f = faits(ORDRE, calme, 3);
     for (const l of [
       "Urgences (7500/7600/7700) : aucune.",
       "Contacts militaires : aucun.",
@@ -200,18 +200,6 @@ describe("réponse sans IA : les faits bruts des capteurs, selon le sujet de la 
       assert.ok(f.includes(l), l);
   });
 
-  it("VUE D'ENSEMBLE : trois contacts par liste ; un sujet précis : cinq", () => {
-    const beaucoup = {
-      ...PIC,
-      aircraft: Array.from({ length: 8 }, (_, i) =>
-        avion({ flight: `X${i}`, lat: 12 + i, lon: 15 }),
-      ),
-    } as LivePicture;
-    const contacts = (f: string[]) => f.filter((l) => /^ {2}X\d/.test(l)).length;
-    assert.equal(contacts(faitsCapteurs("Combien d'avions ?", beaucoup, MAINTENANT, 0)), 5);
-    assert.equal(contacts(faitsCapteurs("Résume la situation", beaucoup, MAINTENANT, 0)), 3);
-  });
-
   it("GNSS : les trois cellules les plus dégradées, de la pire à la moins pire", () => {
     const jam = [
       { lat: 1, lon: 1, n: 10, bad: 3, pct: 30, level: "medium" },
@@ -219,32 +207,11 @@ describe("réponse sans IA : les faits bruts des capteurs, selon le sujet de la 
       { lat: 3, lon: 3, n: 10, bad: 5, pct: 50, level: "medium" },
       { lat: 4, lon: 4, n: 10, bad: 7, pct: 70, level: "high" },
     ];
-    const f = faitsCapteurs("Du brouillage GPS ?", { ...PIC, jam } as LivePicture, MAINTENANT, 0);
+    const f = faits(["gnss"], { ...PIC, jam } as LivePicture);
     assert.deepEqual(
       f.slice(2).map((l) => l.trim().split(" : ")[1]),
       ["90 % de 10 avions (forte)", "70 % de 10 avions (forte)", "50 % de 10 avions (moyenne)"],
     );
-  });
-
-  it("PAS DE RELEVÉ : le dit, sans rien inventer", () => {
-    assert.deepEqual(faitsCapteurs("Y a-t-il des urgences ?", null, MAINTENANT, 0), [
-      "Pas encore de relevé des capteurs (1090ES / METAR en attente).",
-    ]);
-  });
-
-  it("PISTE CIBLÉE : rappelée en tête, champ par champ", () => {
-    const f = faitsCapteurs(
-      "Faut-il s'inquiéter ?",
-      PIC,
-      MAINTENANT,
-      0,
-      "Indicatif: AFR123\nSquawk: 7700",
-    );
-    assert.deepEqual(f.slice(0, 3), [
-      "Piste ciblée (champs reçus) :",
-      "  Indicatif: AFR123",
-      "  Squawk: 7700",
-    ]);
   });
 
   it("CONTACTS PROCHES : rien que des champs reçus, les vides omis, MIL et code d'urgence en fin", () => {
@@ -260,7 +227,7 @@ describe("réponse sans IA : les faits bruts des capteurs, selon le sujet de la 
   it("SOURCE MUETTE : « inconnu » ou « non reçu », jamais un « aucun » qui rassurerait à tort", () => {
     // Rien n'a répondu : pas de TAF non plus (sa source est « ok » dès qu'un TAF arrive).
     const muet = { ...PIC, sources: [], taf: [] } as unknown as LivePicture;
-    assert.deepEqual(faitsCapteurs("Résume la situation", muet, MAINTENANT, 0).slice(1), [
+    assert.deepEqual(faits(ORDRE, muet, 3).slice(1), [
       "Urgences (7500/7600/7700) : inconnues, aucune trame 1090 reçue (antenne et ADS-B Internet muets).",
       "Contacts militaires : inconnus, aucune trame 1090 reçue (antenne et ADS-B Internet muets).",
       "Trafic 1090ES : inconnu, aucune trame 1090 reçue (antenne et ADS-B Internet muets).",
@@ -276,7 +243,7 @@ describe("réponse sans IA : les faits bruts des capteurs, selon le sujet de la 
       ...PIC,
       sources: PIC.sources.map((s) => ({ ...s, ok: s.id !== "sigmet" && s.id !== "metar" })),
     } as LivePicture;
-    const f = faitsCapteurs("Résume la situation", echec, MAINTENANT, 0);
+    const f = faits(ORDRE, echec, 3);
     assert.ok(f.includes("SIGMET : non reçus au dernier relevé."));
     assert.ok(f.includes("METAR FTTJ : non reçu au dernier relevé."));
     // Le TAF, reçu par sa propre source, reste dit.
@@ -289,7 +256,7 @@ describe("réponse sans IA : les faits bruts des capteurs, selon le sujet de la 
       ...PIC,
       sources: [{ id: "rx", label: "Antenne 1090 du poste", ok: true, detail: "" }],
     } as unknown as LivePicture;
-    const f = faitsCapteurs("Résume la situation", antenne, MAINTENANT, 0);
+    const f = faits(ORDRE, antenne, 3);
     assert.ok(f.includes("Urgences : 1"));
     assert.ok(f.some((l) => l.startsWith("1090ES : 3 contacts en Afrique")));
     assert.ok(f.includes("GNSS dégradé (NIC/NACp des avions) : 1 cellule(s)"));
@@ -300,6 +267,16 @@ describe("réponse sans IA : les faits bruts des capteurs, selon le sujet de la 
     );
     assert.ok(f.includes("SIGMET : non reçus au dernier relevé."));
     assert.ok(f.includes("METAR FTTJ : non reçu au dernier relevé."));
+  });
+
+  it("CONTACTS PROCHES : n au plus, les plus proches", () => {
+    const huit = Array.from({ length: 8 }, (_, i) =>
+      avion({ flight: `X${i}`, lat: 12 + i, lon: 15 }),
+    );
+    assert.deepEqual(
+      contactsProches(huit, 3).map((l) => l.split(" ")[0]),
+      ["X0", "X1", "X2"],
+    );
   });
 
   it("CONTACTS PROCHES : la distance est la vraie distance au poste (FTTJ)", () => {

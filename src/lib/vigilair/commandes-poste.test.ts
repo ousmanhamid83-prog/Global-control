@@ -159,7 +159,7 @@ describe("commandes du poste : un registre pour la console, l'agent et le bot", 
   it("DÉSACTIVÉES À LA LIVRAISON pour le bot : positions et marquage militaire seulement", () => {
     assert.deepEqual(
       COMMANDES.filter((c) => !c.defaut.bot).map((c) => c.nom),
-      ["trafic", "piste", "militaires"],
+      ["trafic", "piste", "militaires", "ia", "briefing"],
     );
     assert.ok(COMMANDES.every((c) => c.defaut.console));
   });
@@ -204,7 +204,7 @@ describe("commandes du poste : un registre pour la console, l'agent et le bot", 
     assert.ok(!bot.some((l) => l.startsWith("  /trafic")));
     assert.equal(
       bot.at(-1),
-      "Désactivées au poste : /trafic, /piste, /militaires (le chef de division les active).",
+      "Désactivées au poste : /trafic, /piste, /militaires, /ia, /briefing (le chef de division les active).",
     );
   });
 

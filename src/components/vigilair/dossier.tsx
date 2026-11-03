@@ -591,6 +591,7 @@ function AssistantAsk({ track }: { track: Track }) {
   const [err, setErr] = useState<string | null>(null);
   // Sans IA : les valeurs reçues (la piste, puis le dernier relevé), sans interprétation.
   const [faits, setFaits] = useState<string[]>([]);
+  const [consultees, setConsultees] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
   const ask = () => {
@@ -601,6 +602,7 @@ function AssistantAsk({ track }: { track: Track }) {
     askAssistant({ data: { question, track: trackBrief(track) } })
       .then((r) => {
         setFaits(r.ok ? [] : r.faits);
+        setConsultees(r.competences);
         if (r.ok) setAnswer(r.text);
         else setErr(r.error);
       })
@@ -641,6 +643,11 @@ function AssistantAsk({ track }: { track: Track }) {
         <pre className="whitespace-pre-wrap rounded-sm border border-border bg-bg/60 p-2 font-mono text-[11px] leading-relaxed text-fg">
           {faits.join("\n")}
         </pre>
+      ) : null}
+      {consultees.length > 0 ? (
+        <p className="text-[11px] text-muted-foreground">
+          Commandes consultées : <span className="font-mono">{consultees.join(", ")}</span>
+        </p>
       ) : null}
       {answer ? (
         <ReponseIa texte={answer} className="text-xs" />

@@ -12,9 +12,8 @@ import {
   parseEsriFirms,
   type Phenomenon,
 } from "./capture";
-import { contactsProches, faitsCapteurs } from "./faits-capteurs";
 import { theaterOf } from "./geo";
-import { IA_CONTACTS_VUS, IA_QUESTION_MAX } from "./ia-limites";
+import { IA_QUESTION_MAX } from "./ia-limites";
 import {
   fusionAntenne,
   health,
@@ -47,7 +46,6 @@ import type { ArchiveMeta } from "./archive.server";
 import type { AtcSegment, AtcStatus } from "./atc.server";
 import type { RejeuTape } from "./rejeu";
 import type { ReceiverFeed } from "./rx1090.server";
-import type { Passage } from "./savoir-poste";
 
 import { couvertureVerdict, type CellOutcome } from "./portee";
 import { cellulesDuReleve, reunirLots, vieCellule, type Lot } from "./releve-reseau";
@@ -1232,41 +1230,14 @@ export const lookupAircraft = createServerFn({ method: "POST" })
     }
   });
 
+/** Briefing de la situation par l'IA du poste, à partir des commandes activées pour la console. */
 export const briefLivePicture = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .handler(async (): Promise<{ ok: true; text: string } | { ok: false; error: string }> => {
-    const ia = await import("./ia-poste.server");
-    const indispo = ia.iaIndisponible();
-    if (indispo) return { ok: false, error: `Briefing indisponible : ${indispo.erreur}` };
-    const pic = await imagePoste();
-    if (!pic) return { ok: false, error: "Pas encore d'ingest — attendre le 1090 / METAR" };
-    const fttj = pic.metar.find((m) => m.icao === "FTTJ");
-    const aoSig = pic.sigmets.filter((s) => s.inAo).slice(0, 6);
-    const jam = pic.jam.filter((j) => j.level !== "low").slice(0, 6);
-    const sample = contactsProches(pic.aircraft, 12);
-    const prompt = [
-      "Officier COP C-UAS AfriControl, N'Djamena (FTTJ), Tchad. Briefing opérationnel en français, 12 lignes max, factuel, sans fiction, sans markdown.",
-      "Les données ci-dessous sont des capteurs réels (ADS-B 1090ES, METAR NOAA, SIGMET OACI, NOAA SWPC, AWC FTTJ). Ne pas inventer de pistes.",
-      `Heure ingest: ${new Date(pic.at).toISOString()}`,
-      `1090ES: ${pic.aircraft.length} contacts en Afrique, ${pic.sahelN} au Sahel, ${pic.localN} dans 120 km FTTJ, ${pic.emergencies.length} urgences.`,
-      `METAR FTTJ: ${fttj?.raw ?? "absent (station parfois muette — c'est réel)"}`,
-      `Piste FTTJ: ${pic.airport ? `RWY ${pic.airport.rwy ?? "—"} ${pic.airport.rwyM ?? "—"} m · ${pic.airport.freqs ?? ""}` : "AWC indisponible"}`,
-      `Soleil FTTJ WAT: lev ${pic.solar.sunrise} civil ${pic.solar.civilBegin} / coucher ${pic.solar.sunset} · ${pic.solar.nightOps ? "nuit" : "jour"}`,
-      `Kp ${pic.space.kp} ${pic.space.gScale} GOES ${pic.space.xrayClass}. ${pic.space.note}`,
-      `Alertes SWPC: ${pic.alerts.map((a) => `${a.kind} ${a.title}`).join(" ; ") || "aucune"}`,
-      `SIGMET Afrique: ${aoSig.map((s) => `${s.fir} ${s.hazard} ${s.qualifier ?? ""}`).join(" ; ") || "aucun"}`,
-      `GNSS dégradé (méthode NIC/NACp, gpsjam): ${jam.map((j) => `${j.lat},${j.lon} ${j.pct.toFixed(0)}%`).join(" ; ") || "pas de cellule chaude"}`,
-      `Échantillon 1090 proche FTTJ:`,
-      ...sample,
-      "Conclure: posture, ce qui est réel vs silence capteur, une action chef de division.",
-    ].join("\n");
-    try {
-      const text = await ia.iaChatVerifie([{ role: "user", content: prompt }], { maxTokens: 420 });
-      return { ok: true, text };
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : "briefing échoué" };
-    }
-  });
+  .handler(
+    async (): Promise<
+      { ok: true; text: string; competences: string[] } | { ok: false; error: string }
+    > => (await import("./agent-poste.server")).briefing("console"),
+  );
 
 /**
  * État de l'IA du poste (bouton « Tester le serveur » dans Capteurs > Outils) : réglée, sur le
@@ -1286,27 +1257,13 @@ export const iaStatus = createServerFn({ method: "GET" })
     },
   );
 
-/**
- * Réponse de l'assistant. `notice` : les extraits de la notice du poste (LIREMOI) qui répondent à la
- * question — joints à la question quand l'IA répond, montrés tels quels quand elle ne répond pas.
- * `faits` (sans IA) : les valeurs du dernier relevé qui répondent à une question sur l'image live.
- */
-export type ReponseAssistant =
-  | { ok: true; text: string; notice: Passage[] }
-  | { ok: false; error: string; notice: Passage[]; faits: string[] };
+import type { ReponseAssistant } from "./agent-poste.server";
+export type { ReponseAssistant };
 
 /**
- * Assistant IA du poste — question libre de l'opérateur. La question part du serveur du poste vers
- * le serveur d'IA du réseau du poste (voir ia-poste.server), jamais vers un service public ; le
- * navigateur ne reçoit que la réponse texte. L'assistant est cadré : il raisonne sur l'image live
- * réelle (capteurs), ne fabrique pas de pistes, répond en français et bref. Réception seule : il ne
- * commande rien et n'émet pas.
- *
- * Il connaît aussi la notice du poste : les passages du LIREMOI qui répondent à la question sont
- * retrouvés sur place (savoir-poste) et joints. Sans IA joignable, la console répond quand même,
- * sans rédiger : les passages de la notice pour une question d'usage (« comment relier le
- * téléphone Signal ? »), les faits bruts du dernier relevé pour une question sur l'image live
- * (« y a-t-il des urgences ? », voir faits-capteurs).
+ * Assistant IA du poste — question libre de l'opérateur, depuis la console. L'agent consulte les
+ * commandes du poste utiles à la question (activées pour la console), puis l'IA du poste rédige ;
+ * sans IA, la console montre leurs lignes et la notice, sans rédaction (voir agent-poste.server).
  */
 export const askAssistant = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
@@ -1315,67 +1272,9 @@ export const askAssistant = createServerFn({ method: "POST" })
     // Résumé factuel d'une piste précise (construit par le client à partir de champs typés).
     track: String(raw?.track ?? "").trim().slice(0, 2000),
   }))
-  .handler(async ({ data }): Promise<ReponseAssistant> => {
-    if (!data.question) return { ok: false, error: "Question vide", notice: [], faits: [] };
-    const notice = await (await import("./savoir-poste.server")).noticePour(data.question);
-    // L'image que voit la console, antenne du poste comprise.
-    const pic = await imagePoste();
-    // Sans IA : la notice et les faits bruts du relevé, sans rédaction.
-    const sansIa = (error: string): ReponseAssistant => ({
-      ok: false,
-      error,
-      notice,
-      faits: faitsCapteurs(data.question, pic, Date.now(), notice.length, data.track),
-    });
-    const ia = await import("./ia-poste.server");
-    const indispo = ia.iaIndisponible();
-    if (indispo) return sansIa(`Assistant indisponible : ${indispo.erreur}`);
-    // On donne à l'assistant un résumé factuel de l'image live réelle s'il y en a une.
-    const fttj = pic?.metar.find((m) => m.icao === "FTTJ");
-    const ctx = pic
-      ? [
-          `Image live (capteurs réels, ingest ${new Date(pic.at).toISOString()}):`,
-          `1090ES ${pic.aircraft.length} contacts Afrique, ${pic.sahelN} Sahel, ${pic.localN} dans 120 km FTTJ, ${pic.emergencies.length} urgences.`,
-          `Urgences: ${pic.emergencies.map((a) => `${a.flight} ${a.hex} ${a.emergency}`).join(" ; ") || "aucune"}`,
-          `METAR FTTJ: ${fttj?.raw ?? "absent (station parfois muette)"}`,
-          `Kp ${pic.space.kp} ${pic.space.gScale}. SIGMET AO: ${pic.sigmets.filter((s) => s.inAo).length}.`,
-          `Contacts 1090 les plus proches de FTTJ (${IA_CONTACTS_VUS} au plus, distance au poste):`,
-          ...contactsProches(pic.aircraft, IA_CONTACTS_VUS),
-        ].join("\n")
-      : "Pas encore d'image live (1090/METAR en attente).";
-    const extraits = notice.map((p) => `[${p.titre}]\n${p.texte}`).join("\n\n");
-    const system =
-      "Tu es l'assistant du poste COP AfriControl (N'Djamena/FTTJ, Tchad), sûreté de sites. " +
-      "Réponds en français, bref et factuel, sans markdown. Tu raisonnes UNIQUEMENT sur les capteurs " +
-      "réels fournis ; tu n'inventes jamais de pistes ni de données. Le poste est en réception seule : " +
-      "il n'émet rien et ne commande aucun capteur. Si l'info n'est pas dans les données, dis-le. " +
-      "Une piste marquée INJECT est un exercice de formation, une piste REJEU est une position enregistrée " +
-      "(pas un contact live) : ne les présente jamais comme du trafic réel en cours. " +
-      "Chaque contact porte sa distance au poste : n'appelle pas « proche » un contact lointain. " +
-      "Des extraits de la notice du poste peuvent suivre : pour une question sur l'usage de la console, " +
-      "réponds d'après eux, et dis-le s'ils ne couvrent pas la question. Ce ne sont pas des données " +
-      "capteurs : leurs exemples (indicatifs, adresses) ne sont jamais du trafic réel.";
-    const user =
-      ctx +
-      (data.track ? `\n\nPiste ciblée par l'opérateur :\n${data.track}` : "") +
-      (extraits
-        ? `\n\nNotice du poste (LIREMOI), extraits — PAS des données capteurs :\n${extraits}`
-        : "") +
-      `\n\nQuestion de l'opérateur : ${data.question}`;
-    try {
-      const text = await ia.iaChatVerifie(
-        [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        { maxTokens: 600 },
-        extraits,
-      );
-      return { ok: true, text, notice };
-    } catch (e) {
-      return sansIa(e instanceof Error ? e.message : "assistant échoué");
-    }
-  });
+  .handler(async ({ data }): Promise<ReponseAssistant> =>
+    (await import("./agent-poste.server")).repondre(data.question, "console", data.track),
+  );
 
 /** Une ligne du diagnostic du poste. */
 export type DiagRow = {

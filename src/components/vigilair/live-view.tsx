@@ -1315,8 +1315,12 @@ function LimitesIa() {
       <div>
         <p className="mb-1 font-medium text-fg">Ce qu'il voit</p>
         <ul className="list-disc space-y-0.5 pl-4">
-          <li>Le dernier relevé : nombre de contacts 1090, urgences, METAR FTTJ, Kp, SIGMET de l'AO.</li>
-          <li>Les {IA_CONTACTS_VUS} contacts 1090 les plus proches de FTTJ, avec leur distance.</li>
+          <li>
+            Les commandes du poste qu'il consulte lui-même selon la question (/situation,
+            /urgences, /trafic, /piste, /meteo, /soleil, /phenomenes, /capteurs…), seulement
+            celles activées pour la console, « non reçu » compris.
+          </li>
+          <li>Jusqu'à {IA_CONTACTS_VUS} contacts 1090 les plus proches de FTTJ, avec leur distance.</li>
           <li>La piste ciblée, quand la question part de son dossier.</li>
           <li>
             Les extraits de la notice du poste qui répondent à la question (≤ {IA_NOTICE_BUDGET}{" "}
@@ -1387,6 +1391,11 @@ function ReponseAssistantVue({ rep, duree }: { rep: ReponseAssistant; duree: num
             {rep.faits.join("\n")}
           </pre>
         </div>
+      ) : null}
+      {rep.competences.length > 0 ? (
+        <p className="text-[11px] text-muted-foreground">
+          Commandes consultées : <span className="font-mono">{rep.competences.join(", ")}</span>
+        </p>
       ) : null}
       {rep.ok && duree != null ? (
         <p className="text-[11px] text-muted-foreground">
@@ -1525,6 +1534,7 @@ function AssistantSection({ bascules }: { bascules: Bascules }) {
           error: e instanceof Error ? e.message : "assistant échoué",
           notice: [],
           faits: [],
+          competences: [],
         }),
       )
       .finally(() => {
@@ -1765,7 +1775,7 @@ function ToolsPanel({ onGoTab }: { onGoTab: (id: Tab) => void }) {
   const [hex, setHex] = useState("");
   const [lookup, setLookup] = useState<AircraftLookup | null>(null);
   const [looking, setLooking] = useState(false);
-  const [brief, setBrief] = useState<string | null>(null);
+  const [brief, setBrief] = useState<{ text: string; competences: string[] } | null>(null);
   const [briefErr, setBriefErr] = useState<string | null>(null);
   const [briefing, setBriefing] = useState(false);
 
@@ -1796,7 +1806,7 @@ function ToolsPanel({ onGoTab }: { onGoTab: (id: Tab) => void }) {
     setBriefErr(null);
     briefLivePicture()
       .then((r) => {
-        if (r.ok) setBrief(r.text);
+        if (r.ok) setBrief({ text: r.text, competences: r.competences });
         else setBriefErr(r.error);
       })
       .catch((e: unknown) =>
@@ -1863,14 +1873,22 @@ function ToolsPanel({ onGoTab }: { onGoTab: (id: Tab) => void }) {
       <section className="space-y-3 rounded-md border border-border bg-surface p-4 hud">
         <h2 className="text-sm font-medium">Briefing situation</h2>
         <p className="text-sm text-muted-foreground">
-          Synthèse des capteurs réels du dernier ingest — 1090, METAR, SIGMET,
-          Kp, NIC — par l'IA du poste (serveur sur place). Demande explicite, une fois.
+          Synthèse du dernier relevé par l'IA du poste (serveur sur place), à partir des
+          commandes du poste activées pour la console. Demande explicite, une fois.
         </p>
         <Button type="button" onClick={runBrief} disabled={briefing}>
           {briefing ? "Rédaction…" : "Briefing chef de division"}
         </Button>
         {briefErr ? <p className="text-sm text-warn">{briefErr}</p> : null}
-        {brief ? <ReponseIa texte={brief} className="text-sm" /> : null}
+        {brief ? (
+          <>
+            <ReponseIa texte={brief.text} className="text-sm" />
+            <p className="text-[11px] text-muted-foreground">
+              Commandes consultées :{" "}
+              <span className="font-mono">{brief.competences.join(", ")}</span>
+            </p>
+          </>
+        ) : null}
       </section>
       <ArchivesSection />
       <SentinelSection />

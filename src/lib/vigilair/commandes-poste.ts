@@ -35,7 +35,10 @@ export type Commande = {
 };
 
 const PARTOUT = { console: true, bot: true };
-/** Positions et marquages : à la console, pas par téléphone tant que le chef ne l'a pas voulu. */
+/**
+ * À la console, pas par téléphone tant que le chef ne l'a pas voulu : positions et marquages des
+ * contacts, et l'IA (lente, et elle lit tout le relevé).
+ */
 const CONSOLE_SEULE = { console: true, bot: false };
 
 export const COMMANDES: Commande[] = [
@@ -113,6 +116,19 @@ export const COMMANDES: Commande[] = [
     resume: "Ce que dit la notice du poste",
     argument: "<question>",
     defaut: PARTOUT,
+  },
+  {
+    nom: "ia",
+    alias: ["question", "assistant"],
+    resume: "Question libre à l'IA du poste, qui consulte les commandes utiles",
+    argument: "<question>",
+    defaut: CONSOLE_SEULE,
+  },
+  {
+    nom: "briefing",
+    alias: ["brief"],
+    resume: "Briefing de la situation rédigé par l'IA du poste",
+    defaut: CONSOLE_SEULE,
   },
 ];
 

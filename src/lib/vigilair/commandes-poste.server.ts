@@ -97,6 +97,41 @@ async function notice(question: string): Promise<string[]> {
   return passages.flatMap((p) => [`[${p.titre}]`, p.texte]);
 }
 
+/** /ia : l'agent répond ; sans IA, les lignes des commandes consultées et la notice. */
+async function ia(question: string, canal: Canal): Promise<{ ok: boolean; lignes: string[] }> {
+  if (!question) {
+    return {
+      ok: false,
+      lignes: ["/ia attend une question : /ia que se passe-t-il au nord du poste ?"],
+    };
+  }
+  const r = await (await import("./agent-poste.server")).repondre(question, canal);
+  const consultees = r.competences.length
+    ? [`Commandes consultées : ${r.competences.join(", ")}.`]
+    : [];
+  if (r.ok) return { ok: true, lignes: [...r.text.split("\n"), ...consultees] };
+  return {
+    ok: false,
+    lignes: [
+      `${r.error} — sans IA : les valeurs reçues et la notice, sans rédaction.`,
+      ...r.faits,
+      ...r.notice.map((p) => `[Notice] ${p.titre}`),
+      ...consultees,
+    ],
+  };
+}
+
+/** /briefing : rédigé par l'IA du poste à partir des commandes activées du canal. */
+async function briefing(canal: Canal): Promise<{ ok: boolean; lignes: string[] }> {
+  const r = await (await import("./agent-poste.server")).briefing(canal);
+  return r.ok
+    ? {
+        ok: true,
+        lignes: [...r.text.split("\n"), `Commandes consultées : ${r.competences.join(", ")}.`],
+      }
+    : { ok: false, lignes: [r.error] };
+}
+
 /** Exécute une ligne « /commande argument » reçue sur un canal. */
 export async function lancer(texte: string, canal: Canal): Promise<ResultatCommande> {
   const t0 = performance.now();
@@ -132,6 +167,10 @@ export async function lancer(texte: string, canal: Canal): Promise<ResultatComma
   }
   if (commande.nom === "capteurs") {
     return fin({ ok: true, commande: "capteurs", lignes: await capteurs(maintenant) });
+  }
+  if (commande.nom === "ia") return fin({ commande: "ia", ...(await ia(argument, canal)) });
+  if (commande.nom === "briefing") {
+    return fin({ commande: "briefing", ...(await briefing(canal)) });
   }
   if (commande.nom === "notice") {
     return fin({ ok: true, commande: "notice", lignes: await notice(argument) });

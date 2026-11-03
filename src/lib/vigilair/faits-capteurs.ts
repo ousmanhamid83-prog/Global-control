@@ -1,9 +1,8 @@
 /**
- * Réponse SANS IA à une question sur l'image live : les faits bruts du dernier relevé des capteurs,
- * choisis selon le sujet de la question, sans rédaction ni interprétation. Quand le serveur d'IA
- * n'est pas réglé ou ne répond pas, la console répond quand même : chaque ligne est une valeur
- * reçue (un contact, un METAR, un Kp), jamais une conclusion — ce n'est pas l'assistant qui juge,
- * c'est l'opérateur qui lit.
+ * Les faits bruts du dernier relevé des capteurs, sujet par sujet (urgences, trafic, météo…), sans
+ * rédaction ni interprétation : chaque ligne est une valeur reçue (un contact, un METAR, un Kp),
+ * jamais une conclusion. Les commandes du poste les servent telles quelles ; l'agent IA les
+ * consulte pour rédiger, et sans IA la console les montre (voir competences-agent).
  */
 import { AO, haversineKm } from "./geo.ts";
 import type { LiveAc, LivePicture } from "./live-adsb.ts";
@@ -50,7 +49,7 @@ const ENSEMBLE = /\b(situation|posture|resume|bilan|point|etat|synthese|briefing
 const USAGE =
   /\b(regler|installer|brancher|configurer|parametrer|lancer|activer|desactiver|ajouter|relier|mettre|changer|couper|arreter|telecharger|utiliser|ouvrir|afficher|exporter)\b/;
 
-function normaliser(s: string): string {
+export function normaliser(s: string): string {
   return s
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
@@ -226,30 +225,4 @@ export function enTeteReleve(pic: LivePicture, maintenant: number): string {
 /** Les faits des sujets donnés, dans cet ordre ; `n` contacts par liste. */
 export function faitsSujets(sujets: Sujet[], pic: LivePicture, n: number): string[] {
   return sujets.flatMap((s) => lignesDe(s, pic, n));
-}
-
-/**
- * Les faits du dernier relevé qui répondent à la question, une ligne par valeur ; [] quand les
- * capteurs n'ont rien à y répondre — question d'usage, ou question sans sujet reconnu à laquelle
- * la notice répond (`notice` : nombre de passages qu'elle a trouvés). Sans sujet ni notice : la
- * vue d'ensemble, plutôt que rien. `piste` : la piste ciblée depuis son dossier, rappelée en tête.
- */
-export function faitsCapteurs(
-  question: string,
-  pic: LivePicture | null,
-  maintenant: number,
-  notice: number,
-  piste = "",
-): string[] {
-  let sujets = sujetsDe(question);
-  if (sujets === null) return [];
-  if (sujets.length === 0) {
-    if (notice > 0) return [];
-    sujets = [...ORDRE];
-  }
-  const tete = piste ? ["Piste ciblée (champs reçus) :", ...retrait(piste.split("\n"))] : [];
-  if (!pic) return [...tete, PAS_DE_RELEVE];
-  // Vue d'ensemble : trois contacts par liste ; un sujet précis : cinq.
-  const n = sujets.length >= ORDRE.length ? 3 : 5;
-  return [...tete, enTeteReleve(pic, maintenant), ...faitsSujets(sujets, pic, n)];
 }
