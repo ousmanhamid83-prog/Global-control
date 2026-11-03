@@ -1,0 +1,143 @@
+/**
+ * Bot Signal du poste — la partie pure : lire ce que le relais signal-cli du poste a reçu, décider
+ * de la suite, mettre la réponse en forme. Le bot n'écoute QUE les numéros autorisés au poste : un
+ * inconnu n'a aucune réponse (rien ne lui confirme qu'un bot écoute), un groupe non plus (la
+ * réponse irait à des gens qui n'ont pas été autorisés). Module pur, testable sous node.
+ */
+import { IA_QUESTION_MAX } from "./ia-limites.ts";
+
+/** Un message texte reçu ; `expediteur` vide quand Signal ne donne pas le numéro (masqué). */
+export type MessageRecu = { expediteur: string; texte: string; groupe: boolean; at: number };
+
+/**
+ * Les messages texte d'une réception du relais : le tableau de GET /v1/receive/{numero} (mode
+ * native ou normal), ou un message de sa websocket (mode json-rpc) mis en tableau. Chaque élément
+ * porte une { envelope } : l'expéditeur est sourceNumber (null quand Signal ne donne pas le
+ * numéro ; « source », champ déprécié, n'en dit pas plus), le texte dataMessage.message, et un
+ * groupInfo marque un message de groupe. Accusés de réception, frappes et synchronisations n'ont
+ * pas de texte : ignorés.
+ */
+export function messagesRecus(brut: unknown): MessageRecu[] {
+  if (!Array.isArray(brut)) return [];
+  const recus: MessageRecu[] = [];
+  for (const item of brut) {
+    const env = (item as { envelope?: Record<string, unknown> } | null)?.envelope;
+    const dm = env?.dataMessage as { message?: unknown; groupInfo?: unknown } | undefined;
+    const texte = typeof dm?.message === "string" ? dm.message.trim() : "";
+    if (!texte) continue;
+    recus.push({
+      expediteur: typeof env?.sourceNumber === "string" ? env.sourceNumber : "",
+      texte,
+      groupe: dm?.groupInfo != null,
+      at: Number(env?.timestamp) || 0,
+    });
+  }
+  return recus;
+}
+
+/** « +235 66 00-12.34 », « 00235… » → « +23566001234 » ; null si ce n'est pas un numéro E.164. */
+export function numeroE164(brut: string): string | null {
+  const n = brut.replace(/[\s.-]/g, "").replace(/^00/, "+");
+  return /^\+\d{6,15}$/.test(n) ? n : null;
+}
+
+/** « +235 66 00 12 34, 00235… ; +235… » → les numéros E.164 ; le reste écarté. */
+export function listeAutorises(brut: string | undefined): Set<string> {
+  const numeros = (brut ?? "").split(/[,;]/).map(numeroE164);
+  return new Set(numeros.filter((n): n is string => n !== null));
+}
+
+/** Un numéro tel qu'il paraît au journal et à l'écran : « +235•••••234 ». */
+export function masquer(numero: string): string {
+  return numero.length > 7
+    ? `${numero.slice(0, 4)}${"•".repeat(numero.length - 7)}${numero.slice(-3)}`
+    : "•••";
+}
+
+export type Verdict = "ok" | "refus" | "silence";
+
+/**
+ * Au plus `max` messages par expéditeur sur une fenêtre glissante. Au-delà : un seul
+ * avertissement (« refus »), puis le silence jusqu'à ce que la fenêtre se libère — un flot de
+ * messages ne produit pas un flot de réponses.
+ */
+export function creerLimiteur(
+  max: number,
+  fenetreMs: number,
+): (qui: string, maintenant: number) => Verdict {
+  const vus = new Map<string, { t: number[]; prevenu: boolean }>();
+  return (qui, maintenant) => {
+    const e = vus.get(qui) ?? { t: [], prevenu: false };
+    e.t = e.t.filter((x) => maintenant - x < fenetreMs);
+    vus.set(qui, e);
+    if (e.t.length < max) {
+      e.t.push(maintenant);
+      e.prevenu = false;
+      return "ok";
+    }
+    const v = e.prevenu ? "silence" : "refus";
+    e.prevenu = true;
+    return v;
+  };
+}
+
+export const AIDE_BOT =
+  "Bot du poste AfriControl : envoyer une commande, par exemple /situation. La liste : /aide.";
+export const TROP_DE_COMMANDES = "Trop de commandes en une minute : réessayer dans un instant.";
+
+/**
+ * Au-delà, une commande est périmée : elle attendait sur les serveurs de Signal pendant que le bot
+ * était coupé. L'exécuter répondrait à une question que plus personne ne pose.
+ */
+export const PERIME_MS = 5 * 60_000;
+
+function heureZ(ms: number): string {
+  return `${new Date(ms).toISOString().slice(11, 16)} Z`;
+}
+
+export type Decision =
+  | { action: "ignorer"; raison: string }
+  | { action: "repondre"; texte: string }
+  | { action: "executer"; commande: string };
+
+/** Que faire d'un message reçu. */
+export function decider(
+  m: MessageRecu,
+  autorises: Set<string>,
+  limite: (qui: string, maintenant: number) => Verdict,
+  maintenant: number,
+): Decision {
+  if (!m.expediteur) {
+    return {
+      action: "ignorer",
+      raison:
+        "numéro masqué par Signal : l'enregistrer dans les contacts du téléphone du poste",
+    };
+  }
+  if (!autorises.has(m.expediteur)) return { action: "ignorer", raison: "numéro non autorisé" };
+  if (m.groupe) return { action: "ignorer", raison: "message de groupe" };
+  const v = limite(m.expediteur, maintenant);
+  if (v === "refus") return { action: "repondre", texte: TROP_DE_COMMANDES };
+  if (v === "silence") return { action: "ignorer", raison: "trop de commandes" };
+  if (m.at > 0 && maintenant - m.at > PERIME_MS) {
+    return {
+      action: "repondre",
+      texte: `Message envoyé à ${heureZ(m.at)}, arrivé au poste à ${heureZ(maintenant)} : trop ancien, non exécuté. Le renvoyer s'il vaut encore.`,
+    };
+  }
+  if (!m.texte.startsWith("/")) return { action: "repondre", texte: AIDE_BOT };
+  return { action: "executer", commande: m.texte.slice(0, IA_QUESTION_MAX) };
+}
+
+/** Longueur maximale d'une réponse du bot, en caractères. */
+export const REPONSE_MAX = 3500;
+
+/** La réponse envoyée au téléphone : les lignes de la commande, et son temps sur le poste. */
+export function reponseBot(lignes: string[], ms: number): string {
+  const corps = lignes.join("\n");
+  const coupe =
+    corps.length > REPONSE_MAX
+      ? `${corps.slice(0, REPONSE_MAX - 1)}…\n(réponse tronquée : la suite à la console)`
+      : corps;
+  return `${coupe}\n— poste AfriControl, ${ms.toLocaleString("fr-FR")} ms`;
+}

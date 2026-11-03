@@ -1003,6 +1003,23 @@ function refreshNetwork(): Promise<LivePicture> {
   return releve.netPending;
 }
 
+/**
+ * Le relevé Internet rafraîchi s'il a plus de 20 s, sans attendre plus de `attenteMs` : c'est la
+ * console ouverte qui relève d'habitude ; le bot Signal, lui, peut répondre la nuit sans console.
+ * Au-delà de l'attente, le relevé continue et la commande lit le précédent, dont elle dit l'âge.
+ */
+export async function rafraichirReleve(attenteMs: number): Promise<void> {
+  if (releve.cache && Date.now() - releve.cache.at < TTL_MS) return;
+  let minuterie: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    refreshNetwork(),
+    new Promise<void>((fin) => {
+      minuterie = setTimeout(fin, attenteMs);
+    }),
+  ]);
+  clearTimeout(minuterie);
+}
+
 export const fetchLivePicture = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async (): Promise<LivePicture> => {

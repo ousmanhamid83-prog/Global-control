@@ -415,6 +415,8 @@ if ($Signal) {
       $AFaire.Add("  2. sur le téléphone : Signal → Paramètres → Appareils reliés → « + », scanner le QR ;")
       $AFaire.Add("  3. AfriControl → Division → Webhook Signal, coller (number = le téléphone relié, recipients = qui reçoit) :")
       $AFaire.Add("     http://127.0.0.1:8085/v2/send?number=+235XXXXXXXX&recipients=+235YYYYYYYY,+235ZZZZZZZZ")
+      $AFaire.Add("  4. bot Signal (facultatif) : dans poste.env, AFRICONTROL_BOT_NUMERO=+235XXXXXXXX (le téléphone relié)")
+      $AFaire.Add("     et AFRICONTROL_BOT_AUTORISES=+235YYYYYYYY,+235ZZZZZZZZ ; redémarrer, puis l'activer dans Capteurs › Outils.")
     } else {
       Rate "relais Signal : ne répond pas sur 127.0.0.1:8085 (docker logs africontrol-signal)"
     }

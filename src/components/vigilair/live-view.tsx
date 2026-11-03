@@ -54,6 +54,8 @@ import {
   IA_QUESTION_MAX,
 } from "@/lib/vigilair/ia-limites";
 import { ReponseIa } from "@/components/vigilair/reponse-ia";
+import { basculerBotSignal, lireBotSignal } from "@/lib/vigilair/bot-api";
+import type { EtatBot } from "@/lib/vigilair/bot-signal.server";
 import { basculerCommande, lancerCommande, lireCommandes } from "@/lib/vigilair/commandes-api";
 import {
   COMMANDES,
@@ -1774,6 +1776,168 @@ function CommandesSection({
   );
 }
 
+/**
+ * Bot Signal du poste : son réglage (poste.env), son état, ses derniers échanges et leurs temps.
+ * Le chef de division l'active ou le coupe ; l'effet est immédiat et va au journal.
+ */
+function BotSignalSection() {
+  const { isSuperadmin } = useStaff();
+  const [etat, setEtat] = useState<EtatBot | null>(null);
+  const [occupe, setOccupe] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const now = useWallClock();
+
+  useEffect(() => {
+    let vivant = true;
+    const lire = () => {
+      lireBotSignal()
+        .then((e) => vivant && setEtat(e))
+        .catch(() => undefined);
+    };
+    lire();
+    const id = window.setInterval(lire, 3000);
+    return () => {
+      vivant = false;
+      window.clearInterval(id);
+    };
+  }, []);
+
+  const basculer = () => {
+    if (!etat) return;
+    const actif = !etat.actif;
+    const t0 = performance.now();
+    setOccupe(true);
+    basculerBotSignal({ data: { actif } })
+      .then((e) => {
+        setEtat(e);
+        setMsg(
+          `Bot ${actif ? "activé" : "coupé"} en ${Math.round(performance.now() - t0)} ms${e.enregistrement === "memoire" ? " — disque en lecture seule : valable jusqu'au redémarrage" : ""}.`,
+        );
+      })
+      .catch((err: unknown) => setMsg(err instanceof Error ? err.message : "refusé"))
+      .finally(() => setOccupe(false));
+  };
+
+  const reglage = etat?.reglage;
+  const statut: { tone: "default" | "ok" | "warn" | "crit"; texte: string } = !etat
+    ? { tone: "default", texte: "…" }
+    : !etat.actif
+      ? { tone: "default", texte: "coupé" }
+      : reglage && "erreur" in reglage
+        ? { tone: "warn", texte: "réglage incomplet" }
+        : etat.erreur
+          ? { tone: "crit", texte: "en panne" }
+          : { tone: "ok", texte: "à l'écoute" };
+  const c = etat?.compteurs;
+
+  return (
+    <section className="space-y-3 rounded-md border border-border bg-surface p-4 col-span-2 hud">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-medium">Bot Signal du poste</h2>
+        <Badge tone={statut.tone}>{statut.texte}</Badge>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Un numéro autorisé envoie une commande (« /situation ») au téléphone du poste : le bot
+        l'exécute ici et répond à l'expéditeur seul, par le relais Signal du poste. Un numéro
+        inconnu ou un groupe n'a aucune réponse ; seules les commandes activées pour le bot, dans
+        le tableau ci-dessus, répondent. Coupé à la livraison :{" "}
+        {isSuperadmin ? "toi seul, chef de division, l'actives" : "seul le chef de division l'active"},
+        et chaque bascule comme chaque commande reçue va au journal.
+      </p>
+      {reglage ? (
+        "erreur" in reglage ? (
+          <p className="text-sm text-warn">
+            {reglage.erreur} À régler dans poste.env, puis redémarrer le serveur.
+          </p>
+        ) : (
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+            <dt className="text-muted-foreground">Téléphone du poste</dt>
+            <dd className="font-mono">{reglage.numero}</dd>
+            <dt className="text-muted-foreground">Numéros autorisés</dt>
+            <dd className="font-mono">{reglage.autorises}</dd>
+            <dt className="text-muted-foreground">Relais</dt>
+            <dd className="font-mono">
+              {reglage.relais}
+              {etat?.mode ? ` · mode ${etat.mode}` : ""}
+            </dd>
+          </dl>
+        )
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant={etat?.actif ? "outline" : "default"}
+          disabled={!isSuperadmin || !etat || occupe}
+          onClick={basculer}
+        >
+          {occupe ? "…" : etat?.actif ? "Couper le bot" : "Activer le bot"}
+        </Button>
+        {msg ? <span className="font-mono text-xs text-muted-foreground">{msg}</span> : null}
+      </div>
+      {etat?.erreur ? (
+        <p className="text-sm text-crit">
+          {formatClock(etat.erreur.at)} · {etat.erreur.texte}
+        </p>
+      ) : null}
+      {c ? (
+        <p className="font-mono text-xs text-muted-foreground">
+          reçus {c.recus} · exécutées {c.executees} · réponses remises {c.reponses} · ignorés{" "}
+          {c.ignores} · envois en échec {c.echecsEnvoi}
+          {etat?.dernierContact ? ` · relais vu il y a ${formatAge(now - etat.dernierContact)}` : ""}
+        </p>
+      ) : null}
+      {etat && etat.echanges.length > 0 ? (
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-left text-muted-foreground">
+              <th className="py-1 font-normal">Heure</th>
+              <th className="py-1 font-normal">De</th>
+              <th className="py-1 font-normal">Commande</th>
+              <th className="py-1 font-normal">Sur le poste</th>
+              <th className="py-1 font-normal">Remise au relais</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/60 font-mono">
+            {etat.echanges.map((x, i) => (
+              // Plusieurs échanges peuvent tomber dans la même milliseconde : le rang départage.
+              <tr key={`${x.at}-${i}`}>
+                <td className="py-1 pr-2">{formatClock(x.at)}</td>
+                <td className="py-1 pr-2">{x.de}</td>
+                <td className={cn("py-1 pr-2", x.ok ? "text-fg" : "text-warn")}>{x.commande}</td>
+                <td className="py-1 pr-2">{x.ms.toLocaleString("fr-FR")} ms</td>
+                <td className={cn("py-1 pr-2", x.erreurEnvoi ? "text-crit" : "")}>
+                  {x.envoiMs != null ? `${x.envoiMs} ms` : x.erreurEnvoi}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {etat && etat.ignores.length > 0 ? (
+        <ul className="space-y-0.5 text-xs text-muted-foreground">
+          {etat.ignores.map((i, n) => (
+            <li key={`${i.at}-${n}`}>
+              <span className="font-mono">
+                {formatClock(i.at)} · {i.de}
+              </span>{" "}
+              ignoré : {i.raison}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <p className="text-xs text-muted-foreground">
+        Le poste exécute en millisecondes ; le trajet par Signal ajoute le reste. Relais en mode
+        native (celui du script) : relevé en continu, un message attend 1 à 3 s avant d'être lu, et
+        celui envoyé pendant que le bot est coupé attend sur les serveurs de Signal (au-delà de
+        5 min, il est dit trop ancien, pas exécuté). Relais en mode json-rpc : poussé aussitôt,
+        envois cinq fois plus rapides, mais un message arrivé bot coupé est perdu. Au-delà de
+        3 500 caractères, la réponse est coupée : la suite à la console.
+      </p>
+    </section>
+  );
+}
+
 function ToolsPanel({ onGoTab }: { onGoTab: (id: Tab) => void }) {
   const [commandes, setCommandes] = useState<EtatBascules | null>(null);
   useEffect(() => {
@@ -1903,6 +2067,7 @@ function ToolsPanel({ onGoTab }: { onGoTab: (id: Tab) => void }) {
       <SentinelSection />
       <AssistantSection bascules={commandes?.bascules ?? {}} />
       <CommandesSection etat={commandes} onChange={setCommandes} />
+      <BotSignalSection />
       <section className="rounded-md border border-border bg-surface p-4 col-span-2 hud">
         <h2 className="text-sm font-medium">Ce qui est réel</h2>
         <ul className="mt-2 grid gap-2 text-sm text-muted-foreground grid-cols-2">
