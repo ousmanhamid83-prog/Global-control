@@ -8,8 +8,10 @@
  * Le disjoncteur compte les échecs de CONNEXION (délai dépassé, réseau coupé) par source. Après
  * quelques échecs d'affilée, il « ouvre » : pendant une pause, les tuiles vers cette source
  * reviennent VIDE tout de suite, sans retenir de connexion. La pause écoulée, il laisse repasser
- * (mi-ouvert) ; un succès referme, un échec rouvre. Un « rien ici » du fournisseur (404) n'est PAS
- * un échec de connexion : la source répond, le disjoncteur reste fermé.
+ * UNE tuile d'essai (mi-ouvert) ; un succès referme, un échec rouvre. Avant, toutes repassaient à
+ * la fois : toutes les 45 s, une vague de tuiles attendait chacune le délai plein et reprenait les
+ * six connexions. Un « rien ici » du fournisseur (404) n'est PAS un échec de connexion : la source
+ * répond, le disjoncteur reste fermé.
  */
 export type EtatDisjoncteur = "fermé" | "ouvert";
 
@@ -23,7 +25,7 @@ export type Disjoncteur = {
   etat: (cle: string) => EtatDisjoncteur;
 };
 
-type Etat = { echecs: number; ouvertJusqu: number };
+type Etat = { echecs: number; ouvertJusqu: number; essai: boolean };
 
 export function creerDisjoncteur(opts?: {
   /** Échecs de connexion d'affilée avant d'ouvrir (défaut 3). */
@@ -40,14 +42,21 @@ export function creerDisjoncteur(opts?: {
   const etat = (cle: string): Etat => {
     let e = etats.get(cle);
     if (!e) {
-      e = { echecs: 0, ouvertJusqu: 0 };
+      e = { echecs: 0, ouvertJusqu: 0, essai: false };
       etats.set(cle, e);
     }
     return e;
   };
   return {
     passe(cle) {
-      return horloge() >= etat(cle).ouvertJusqu;
+      const e = etat(cle);
+      if (horloge() < e.ouvertJusqu) return false;
+      // Mi-ouvert : une tuile d'essai à la fois, les autres reviennent vides sans attendre.
+      if (e.echecs >= seuil) {
+        if (e.essai) return false;
+        e.essai = true;
+      }
+      return true;
     },
     succes(cle) {
       const e = etat(cle);
@@ -57,6 +66,7 @@ export function creerDisjoncteur(opts?: {
     echec(cle) {
       const e = etat(cle);
       e.echecs += 1;
+      e.essai = false;
       // Au seuil, on ouvre. Un échec en mi-ouvert (echecs déjà ≥ seuil) rouvre aussitôt.
       if (e.echecs >= seuil) e.ouvertJusqu = horloge() + pauseMs;
     },

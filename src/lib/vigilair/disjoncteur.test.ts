@@ -58,6 +58,48 @@ describe("disjoncteur par source d'imagerie", () => {
     assert.equal(d.passe("eum"), true);
   });
 
+  it("MI-OUVERT : UNE SEULE TUILE D'ESSAI À LA FOIS, les autres reviennent vides sans attendre", () => {
+    let t = 0;
+    const d = creerDisjoncteur({ seuil: 2, pauseMs: 45_000, maintenant: () => t });
+    d.echec("eum");
+    d.echec("eum");
+    t = 46_000;
+    assert.equal(d.passe("eum"), true, "la tuile d'essai part");
+    assert.equal(d.passe("eum"), false, "pendant l'essai, pas de vague");
+    assert.equal(d.passe("eum"), false);
+    assert.equal(d.passe("gibs"), true, "une autre source n'est pas concernée");
+    d.succes("eum"); // l'essai a abouti : la source est revenue
+    assert.equal(d.passe("eum"), true);
+    assert.equal(d.passe("eum"), true, "refermé : toutes les tuiles passent de nouveau");
+  });
+
+  it("MI-OUVERT, ESSAI RATÉ : rouvert, puis un nouvel essai après la pause", () => {
+    let t = 0;
+    const d = creerDisjoncteur({ seuil: 2, pauseMs: 45_000, maintenant: () => t });
+    d.echec("eum");
+    d.echec("eum");
+    t = 46_000;
+    assert.equal(d.passe("eum"), true);
+    d.echec("eum");
+    t = 46_000 + 45_001;
+    assert.equal(d.passe("eum"), true, "l'essai raté n'empêche pas le suivant");
+    assert.equal(d.passe("eum"), false);
+  });
+
+  it("ESSAI RÉUSSI PUIS NOUVELLE PANNE : l'essai suivant part (pas de drapeau périmé)", () => {
+    let t = 0;
+    const d = creerDisjoncteur({ seuil: 2, pauseMs: 45_000, maintenant: () => t });
+    d.echec("eum");
+    d.echec("eum");
+    t = 46_000;
+    assert.equal(d.passe("eum"), true);
+    d.succes("eum");
+    d.echec("eum");
+    d.echec("eum");
+    t = 46_000 + 45_001;
+    assert.equal(d.passe("eum"), true, "la source retombée a droit à son essai");
+  });
+
   it("UN « RIEN ICI » (404 = succès de connexion) NE FAIT JAMAIS OUVRIR", () => {
     const t = 0;
     const d = creerDisjoncteur({ seuil: 3, maintenant: () => t });

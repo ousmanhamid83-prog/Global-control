@@ -12,6 +12,7 @@ import {
 } from "./geo";
 import { sceneAgeLabel, type SatLayer, type SatMeta } from "./sat";
 import { scanFlames } from "./flame";
+import { creerFile, type FileTuiles } from "./file-tuiles";
 import { couvre, type RectTuiles } from "./mosaique-couverture";
 
 export const SAT_CREDIT =
@@ -541,11 +542,14 @@ const g = globalThis as unknown as {
   __vigilairTiles21?: Map<string, CacheVal>;
   __vigilairInflight21?: Set<string>;
   __vigilairTileAttempts21?: Map<string, number>;
+  __vigilairFileTuiles?: FileTuiles;
 };
 
 const cache = (g.__vigilairTiles21 ??= new Map<string, CacheVal>());
 const inflight = (g.__vigilairInflight21 ??= new Set<string>());
 const attempts = (g.__vigilairTileAttempts21 ??= new Map<string, number>());
+/** Quatre tuiles distantes en vol au plus : deux connexions restent à la console (file-tuiles). */
+const fileTuiles = (g.__vigilairFileTuiles ??= creerFile(4));
 
 function freshBucket(layer: SatLayer): string {
   if (layer === "vis" || layer === "ir" || layer === "th") {
@@ -641,22 +645,21 @@ function load(layer: SatLayer, z: number, x: number, y: number) {
   const k = key(layer, z, x, y);
   if (cache.has(k) || inflight.has(k)) return;
   inflight.add(k);
+  fileTuiles.lancer(() => charger(layer, z, x, y, k));
+}
+
+function charger(layer: SatLayer, z: number, x: number, y: number, k: string) {
   const img = new Image();
   img.decoding = "async";
   img.referrerPolicy = "no-referrer";
-  const preferLocal = false;
-  let usedProxy = !preferLocal;
   img.onload = () => {
+    fileTuiles.finie();
     cache.set(k, img);
     inflight.delete(k);
     attempts.delete(k);
   };
   img.onerror = () => {
-    if (!usedProxy) {
-      usedProxy = true;
-      img.src = proxySrc(layer, z, x, y);
-      return;
-    }
+    fileTuiles.finie();
     inflight.delete(k);
     const n = (attempts.get(k) ?? 0) + 1;
     attempts.set(k, n);
@@ -670,7 +673,7 @@ function load(layer: SatLayer, z: number, x: number, y: number) {
     }
     window.setTimeout(() => load(layer, z, x, y), 500 * n);
   };
-  img.src = preferLocal ? localSrc(z, x, y) : proxySrc(layer, z, x, y);
+  img.src = proxySrc(layer, z, x, y);
 }
 
 let scratch: HTMLCanvasElement | null = null;
