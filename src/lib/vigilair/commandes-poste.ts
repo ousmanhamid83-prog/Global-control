@@ -40,6 +40,8 @@ const PARTOUT = { console: true, bot: true };
  * contacts, et l'IA (lente, et elle lit tout le relevé).
  */
 const CONSOLE_SEULE = { console: true, bot: false };
+/** Ce qui fait sortir une requête du poste : nulle part tant que le chef ne l'a pas activé. */
+const NULLE_PART = { console: false, bot: false };
 
 export const COMMANDES: Commande[] = [
   {
@@ -129,6 +131,13 @@ export const COMMANDES: Commande[] = [
     alias: ["brief"],
     resume: "Briefing de la situation rédigé par l'IA du poste",
     defaut: CONSOLE_SEULE,
+  },
+  {
+    nom: "recherche",
+    alias: ["web", "internet"],
+    resume: "Recherche en ligne par le moteur SearXNG du poste (la requête sort du poste)",
+    argument: "<requête>",
+    defaut: NULLE_PART,
   },
 ];
 

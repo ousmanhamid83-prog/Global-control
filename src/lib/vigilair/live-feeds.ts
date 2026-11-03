@@ -1272,9 +1272,15 @@ export const askAssistant = createServerFn({ method: "POST" })
     // Résumé factuel d'une piste précise (construit par le client à partir de champs typés).
     track: String(raw?.track ?? "").trim().slice(0, 2000),
   }))
-  .handler(async ({ data }): Promise<ReponseAssistant> =>
-    (await import("./agent-poste.server")).repondre(data.question, "console", data.track),
-  );
+  .handler(async ({ data, context }): Promise<ReponseAssistant> => {
+    const { journalDe } = await import("./journal-poste.server");
+    return (await import("./agent-poste.server")).repondre(
+      data.question,
+      "console",
+      journalDe(context.userId),
+      data.track,
+    );
+  });
 
 /** Une ligne du diagnostic du poste. */
 export type DiagRow = {

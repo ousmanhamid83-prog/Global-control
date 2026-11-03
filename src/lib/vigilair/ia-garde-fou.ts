@@ -67,12 +67,19 @@ export function nonVerifies(reponse: string, donnees: string): string[] {
  * `documentation` : extraits de la notice du poste joints à la question. Ils ne comptent PAS comme
  * données : la notice donne des exemples (AFR123, 3C6589, TT-ABC) qui ne sont jamais du trafic. Un
  * identifiant qu'on n'y retrouve que là est signalé à part — tiré de la notice, pas des capteurs.
+ * `enLigne` : trouvailles d'une recherche en ligne, de même : Internet n'est pas un capteur.
  */
-export function annoterReponse(reponse: string, donnees: string, documentation = ""): string {
+export function annoterReponse(
+  reponse: string,
+  donnees: string,
+  documentation = "",
+  enLigne = "",
+): string {
   const absents = nonVerifies(reponse, donnees);
   if (absents.length === 0) return reponse;
   const notice = absents.filter((jeton) => present(jeton, documentation));
-  const inventes = absents.filter((jeton) => !notice.includes(jeton));
+  const internet = absents.filter((jeton) => !notice.includes(jeton) && present(jeton, enLigne));
+  const inventes = absents.filter((jeton) => !notice.includes(jeton) && !internet.includes(jeton));
   let texte = reponse.trimEnd();
   if (inventes.length > 0) {
     texte +=
@@ -83,6 +90,11 @@ export function annoterReponse(reponse: string, donnees: string, documentation =
     texte +=
       `\n\nℹ Tiré de la notice du poste, pas des capteurs : ${notice.join(", ")}. ` +
       "Exemple ou réglage de la documentation — jamais une piste en cours.";
+  }
+  if (internet.length > 0) {
+    texte +=
+      `\n\nℹ Tiré de la recherche en ligne, pas des capteurs : ${internet.join(", ")}. ` +
+      "Source Internet non vérifiée — jamais une piste en cours.";
   }
   return texte;
 }

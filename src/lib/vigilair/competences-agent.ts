@@ -22,6 +22,17 @@ const PHENOMENES =
 // question d'usage.
 const CAPTEURS = /\b(capteurs?|sources?|antennes?|recepteurs?|pannes?)\b/;
 
+// La question demande expressément de chercher en ligne.
+const EN_LIGNE = /\b(en ligne|internet|sur le web|google)\b/;
+
+/**
+ * La question demande-t-elle expressément une recherche en ligne ? L'agent ne cherche jamais en
+ * ligne de lui-même : il faut que l'opérateur le demande ET que /recherche soit activée.
+ */
+export function demandeEnLigne(question: string): boolean {
+  return EN_LIGNE.test(normaliser(question));
+}
+
 /** Les contacts du relevé que la question nomme (indicatif ou adresse ICAO), trois au plus. */
 function pistesCitees(question: string, pic: LivePicture | null): string[] {
   if (!pic) return [];

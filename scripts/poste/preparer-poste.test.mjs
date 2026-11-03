@@ -26,7 +26,12 @@ const clesSh = [...SH.matchAll(/^\s*regler (AFRICONTROL_[A-Z_]+) /gm)].map((m) =
 const clesPs1 = [...PS1.matchAll(/^\s*Regler "(AFRICONTROL_[A-Z_]+)" /gm)].map((m) => m[1]).sort();
 
 test("poste.env : les deux scripts écrivent les mêmes clés, et le serveur les lit toutes", () => {
-  assert.deepEqual(clesSh, ["AFRICONTROL_IA", "AFRICONTROL_IA_MODELE", "AFRICONTROL_ITINERAIRE"]);
+  assert.deepEqual(clesSh, [
+    "AFRICONTROL_IA",
+    "AFRICONTROL_IA_MODELE",
+    "AFRICONTROL_ITINERAIRE",
+    "AFRICONTROL_RECHERCHE",
+  ]);
   assert.deepEqual(clesPs1, clesSh);
   for (const cle of clesSh) assert.ok(SERVEUR.includes(`"${cle}"`), `${cle} n'est lue nulle part`);
 });
@@ -35,9 +40,12 @@ test("mêmes images Docker, mêmes ports, liés au seul poste (127.0.0.1)", () =
   const image = (texte, motif) => texte.match(motif)?.[1];
   assert.equal(image(PS1, /\$OsrmImage = "([^"]+)"/), image(SH, /^OSRM_IMAGE=(\S+)/m));
   assert.equal(image(PS1, /\$SignalImage = "([^"]+)"/), image(SH, /^SIGNAL_IMAGE=(\S+)/m));
+  assert.equal(image(PS1, /\$SearxngImage = "([^"]+)"/), image(SH, /^SEARXNG_IMAGE=(\S+)/m));
+  assert.match(image(SH, /^SEARXNG_IMAGE=(\S+)/m), /^searxng\/searxng:\d{4}\.\d+\.\d+-[0-9a-f]+$/);
   for (const texte of [SH, PS1]) {
     assert.ok(texte.includes("-p 127.0.0.1:5810:5000"), "OSRM sur 127.0.0.1:5810");
     assert.ok(texte.includes("-p 127.0.0.1:8085:8080"), "relais Signal sur 127.0.0.1:8085");
+    assert.ok(texte.includes("-p 127.0.0.1:8888:8080"), "moteur de recherche sur 127.0.0.1:8888");
     assert.ok(texte.includes("AFRICONTROL_ITINERAIRE") && texte.includes("http://127.0.0.1:5810"));
   }
 });
@@ -92,6 +100,22 @@ test("relief multi-continents : --zone est répétable, avec un garde-fou sur le
   assert.ok(/HashSet\[string\]/.test(PS1), "déduplication côté Windows");
   // Garde-fou : au-delà de 2000 tuiles, on prévient avant de lancer des dizaines de Go.
   assert.ok(SH.includes("2000") && PS1.includes("2000"), "garde-fou sur un très gros lot");
+});
+
+test("recherche : JSON activé, clé du moteur gardée, /recherche laissée désactivée", () => {
+  for (const texte of [SH, PS1]) {
+    assert.ok(texte.includes("use_default_settings: true"), "réglages par défaut de SearXNG");
+    assert.ok(/- json/.test(texte), "format JSON activé (sinon 403)");
+    assert.ok(texte.includes("limiter: false"), "pas de limiteur : seul le poste l'interroge");
+    assert.ok(texte.includes("search?q=test&format=json"), "essai en JSON, pas seulement « en vie »");
+    assert.ok(texte.includes("/recherche reste désactivée"), "le bilan le dit");
+    assert.ok(texte.includes("-e GRANIAN_HOST=0.0.0.0"), "IPv4 : l'image plante sans IPv6");
+  }
+  // Écrit une seule fois : relancer ne change pas la clé.
+  assert.ok(/if \[ ! -f data\/searxng\/settings\.yml \]/.test(SH));
+  assert.ok(/if \(-not \(Test-Path \$reglages\)\)/.test(PS1));
+  // Le serveur lit bien ce que le script écrit, et sur le réseau du poste seulement.
+  assert.ok(SERVEUR.includes('env("AFRICONTROL_RECHERCHE")'));
 });
 
 test("script Windows en UTF-8 avec BOM : sans lui, PowerShell 5.1 lit les accents de travers", () => {

@@ -159,9 +159,13 @@ describe("commandes du poste : un registre pour la console, l'agent et le bot", 
   it("DÉSACTIVÉES À LA LIVRAISON pour le bot : positions et marquage militaire seulement", () => {
     assert.deepEqual(
       COMMANDES.filter((c) => !c.defaut.bot).map((c) => c.nom),
-      ["trafic", "piste", "militaires", "ia", "briefing"],
+      ["trafic", "piste", "militaires", "ia", "briefing", "recherche"],
     );
-    assert.ok(COMMANDES.every((c) => c.defaut.console));
+    assert.deepEqual(
+      COMMANDES.filter((c) => !c.defaut.console).map((c) => c.nom),
+      ["recherche"],
+      "la requête sort du poste : désactivée partout",
+    );
   });
 
   it("FICHIER DES BASCULES : seules des bascules valides sont reprises", () => {
@@ -199,12 +203,15 @@ describe("commandes du poste : un registre pour la console, l'agent et le bot", 
     assert.ok(
       console_.includes("  /piste <indicatif|adresse> — Un contact, par indicatif ou adresse ICAO"),
     );
-    assert.ok(!console_.some((l) => l.startsWith("Désactivées")));
+    assert.equal(
+      console_.at(-1),
+      "Désactivées au poste : /recherche (le chef de division les active).",
+    );
     const bot = aide("", "bot", RIEN);
     assert.ok(!bot.some((l) => l.startsWith("  /trafic")));
     assert.equal(
       bot.at(-1),
-      "Désactivées au poste : /trafic, /piste, /militaires, /ia, /briefing (le chef de division les active).",
+      "Désactivées au poste : /trafic, /piste, /militaires, /ia, /briefing, /recherche (le chef de division les active).",
     );
   });
 

@@ -14,9 +14,10 @@ export const lancerCommande = createServerFn({ method: "POST" })
   .validator((raw: { texte?: string }) => ({
     texte: String(raw?.texte ?? "").slice(0, IA_QUESTION_MAX),
   }))
-  .handler(async ({ data }): Promise<ResultatCommande> => {
+  .handler(async ({ data, context }): Promise<ResultatCommande> => {
     const srv = await import("./commandes-poste.server");
-    return srv.lancer(data.texte, "console");
+    const { journalDe } = await import("./journal-poste.server");
+    return srv.lancer(data.texte, "console", journalDe(context.userId));
   });
 
 export const lireCommandes = createServerFn({ method: "GET" })

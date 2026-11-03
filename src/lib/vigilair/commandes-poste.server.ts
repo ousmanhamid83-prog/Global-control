@@ -21,6 +21,7 @@ import {
   type Canal,
 } from "./commandes-poste";
 import { imagePoste } from "./live-feeds";
+import type { Journal } from "./recherche-poste.server";
 
 export type ResultatCommande = {
   ok: boolean;
@@ -97,15 +98,34 @@ async function notice(question: string): Promise<string[]> {
   return passages.flatMap((p) => [`[${p.titre}]`, p.texte]);
 }
 
+/** /recherche : filtre de souveraineté, moteur SearXNG du poste, journal. */
+async function recherche(
+  question: string,
+  journal: Journal,
+): Promise<{ ok: boolean; lignes: string[] }> {
+  if (!question)
+    return {
+      ok: false,
+      lignes: ["/recherche attend une requête : /recherche portée d'un drone DJI Mavic 3"],
+    };
+  const srv = await import("./recherche-poste.server");
+  const r = await srv.chercherEnLigne(question, await imagePoste(), journal);
+  return { ok: r.ok, lignes: srv.lignesRecherche(r) };
+}
+
 /** /ia : l'agent répond ; sans IA, les lignes des commandes consultées et la notice. */
-async function ia(question: string, canal: Canal): Promise<{ ok: boolean; lignes: string[] }> {
+async function ia(
+  question: string,
+  canal: Canal,
+  journal: Journal,
+): Promise<{ ok: boolean; lignes: string[] }> {
   if (!question) {
     return {
       ok: false,
       lignes: ["/ia attend une question : /ia que se passe-t-il au nord du poste ?"],
     };
   }
-  const r = await (await import("./agent-poste.server")).repondre(question, canal);
+  const r = await (await import("./agent-poste.server")).repondre(question, canal, journal);
   const consultees = r.competences.length
     ? [`Commandes consultées : ${r.competences.join(", ")}.`]
     : [];
@@ -132,8 +152,15 @@ async function briefing(canal: Canal): Promise<{ ok: boolean; lignes: string[] }
     : { ok: false, lignes: [r.error] };
 }
 
-/** Exécute une ligne « /commande argument » reçue sur un canal. */
-export async function lancer(texte: string, canal: Canal): Promise<ResultatCommande> {
+/**
+ * Exécute une ligne « /commande argument » reçue sur un canal. `journal` : au nom de qui écrire
+ * les actions sensibles (une recherche en ligne).
+ */
+export async function lancer(
+  texte: string,
+  canal: Canal,
+  journal: Journal,
+): Promise<ResultatCommande> {
   const t0 = performance.now();
   const fin = (r: Omit<ResultatCommande, "ms">): ResultatCommande => ({
     ...r,
@@ -168,7 +195,11 @@ export async function lancer(texte: string, canal: Canal): Promise<ResultatComma
   if (commande.nom === "capteurs") {
     return fin({ ok: true, commande: "capteurs", lignes: await capteurs(maintenant) });
   }
-  if (commande.nom === "ia") return fin({ commande: "ia", ...(await ia(argument, canal)) });
+  if (commande.nom === "ia")
+    return fin({ commande: "ia", ...(await ia(argument, canal, journal)) });
+  if (commande.nom === "recherche") {
+    return fin({ commande: "recherche", ...(await recherche(argument, journal)) });
+  }
   if (commande.nom === "briefing") {
     return fin({ commande: "briefing", ...(await briefing(canal)) });
   }

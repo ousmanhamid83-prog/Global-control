@@ -90,19 +90,22 @@ export async function iaChat(
  *
  * `documentation` : les extraits de la notice du poste, tels qu'insérés dans les messages. Ils
  * partent au modèle mais ne valent pas données : un exemple de la notice cité comme une piste est
- * signalé « tiré de la notice, pas des capteurs ».
+ * signalé « tiré de la notice, pas des capteurs ». `enLigne` : les trouvailles d'une recherche en
+ * ligne, de même (« tiré de la recherche en ligne »).
  */
 export async function iaChatVerifie(
   messages: ChatMsg[],
   opts: { maxTokens?: number; temperature?: number } = {},
   documentation = "",
+  enLigne = "",
 ): Promise<string> {
   const texte = await iaChat(messages, opts);
   const donnees = messages
     .map((m) => m.content)
     .join("\n")
-    .replace(documentation, "");
-  return annoterReponse(texte, donnees, documentation);
+    .replace(documentation, "")
+    .replace(enLigne, "");
+  return annoterReponse(texte, donnees, documentation, enLigne);
 }
 
 /** Bouton « Tester le serveur » : réglé ? sur le poste ? répond ? avec quel modèle ? */

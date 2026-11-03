@@ -104,3 +104,28 @@ describe("garde-fou de l'IA : la notice jointe n'est pas une donnée", () => {
     assert.doesNotMatch(r, /ℹ/);
   });
 });
+
+describe("garde-fou de l'IA : une trouvaille en ligne n'est pas une donnée", () => {
+  const SANS_PISTE = "METAR FTTJ: FTTJ 020530Z VRB03KT 9999 33/12 Q1009 NOSIG";
+  const NOTICE = "exemple d'indicatif (AFR123) dans la notice";
+  const WEB = "1. Le vol ETH900 relie Addis-Abeba à N'Djamena — page publique d'une compagnie";
+
+  it("IDENTIFIANT TIRÉ D'INTERNET : signalé à part, « pas des capteurs »", () => {
+    const r = annoterReponse("ETH900 dessert N'Djamena.", SANS_PISTE, "", WEB);
+    assert.match(r, /\n\nℹ Tiré de la recherche en ligne, pas des capteurs : ETH900\./);
+    assert.doesNotMatch(r, /⚠/, "pas une invention : il est dans les trouvailles");
+  });
+
+  it("TROIS ORIGINES dans une réponse : inventé, notice, Internet, chacun sous sa mention", () => {
+    const r = annoterReponse("AFR123, ETH900 et ZZZ999.", SANS_PISTE, NOTICE, WEB);
+    assert.match(r, /⚠ Non retrouvé dans les données fournies à l'IA : ZZZ999\./);
+    assert.match(r, /ℹ Tiré de la notice du poste, pas des capteurs : AFR123\./);
+    assert.match(r, /ℹ Tiré de la recherche en ligne, pas des capteurs : ETH900\./);
+  });
+
+  it("CITÉ PAR LA NOTICE ET PAR INTERNET : la notice d'abord (une seule mention)", () => {
+    const r = annoterReponse("AFR123.", SANS_PISTE, NOTICE, `${WEB} AFR123`);
+    assert.match(r, /Tiré de la notice du poste, pas des capteurs : AFR123\./);
+    assert.doesNotMatch(r, /recherche en ligne/);
+  });
+});

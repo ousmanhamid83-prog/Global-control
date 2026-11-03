@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { COMMANDES, commandeActive } from "./commandes-poste.ts";
-import { competencesPour, consulter } from "./competences-agent.ts";
+import { competencesPour, consulter, demandeEnLigne } from "./competences-agent.ts";
 import type { LiveAc, LivePicture } from "./live-adsb.ts";
 
 function avion(p: Partial<LiveAc>): LiveAc {
@@ -145,6 +145,22 @@ describe("compétences de l'agent IA : les commandes du poste qu'il consulte lui
       "/piste BBB222",
       "/piste CCC333",
     ]);
+  });
+
+  it("EN LIGNE : seulement quand la question le demande expressément", () => {
+    for (const q of [
+      "Cherche en ligne la portée d'un Mavic 3",
+      "Regarde sur Internet la météo de Moundou",
+      "Que dit le web, euh, sur le web sur ce drone ?",
+      "Google : altitude max d'un Shahed",
+    ])
+      assert.equal(demandeEnLigne(q), true, q);
+    for (const q of [
+      "Y a-t-il des urgences ?",
+      "Comment installer l'imagerie hors ligne ?",
+      "Que fait AFR123 ?",
+    ])
+      assert.equal(demandeEnLigne(q), false, q);
   });
 
   it("RIEN À CONSULTER : une piste ciblée seule ne fait rien consulter ni afficher", () => {

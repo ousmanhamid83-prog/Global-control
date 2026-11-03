@@ -21,6 +21,9 @@ serveur lit seul au démarrage (src/lib/config-poste.ts).
   -Itineraire     serveur d'itinéraire OSRM du poste (Docker Desktop, carte OSM du Tchad, 151 Mo)
   -Signal         relais Signal du poste (Docker Desktop) : le détail des alertes, chiffré
                   jusqu'aux téléphones des destinataires
+  -Recherche      moteur de recherche SearXNG du poste (Docker Desktop), pour la commande
+                  /recherche : la requête sort alors du poste ; /recherche reste désactivée tant
+                  que le chef de division ne l'active pas (Capteurs › Outils › Commandes du poste)
   -SansBuild  -SansIA  -SansRelief    sauter une étape
 
 Relancer le script reprend là où il s'était arrêté : ce qui est déjà en place est gardé.
@@ -32,6 +35,7 @@ param(
   [string[]]$ZoneImagerie = @(),
   [switch]$Itineraire,
   [switch]$Signal,
+  [switch]$Recherche,
   [switch]$SansBuild,
   [switch]$SansIA,
   [switch]$SansRelief
@@ -47,6 +51,7 @@ $Racine = (Get-Location).Path
 $PosteEnv = Join-Path $Racine "poste.env"
 $OsrmImage = "ghcr.io/project-osrm/osrm-backend:v26.11.0-debian"
 $SignalImage = "bbernhard/signal-cli-rest-api:0.101"
+$SearxngImage = "searxng/searxng:2026.11.2-cccbc9e15"
 
 $Bilan = New-Object System.Collections.Generic.List[string]
 $AFaire = New-Object System.Collections.Generic.List[string]
@@ -412,6 +417,55 @@ if ($Signal) {
       $AFaire.Add("     http://127.0.0.1:8085/v2/send?number=+235XXXXXXXX&recipients=+235YYYYYYYY,+235ZZZZZZZZ")
     } else {
       Rate "relais Signal : ne répond pas sur 127.0.0.1:8085 (docker logs africontrol-signal)"
+    }
+  }
+}
+
+if ($Recherche) {
+  Etape "Moteur de recherche du poste (SearXNG, pour /recherche)"
+  if (-not (DockerPret)) {
+    Rate "recherche : Docker Desktop absent ou arrêté (https://docs.docker.com/desktop/setup/install/windows-install/)"
+  } else {
+    $dossierRecherche = Join-Path $Racine (Join-Path "data" "searxng")
+    New-Item -ItemType Directory -Force -Path $dossierRecherche | Out-Null
+    # Écrit une fois : relancer le script garde la clé du moteur. Sans BOM : c'est du YAML.
+    $reglages = Join-Path $dossierRecherche "settings.yml"
+    if (-not (Test-Path $reglages)) {
+      $octets = New-Object byte[] 32
+      [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($octets)
+      $cle = -join ($octets | ForEach-Object { $_.ToString("x2") })
+      $yaml = @(
+        "# Moteur de recherche du poste AfriControl (scripts/poste/preparer-poste -Recherche).",
+        "use_default_settings: true",
+        "server:",
+        "  secret_key: `"$cle`"",
+        "  limiter: false",
+        "search:",
+        "  formats:",
+        "    - html",
+        "    - json",
+        ""
+      ) -join "`n"
+      [IO.File]::WriteAllText($reglages, $yaml, (New-Object Text.UTF8Encoding $false))
+    }
+    $miroir = "mirror.gcr.io/$SearxngImage"
+    if (-not (ImagePresente $SearxngImage) -and -not (Reussit { docker pull -q $SearxngImage }) -and -not ((Reussit { docker pull -q $miroir }) -and (Reussit { docker tag $miroir $SearxngImage }))) {
+      Rate "recherche : l'image $SearxngImage n'a pas pu être téléchargée — relancer le script"
+    } else {
+      $null = Reussit { docker rm -f africontrol-recherche }
+      $volume = "${dossierRecherche}:/etc/searxng"
+      # L'image écoute en IPv6 par défaut (::) : sur un noyau sans IPv6, elle plante en boucle
+      # (erreur 97, vu à l'essai). IPv4 dans le conteneur ; le port reste lié au seul poste.
+      $null = Reussit { docker run -d --name africontrol-recherche --restart unless-stopped -p 127.0.0.1:8888:8080 -e GRANIAN_HOST=0.0.0.0 -v $volume $SearxngImage }
+    }
+    # Le moteur répond, et en JSON (sans « json » dans search.formats, il répond 403).
+    if ((Reussit { docker inspect africontrol-recherche }) -and (Attendre { Repond "http://127.0.0.1:8888/search?q=test&format=json" } 90)) {
+      Regler "AFRICONTROL_RECHERCHE" "http://127.0.0.1:8888"
+      Ok "moteur de recherche sur 127.0.0.1:8888, redémarre avec la machine — /recherche reste désactivée"
+      $AFaire.Add("Recherche en ligne : le chef de division active /recherche (Capteurs › Outils › Commandes du poste).")
+      $AFaire.Add("  La requête sort alors du poste ; jamais un contact du relevé ni des coordonnées ; journalisée.")
+    } else {
+      Rate "recherche : le moteur ne répond pas en JSON sur 127.0.0.1:8888 (docker logs africontrol-recherche)"
     }
   }
 }

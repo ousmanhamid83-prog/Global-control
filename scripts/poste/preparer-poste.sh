@@ -21,6 +21,9 @@
 #   --itineraire     serveur d'itinéraire OSRM du poste (Docker, carte OSM du Tchad, 151 Mo)
 #   --signal         relais Signal du poste (Docker) : le détail des alertes, chiffré jusqu'aux
 #                    téléphones des destinataires
+#   --recherche      moteur de recherche SearXNG du poste (Docker), pour la commande /recherche :
+#                    la requête sort alors du poste ; /recherche reste désactivée tant que le chef
+#                    de division ne l'active pas (Capteurs › Outils › Commandes du poste)
 #   --sans-build  --sans-ia  --sans-relief    sauter une étape
 #
 # Relancer le script reprend là où il s'était arrêté : ce qui est déjà en place est gardé.
@@ -31,11 +34,12 @@ RACINE=$PWD
 POSTE_ENV=$RACINE/poste.env
 OSRM_IMAGE=ghcr.io/project-osrm/osrm-backend:v26.11.0-debian
 SIGNAL_IMAGE=bbernhard/signal-cli-rest-api:0.101
+SEARXNG_IMAGE=searxng/searxng:2026.11.2-cccbc9e15
 
 MODELE=""
 ZONES=()
 ZONES_IMAGERIE=()
-BUILD=1 IA=1 RELIEF=1 IMAGERIE=0 ITINERAIRE=0 SIGNAL=0
+BUILD=1 IA=1 RELIEF=1 IMAGERIE=0 ITINERAIRE=0 SIGNAL=0 RECHERCHE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --modele) MODELE=${2:?--modele attend un nom de modèle}; shift ;;
@@ -44,6 +48,7 @@ while [ $# -gt 0 ]; do
     --zone-imagerie) IMAGERIE=1; ZONES_IMAGERIE+=("${2:?--zone-imagerie attend S,N,O,E}"); shift ;;
     --itineraire) ITINERAIRE=1 ;;
     --signal) SIGNAL=1 ;;
+    --recherche) RECHERCHE=1 ;;
     --sans-build) BUILD=0 ;;
     --sans-ia) IA=0 ;;
     --sans-relief) RELIEF=0 ;;
@@ -351,6 +356,54 @@ if [ "$SIGNAL" = 1 ]; then
       )
     else
       rate "relais Signal : ne répond pas sur 127.0.0.1:8085 (docker logs africontrol-signal)"
+    fi
+  fi
+fi
+
+# Le moteur répond, et en JSON (sans « json » dans search.formats, il répond 403).
+recherche_repond() {
+  curl -fsS -m 15 'http://127.0.0.1:8888/search?q=test&format=json' 2>/dev/null | grep -q '"results"'
+}
+
+if [ "$RECHERCHE" = 1 ]; then
+  etape "Moteur de recherche du poste (SearXNG, pour /recherche)"
+  if ! docker_pret; then
+    rate "recherche : Docker absent ou arrêté (https://docs.docker.com/engine/install/)"
+  else
+    mkdir -p data/searxng
+    # Écrit une fois : relancer le script garde la clé du moteur.
+    if [ ! -f data/searxng/settings.yml ]; then
+      cat >data/searxng/settings.yml <<FIN
+# Moteur de recherche du poste AfriControl (scripts/poste/preparer-poste --recherche).
+use_default_settings: true
+server:
+  secret_key: "$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')"
+  limiter: false
+search:
+  formats:
+    - html
+    - json
+FIN
+    fi
+    if ! image_presente "$SEARXNG_IMAGE" && ! docker pull -q "$SEARXNG_IMAGE" >/dev/null 2>&1 &&
+      ! { docker pull -q "mirror.gcr.io/$SEARXNG_IMAGE" >/dev/null && docker tag "mirror.gcr.io/$SEARXNG_IMAGE" "$SEARXNG_IMAGE"; }; then
+      rate "recherche : l'image $SEARXNG_IMAGE n'a pas pu être téléchargée — relancer le script"
+    else
+      docker rm -f africontrol-recherche >/dev/null 2>&1 || true
+      # L'image écoute en IPv6 par défaut (::) : sur un noyau sans IPv6, elle plante en boucle
+      # (erreur 97, vu à l'essai). IPv4 dans le conteneur ; le port reste lié au seul poste.
+      docker run -d --name africontrol-recherche --restart unless-stopped -p 127.0.0.1:8888:8080 \
+        -e GRANIAN_HOST=0.0.0.0 -v "$RACINE/data/searxng:/etc/searxng" "$SEARXNG_IMAGE" >/dev/null
+    fi
+    if docker inspect africontrol-recherche >/dev/null 2>&1 && attendre recherche_repond 90; then
+      regler AFRICONTROL_RECHERCHE "http://127.0.0.1:8888"
+      ok "moteur de recherche sur 127.0.0.1:8888, redémarre avec la machine — /recherche reste désactivée"
+      A_FAIRE+=(
+        "Recherche en ligne : le chef de division active /recherche (Capteurs › Outils › Commandes du poste)."
+        "  La requête sort alors du poste ; jamais un contact du relevé ni des coordonnées ; journalisée."
+      )
+    else
+      rate "recherche : le moteur ne répond pas en JSON sur 127.0.0.1:8888 (docker logs africontrol-recherche)"
     fi
   fi
 fi

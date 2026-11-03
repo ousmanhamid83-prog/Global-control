@@ -1333,7 +1333,11 @@ function LimitesIa() {
         <ul className="list-disc space-y-0.5 pl-4">
           <li>Les images des caméras et des drones, la phonie ATC.</li>
           <li>Le journal et l'historique : seul le dernier relevé lui est donné.</li>
-          <li>Internet : il ne cherche rien en ligne.</li>
+          <li>
+            Internet : seulement si le chef a activé /recherche et que la question le demande
+            (« cherche en ligne… ») ; la requête envoyée est montrée et journalisée, et jamais un
+            contact du relevé ni des coordonnées.
+          </li>
         </ul>
       </div>
       <div>
@@ -1721,6 +1725,11 @@ function CommandesSection({
         du poste, sans réseau ni modèle. Certaines partent désactivées pour le bot (positions des
         contacts, marquage militaire) : {isSuperadmin ? "toi seul, chef de division, les actives" : "seul le chef de division les active"}, et chaque bascule est
         écrite au journal.
+      </p>
+      <p className="text-xs text-muted-foreground">
+        /recherche fait sortir la requête du poste, par le moteur SearXNG du poste
+        (AFRICONTROL_RECHERCHE) : désactivée partout à la livraison. Une requête qui nomme un
+        contact du relevé ou contient des coordonnées est refusée ; chaque recherche va au journal.
       </p>
       {msg ? <p className="font-mono text-xs text-muted-foreground">{msg}</p> : null}
       <table className="w-full text-xs">
