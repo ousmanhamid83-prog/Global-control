@@ -1884,7 +1884,15 @@ function BotSignalSection() {
         <p className="font-mono text-xs text-muted-foreground">
           reçus {c.recus} · exécutées {c.executees} · réponses remises {c.reponses} · ignorés{" "}
           {c.ignores} · envois en échec {c.echecsEnvoi}
-          {etat?.dernierContact ? ` · relais vu il y a ${formatAge(now - etat.dernierContact)}` : ""}
+          {/* En json-rpc, le relais ne se manifeste qu'aux messages : son « dernier contact »
+              vieillit sans rien dire de sa santé, la websocket ouverte, si. */}
+          {etat?.mode?.startsWith("json-rpc")
+            ? etat.ecoute && !etat.erreur
+              ? " · websocket du relais ouverte"
+              : ""
+            : etat?.dernierContact
+              ? ` · relais vu il y a ${formatAge(now - etat.dernierContact)}`
+              : ""}
         </p>
       ) : null}
       {etat && etat.echanges.length > 0 ? (
@@ -1905,7 +1913,9 @@ function BotSignalSection() {
                 <td className="py-1 pr-2">{formatClock(x.at)}</td>
                 <td className="py-1 pr-2">{x.de}</td>
                 <td className={cn("py-1 pr-2", x.ok ? "text-fg" : "text-warn")}>{x.commande}</td>
-                <td className="py-1 pr-2">{x.ms.toLocaleString("fr-FR")} ms</td>
+                <td className="py-1 pr-2">
+                  {x.commande === "—" ? "—" : `${x.ms.toLocaleString("fr-FR")} ms`}
+                </td>
                 <td className={cn("py-1 pr-2", x.erreurEnvoi ? "text-crit" : "")}>
                   {x.envoiMs != null ? `${x.envoiMs} ms` : x.erreurEnvoi}
                 </td>
