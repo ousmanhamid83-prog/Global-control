@@ -204,6 +204,104 @@ Assistant IA du poste (serveur sur place) — Capteurs > Outils
   Au passage, corrigé : la NOAA donne l'échelle géomagnétique sans sa lettre (« 0 »), si bien que
   le briefing, le diagnostic et l'assistant affichaient « Kp 0 0 » au lieu de « Kp 0 G0 ».
 
+Commandes du poste — Capteurs > Outils
+- COMMANDES DU POSTE, EN MILLISECONDES (src/lib/vigilair/commandes-poste.ts). Taper « / » dans
+  l'assistant ouvre la liste des commandes (flèches, Tab, Entrée, Échap) ; /aide l'affiche en
+  entier. Une commande lit l'image du poste, sans réseau ni modèle : météo de l'aérodrome, GNSS,
+  espace aérien, soleil, phénomènes, état des capteurs, extraits de la notice… Mesuré sur le
+  serveur construit : exécution 0,2 ms, aller-retour HTTP 1,1 à 1,3 ms, 5 ms dans le navigateur
+  (médiane), 23 ms pour une bascule. 19 tests.
+- ACTIVÉES SUR DEMANDE, CERTAINES COUPÉES PAR DÉFAUT. Chaque commande s'active ou se désactive
+  séparément pour la console et pour le bot Signal (Capteurs > Outils > Commandes du poste), par
+  le chef de division seul. Effet immédiat ; chaque bascule va au journal et survit au redémarrage
+  (data/commandes-poste.json ; sur un disque en lecture seule, jusqu'au redémarrage, et l'écran le
+  dit). À la livraison, coupées pour le bot : les commandes qui donnent des positions ou le
+  marquage d'État, et celles qui passent par l'IA. /recherche est coupée partout ; /aide ne se
+  coupe pas.
+- L'AGENT CHOISIT LUI-MÊME SES COMMANDES (src/lib/vigilair/competences-agent.ts). L'assistant et
+  /ia consultent, en plus des faits du relevé, les commandes utiles à la question — soleil,
+  phénomènes, état des capteurs, une piste nommée (trois au plus) — et seulement celles activées
+  pour leur canal : coupée pour le bot, une commande ne sert pas davantage à l'agent du bot. Les
+  commandes consultées sont écrites sous la réponse ; une question d'usage n'en consulte aucune.
+  /briefing rédige la synthèse à partir des mêmes commandes. 13 tests, 18 mutations prises.
+- RELEVÉ PARTAGÉ PAR TOUT LE SERVEUR (corrigé ; mon erreur dans ce chantier). Le serveur construit
+  contient plusieurs copies d'un même module (une par découpe du code). L'état du relevé Internet
+  était rangé dans l'une : les commandes, l'agent et la relève de quart en lisaient une autre,
+  toujours vide. En ligne, la console affichait le vrai METAR quand /meteo répondait « non
+  reçu ». L'état du relevé vit désormais en un seul endroit (globalThis), comme celui de l'antenne
+  et des bascules ; un test lit le build et refuse toute copie qui ne s'y range pas. La relève de
+  quart avait sans doute le même défaut avant ce chantier (même mécanisme).
+- L'ASSISTANT VOIT L'ANTENNE DÈS LE LANCEMENT (corrigé, défaut d'origine). L'assistant disait « pas
+  encore de relevé » quand la console montrait les pistes de l'antenne : la liaison 1090 ne
+  s'ouvrait qu'au premier affichage de la console, et l'image lue par le serveur ne comptait pas
+  l'antenne. Le serveur ouvre la liaison à son lancement (server/plugins/poste-au-demarrage.ts),
+  et l'assistant, les commandes, le bot et la relève lisent la même image que la console
+  (src/lib/vigilair/image-poste.ts ; 8 tests, 22 mutations prises).
+- COMMANDES LENTES À L'OUVERTURE DE LA CONSOLE (corrigé). Mesuré : 99 ms en médiane, jusqu'à 457 ms
+  dans le navigateur, pour 1,3 ms sur le serveur. Les centaines de tuiles d'imagerie demandées à
+  l'ouverture (9 s chacune en médiane) occupaient les ~6 connexions du navigateur, et les appels du
+  poste attendaient derrière. Désormais 4 tuiles distantes au plus en vol, les plus récentes
+  d'abord (src/lib/vigilair/file-tuiles.ts), et un disjoncteur à demi ouvert ne laisse passer
+  qu'UNE tuile d'essai. Après : commandes 5 ms en médiane ; tuiles 386 ms en médiane ; connexions
+  occupées 155 s en tout au lieu de 3 720 s.
+
+Recherche en ligne sur demande — Capteurs > Outils
+- RECHERCHE EN LIGNE, SUR DEMANDE SEULEMENT (src/lib/vigilair/recherche-poste.server.ts). /recherche
+  et l'agent peuvent chercher sur Internet, par un moteur SearXNG installé SUR le réseau du poste
+  (scripts/poste/preparer-poste --recherche, qui règle AFRICONTROL_RECHERCHE) : les moteurs
+  publics reçoivent la requête, jamais l'opérateur. Coupée partout à la livraison ; le chef
+  l'active, console et bot séparément. L'agent ne cherche que si la question le demande en clair
+  (« en ligne », « sur Internet », « sur le web ») ET si /recherche est active sur son canal.
+  Avant tout envoi, un filtre refuse la requête qui nomme une piste du relevé (indicatif, adresse
+  ICAO, immatriculation) ou contient des coordonnées (degrés décimaux, degrés-minutes, carré
+  MGRS) : rien ne sort, et l'opérateur lit pourquoi. Chaque recherche, partie ou refusée, va au
+  journal. Les trouvailles portent « Internet, non vérifié, pas des données capteurs », et le
+  garde-fou signale « ℹ Tiré de la recherche en ligne » tout identifiant qui ne vient que d'elles.
+  Mesuré avec le vrai SearXNG : 5 trouvailles en 962 ms. Sur un noyau sans IPv6, l'image SearXNG
+  s'arrêtait au lancement ; le script la fait écouter en IPv4 (GRANIAN_HOST=0.0.0.0).
+
+Bot Signal du poste — Capteurs > Outils
+- BOT SIGNAL DU POSTE (src/lib/vigilair/bot-signal.server.ts). Un numéro autorisé envoie une
+  commande au téléphone du poste (« /meteo », « /aide ») ; le bot l'exécute sur le poste et répond
+  à l'expéditeur seul, par le relais Signal du poste. Réglage dans poste.env, puis redémarrer :
+    AFRICONTROL_BOT_NUMERO=+235…            le téléphone du poste, relié au relais (QR à scanner,
+                                            voir « Préparer le poste en une commande »)
+    AFRICONTROL_BOT_AUTORISES=+235…,+235…   les seuls numéros qui peuvent écrire au bot
+    AFRICONTROL_BOT_RELAIS=http://…         facultatif ; par défaut http://127.0.0.1:8085,
+                                            refusé hors du réseau du poste
+  Enregistrer aussi les numéros autorisés dans le répertoire du téléphone du poste : Signal ne
+  dit le numéro d'un expéditeur qu'à qui le connaît, et sans lui le bot ignore le message
+  (« numéro masqué », raison affichée). Coupé à la livraison : le chef l'active dans Capteurs >
+  Outils > Bot Signal du poste ; l'état survit au redémarrage (data/bot-signal.json), et le serveur
+  relance seul un bot actif, sans console ouverte.
+- BOT SIGNAL : CE QU'IL FAIT, CE QU'IL REFUSE. Il ne répond qu'aux commandes activées pour le
+  bot. Un numéro inconnu ou un groupe n'a aucune réponse (rien ne lui dit qu'un bot écoute) ;
+  l'inconnu va au journal, une fois par 10 min. Six commandes par minute et par numéro, puis un
+  avertissement, puis le silence. Un message qui a attendu plus de 5 min (bot coupé) est dit trop
+  ancien et n'est pas exécuté. Réponse de 3 500 caractères au plus, la suite à la console. Chaque
+  commande reçue va au journal (numéro masqué : +235•••••234) avec sa durée sur le poste ; l'écran
+  montre les dix derniers échanges et les cinq derniers messages ignorés, avec leur raison. Sans
+  console ouverte, personne ne relève Internet : le bot lance le relevé sans l'attendre (il prend
+  plus de 1,5 s), répond aussitôt avec ce que le poste a, et dit l'âge du relevé lu quand il a
+  plus de 20 s ; la commande suivante lit le neuf. Une commande qui plante, un journal en panne,
+  un relais coupé ou muet : dit à l'écran, et le bot continue — rien ne fait tomber le serveur.
+- BOT SIGNAL : DURÉES MESURÉES (serveur construit, faux relais aux délais du vrai 0.101 mesurés sur
+  ce poste : 250 ms par lancement de signal-cli en mode native, 49 ms par envoi en json-rpc). Sur
+  le poste, une commande prend 1 ms en médiane (1,6 ms au plus) : c'est le relais qui compte. Mode
+  native (celui du script) : 1,4 s du message reçu par le relais à la réponse remise (12 mesures,
+  1,41 s au plus), car le relais attend 1 s sans nouveau message avant de rendre sa relève, puis
+  250 ms pour envoyer. Mode json-rpc : 51 ms (53 ms au plus). Le bot lit le mode du relais seul ;
+  pour le json-rpc, recréer le conteneur avec -e MODE=json-rpc (une JVM tourne alors en continu,
+  plus de mémoire), sachant qu'un message arrivé bot coupé y est perdu.
+  ARRÊT DU SERVEUR (SIGTERM, Ctrl+C) : le bot cesse aussitôt de relever le relais, finit la relève
+  commencée et y répond. Vérifié : message envoyé 7 ms après l'arrêt, réponse remise à 1,3 s, plus
+  aucune relève ensuite. Avant ce correctif, un serveur qui s'arrêtait relevait encore quelques
+  secondes et perdait ce qu'il prenait (vu à l'essai). Au redémarrage, un bot actif reprend seul,
+  sans console ouverte (premier message servi en 90 ms en json-rpc). Avec le vrai relais 0.101 non
+  lié, dans les deux modes : « pas lié au relais », l'adresse du QR, et de nouveaux essais à pause
+  croissante (1 s, 2 s, 4 s… 30 s au plus). 45 tests ; 107 mutations : les 8 qui survivaient en
+  route ont mené à 6 tests ajoutés et à 2 morceaux de code mort retirés.
+
 Antenne 1090 du poste (clé SDR + dump1090)
 Lancer dump1090 avec le port brut AVR, et un port web qui ne prend pas 8080 (celui de AfriControl) :
   dump1090 --interactive --net --net-ro-port 30002 --net-http-port 8090 --aggressive
