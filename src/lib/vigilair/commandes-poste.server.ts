@@ -170,7 +170,7 @@ async function registre(
   if (coupe && canal === "bot") {
     return {
       ok: false,
-      lignes: ["Relevé Internet coupé par le chef : /registre seulement à la console, par le chef."],
+      lignes: ["Relevé Internet coupé : /registre seulement à la console, par le chef."],
     };
   }
   const { cibleRegistre, lignesRegistre, resumeRegistre } = await import("./registre-poste");

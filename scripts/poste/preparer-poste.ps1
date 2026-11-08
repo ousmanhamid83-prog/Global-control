@@ -494,4 +494,6 @@ Write-Host ""
 Write-Host "  Lancer le poste (poste.env est lu tout seul) :"
 Write-Host '    $env:PORT="8080"; node .output\server\index.mjs'
 Write-Host "  Puis Capteurs > Outils > « Tester le serveur » pour l'IA, et le diagnostic pour le reste."
+Write-Host "  Relevé Internet : coupé à la livraison, rien ne sort du poste — le chef de division l'active"
+Write-Host "  dans Capteurs > Outils > Relevé Internet du poste."
 if ($NbEchecs -gt 0) { exit 1 }

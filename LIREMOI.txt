@@ -1107,21 +1107,30 @@ Balayage continental (chef de division) — Capteurs > 1090ES
 - Toute piste réelle est verrouillable : un clic sur l'indicatif dans la liste 1090ES l'ouvre.
 
 Relevé Internet du poste — Capteurs > Outils
-- RELEVÉ INTERNET, SUR DÉCISION DU CHEF (src/lib/vigilair/releve-internet.server.ts). Activé à la
-  livraison, comme avant : le poste relève ses sources Internet (ADS-B des agrégateurs, METAR,
-  TAF, bulletins de l'OACI, météo spatiale, phénomènes) quand la console ou le bot en a besoin,
-  toutes les 20 s au plus. Coupé par le chef de division : plus rien ne sort du poste pour le
-  relevé. L'image garde l'antenne du poste et le dernier relevé, qui vieillit à vue, et le dit ;
-  les commandes et le bot disent « Relevé Internet coupé par le chef » ; ce qui ne vient que
-  d'Internet est « non reçu ». « Relever maintenant » : un relevé, un seul, à l'ordre du chef,
-  même coupé ; un relevé de moins de 20 s est rendu tel quel, et le journal dit que rien n'est
-  sorti. Chaque geste va au journal ; l'état survit au redémarrage (data/releve-internet.json),
-  et seul un « false » écrit coupe : un fichier abîmé ne coupe rien en silence. Coupé, le test de
-  liaison ne part plus seul à l'ouverture des Outils.
+- RELEVÉ INTERNET, SUR DÉCISION DU CHEF (src/lib/vigilair/releve-internet.server.ts). COUPÉ À LA
+  LIVRAISON : rien ne sort du poste pour le relevé tant que le chef de division ne l'a pas activé
+  (Capteurs > Outils > Relevé Internet du poste) ; un poste mis à jour sans
+  data/releve-internet.json part coupé lui aussi, et le script de préparation le rappelle.
+  Activé : le poste relève ses sources Internet (ADS-B des agrégateurs, METAR, TAF, bulletins de
+  l'OACI, météo spatiale, phénomènes) quand la console ou le bot en a besoin, toutes les 20 s au
+  plus. Coupé : l'image garde l'antenne du poste et le dernier relevé, qui vieillit à vue, et le
+  dit ; les commandes et le bot disent « Relevé Internet coupé (le chef l'active à la console) » ;
+  ce qui ne vient que d'Internet est « non reçu ». « Relever maintenant » : un relevé, un seul, à
+  l'ordre du chef, même coupé ; un relevé de moins de 20 s est rendu tel quel, et le journal dit
+  que rien n'est sorti. Chaque geste va au journal ; l'état survit au redémarrage, et seul un
+  « true » écrit active : un fichier abîmé n'ouvre rien en silence. Coupé, le test de liaison ne
+  part plus seul à l'ouverture des Outils.
 - RELEVÉ INTERNET : MESURÉ sur le serveur construit, vraies sources. Bascule en 58 ms. Coupé, trois
   images en 58 à 66 ms, et l'heure du dernier relevé ne bouge pas : rien n'est sorti. « Relever
   maintenant » coupé : 2,85 s, 10 sources sur 10 ; aussitôt après, 0 ms et aucune requête. Dans le
   navigateur, 0 erreur. 5 tests, 4 mutations prises ; côté bot, 5 mutations prises.
+- RÉSERVÉ AU CHEF : VÉRIFIÉ AVEC DE VRAIS COMPTES (connexion multi-agents active, serveur
+  construit). Le chef s'inscrit, scelle et émet les clés de l'équipe ; un opérateur et un
+  administrateur se connectent par leur clé et lisent l'état. Chacun est refusé sur les 11
+  actions du chef — couper, activer et relever Internet, registre de la console et /registre,
+  recherche forcée, bascule d'une commande, bot (activer, activer un numéro, appairage,
+  inscription) — avec « Réservé au chef de division », et rien n'est écrit au journal en son nom ;
+  le chef passe sur les 11.
 
 Diagnostic du poste — Capteurs > Outils
 - Une vue qui dit honnêtement l'état de CHAQUE source : 1090ES réseau, METAR, SIGMET, météo spatiale,

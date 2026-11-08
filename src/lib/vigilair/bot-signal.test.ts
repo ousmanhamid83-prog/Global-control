@@ -351,14 +351,14 @@ describe("bot Signal : âge du relevé Internet sous la réponse", () => {
     );
   });
 
-  it("COUPÉ PAR LE CHEF : toujours dit, avec l'âge du dernier relevé, même frais", () => {
+  it("RELEVÉ COUPÉ : toujours dit, avec l'âge du dernier relevé, même frais", () => {
     assert.equal(
       noteReleve({ ok: true, commande: "meteo" }, { ageMs: 5000, frais: true, coupe: true }),
-      "Relevé Internet coupé par le chef de division : dernier relevé vieux de 5 s.",
+      "Relevé Internet coupé (le chef l'active à la console) : dernier relevé vieux de 5 s.",
     );
     assert.equal(
       noteReleve({ ok: true, commande: "situation" }, { ageMs: null, frais: false, coupe: true }),
-      "Relevé Internet coupé par le chef de division : rien d'Internet, antenne du poste seule.",
+      "Relevé Internet coupé (le chef l'active à la console) : rien d'Internet, antenne du poste seule.",
     );
     assert.equal(
       noteReleve({ ok: true, commande: "aide" }, { ageMs: null, frais: false, coupe: true }),

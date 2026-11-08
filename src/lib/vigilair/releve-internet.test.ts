@@ -34,38 +34,38 @@ const ecrire = (contenu: string) => {
 };
 
 describe("relevé Internet sur décision du chef", () => {
-  it("LIVRÉ ACTIVÉ : sans fichier, le poste relève comme avant", async () => {
-    assert.equal(await releveInternetActif(), true);
-    assert.deepEqual(await lireReleve(), { actif: true, enregistrement: "fichier", ordreA: null });
+  it("LIVRÉ COUPÉ : sans fichier, rien ne sort du poste tant que le chef ne l'active pas", async () => {
+    assert.equal(await releveInternetActif(), false);
+    assert.deepEqual(await lireReleve(), { actif: false, enregistrement: "fichier", ordreA: null });
   });
 
-  it("COUPÉ PAR LE CHEF : enregistré, et toujours coupé après un redémarrage ; réactivé de même", async () => {
-    assert.equal((await basculerReleve(false)).actif, false);
-    assert.deepEqual(JSON.parse(readFileSync("data/releve-internet.json", "utf8")), { actif: false });
+  it("ACTIVÉ PAR LE CHEF : enregistré, et toujours activé après un redémarrage ; coupé de même", async () => {
+    assert.equal((await basculerReleve(true)).actif, true);
+    assert.deepEqual(JSON.parse(readFileSync("data/releve-internet.json", "utf8")), { actif: true });
     delete g.__afriReleveInternet;
-    assert.equal(await releveInternetActif(), false, "relu du disque");
-    await basculerReleve(true);
+    assert.equal(await releveInternetActif(), true, "relu du disque");
+    await basculerReleve(false);
     delete g.__afriReleveInternet;
-    assert.equal(await releveInternetActif(), true);
+    assert.equal(await releveInternetActif(), false);
   });
 
-  it("FICHIER ABÎMÉ : seul un « false » écrit coupe — rien ne coupe le relevé en silence", async () => {
-    for (const contenu of ["{pas du JSON", '{"actif":"non"}', "{}", "null"]) {
+  it("FICHIER ABÎMÉ : seul un « true » écrit active — un fichier abîmé n'ouvre rien en silence", async () => {
+    for (const contenu of ["{pas du JSON", '{"actif":"oui"}', '{"actif":1}', "{}", "null"]) {
       delete g.__afriReleveInternet;
       ecrire(contenu);
-      assert.equal(await releveInternetActif(), true, contenu);
+      assert.equal(await releveInternetActif(), false, contenu);
     }
     delete g.__afriReleveInternet;
-    ecrire('{"actif":false}');
-    assert.equal(await releveInternetActif(), false);
+    ecrire('{"actif":true}');
+    assert.equal(await releveInternetActif(), true);
   });
 
   it("DISQUE EN LECTURE SEULE : la bascule vaut jusqu'au redémarrage, et le dit", async () => {
     // « data » est un fichier : impossible d'y créer releve-internet.json.
     writeFileSync(path.join(dossier, "data"), "");
-    const e = await basculerReleve(false);
-    assert.deepEqual(e, { actif: false, enregistrement: "memoire", ordreA: null });
-    assert.equal(await releveInternetActif(), false);
+    const e = await basculerReleve(true);
+    assert.deepEqual(e, { actif: true, enregistrement: "memoire", ordreA: null });
+    assert.equal(await releveInternetActif(), true);
   });
 
   it("ORDRE DU CHEF : l'heure du dernier relevé fait à son ordre est gardée", async () => {

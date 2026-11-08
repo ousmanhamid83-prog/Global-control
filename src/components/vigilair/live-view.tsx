@@ -1177,7 +1177,7 @@ function LinkStatusCard() {
       .finally(() => setBusy(false));
   };
   useEffect(() => {
-    // Relevé Internet coupé par le chef : pas de requête de test sans qu'on la demande.
+    // Relevé Internet coupé : pas de requête de test sans qu'on la demande.
     lireReleveInternet()
       .then((e) => {
         if (e.actif) run();
@@ -1287,7 +1287,7 @@ function ReleveInternetSection() {
         <h2 className="text-sm font-medium">Relevé Internet du poste</h2>
         <div className="flex items-center gap-2">
           <Badge tone={!etat ? "default" : etat.actif ? "ok" : "warn"}>
-            {!etat ? "…" : etat.actif ? "activé" : "coupé par le chef"}
+            {!etat ? "…" : etat.actif ? "activé" : "coupé"}
           </Badge>
           <Button size="sm" variant="outline" disabled={!isSuperadmin || occupe || !etat} onClick={basculer}>
             {etat?.actif === false ? "Activer" : "Couper"}
@@ -1298,9 +1298,10 @@ function ReleveInternetSection() {
         </div>
       </div>
       <p className="text-sm text-muted-foreground">
-        Activé, le poste relève ses sources Internet — ADS-B des agrégateurs, METAR, TAF, SIGMET,
-        météo spatiale, phénomènes — toutes les 20 s au plus, console ouverte ou bot. Coupé, plus
-        rien ne sort du poste pour le relevé : l'image garde l'antenne du poste et le dernier relevé,
+        Coupé à la livraison : le chef de division l'active. Activé, le poste relève ses sources
+        Internet — ADS-B des agrégateurs, METAR, TAF, SIGMET, météo spatiale, phénomènes — toutes les
+        20 s au plus, console ouverte ou bot. Coupé, plus rien ne sort du poste pour le relevé :
+        l'image garde l'antenne du poste et le dernier relevé,
         qui vieillit à vue, et ce qui ne vient que d'Internet est dit{" "}
         {"«\u00a0non reçu\u00a0». «\u00a0Relever maintenant\u00a0»"} : un relevé, un seul, à l'ordre
         du chef. Chaque geste va au journal.

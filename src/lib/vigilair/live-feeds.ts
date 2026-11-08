@@ -1046,9 +1046,9 @@ export async function releveInternetPourBot(
   return { ageMs, frais: ageMs != null && ageMs < TTL_MS, attenduMs, coupe: false };
 }
 
-/** Dit dans l'image quand le chef a coupé le relevé Internet. */
+/** Dit dans l'image quand le relevé Internet est coupé (à la livraison, ou par le chef). */
 export const RELEVE_COUPE =
-  "Relevé Internet coupé par le chef de division : antenne du poste et dernier relevé seulement.";
+  "Relevé Internet coupé : antenne du poste et dernier relevé seulement ; le chef de division l'active dans Capteurs › Outils.";
 
 /** Le dernier relevé Internet, pour l'écran du chef : son heure et ses sources reçues. */
 export type ResumeReleve = { at: number; recues: number; sources: number; erreurs: string[] };

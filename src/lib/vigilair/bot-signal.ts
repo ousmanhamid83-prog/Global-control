@@ -247,11 +247,11 @@ export function noteReleve(
   releve: { ageMs: number | null; frais: boolean; attenduMs?: number; coupe?: boolean },
 ): string | null {
   if (!r.ok || r.commande == null || SANS_RELEVE.has(r.commande)) return null;
-  // Coupé par le chef : toujours dit, même frais (un relevé à son ordre) — le lecteur doit savoir.
+  // Coupé (livré ainsi ; le chef l'active) : toujours dit, même frais — le lecteur doit savoir.
   if (releve.coupe) {
     return releve.ageMs == null
-      ? "Relevé Internet coupé par le chef de division : rien d'Internet, antenne du poste seule."
-      : `Relevé Internet coupé par le chef de division : dernier relevé vieux de ${dureeLisible(releve.ageMs)}.`;
+      ? "Relevé Internet coupé (le chef l'active à la console) : rien d'Internet, antenne du poste seule."
+      : `Relevé Internet coupé (le chef l'active à la console) : dernier relevé vieux de ${dureeLisible(releve.ageMs)}.`;
   }
   const attendu = releve.attenduMs ?? 0;
   if (releve.frais) {

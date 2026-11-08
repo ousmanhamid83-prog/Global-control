@@ -431,6 +431,8 @@ echo
 echo "  Lancer le poste (poste.env est lu tout seul) :"
 echo "    PORT=8080 node .output/server/index.mjs"
 echo "  Puis Capteurs > Outils > « Tester le serveur » pour l'IA, et le diagnostic pour le reste."
+echo "  Relevé Internet : coupé à la livraison, rien ne sort du poste — le chef de division l'active"
+echo "  dans Capteurs > Outils > Relevé Internet du poste."
 for ligne in "${BILAN[@]}"; do
   if [[ "$ligne" == *✗* ]]; then exit 1; fi
 done
