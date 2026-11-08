@@ -1114,7 +1114,7 @@ Relevé Internet du poste — Capteurs > Outils
   Activé : le poste relève ses sources Internet (ADS-B des agrégateurs, METAR, TAF, bulletins de
   l'OACI, météo spatiale, phénomènes) quand la console ou le bot en a besoin, toutes les 20 s au
   plus. Coupé : l'image garde l'antenne du poste et le dernier relevé, qui vieillit à vue, et le
-  dit ; les commandes et le bot disent « Relevé Internet coupé (le chef l'active à la console) » ;
+  dit ; les commandes de la console et le bot disent que le relevé est coupé et qui l'active ;
   ce qui ne vient que d'Internet est « non reçu ». « Relever maintenant » : un relevé, un seul, à
   l'ordre du chef, même coupé ; un relevé de moins de 20 s est rendu tel quel, et le journal dit
   que rien n'est sorti. Chaque geste va au journal ; l'état survit au redémarrage, et seul un

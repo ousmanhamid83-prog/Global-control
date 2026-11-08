@@ -275,7 +275,7 @@ export async function lancer(
     return fin({ ok: true, commande: "aide", lignes: aide(argument, canal, bascules) });
   }
   if (commande.nom === "capteurs") {
-    return fin({ ok: true, commande: "capteurs", lignes: await capteurs(maintenant) });
+    return fin({ ok: true, commande: "capteurs", lignes: [...(await capteurs(maintenant)), ...(await noteCoupe(canal))] });
   }
   if (commande.nom === "ia")
     return fin({ commande: "ia", ...(await ia(argument, canal, journal)) });
@@ -296,5 +296,15 @@ export async function lancer(
     return c != null && commandeActive(c, canal, bascules);
   };
   const lignes = executerImage(commande.nom, argument, await imagePoste(), maintenant, active);
-  return fin({ ok: true, commande: commande.nom, lignes: lignes ?? [] });
+  return fin({ ok: true, commande: commande.nom, lignes: [...(lignes ?? []), ...(await noteCoupe(canal))] });
+}
+
+/**
+ * Console, relevé Internet coupé : la réponse le dit — sans cela, « Pas encore de relevé (en
+ * attente) » restait affiché sur un poste neuf, livré coupé. Le bot le dit à sa façon (noteReleve).
+ */
+async function noteCoupe(canal: Canal): Promise<string[]> {
+  if (canal !== "console") return [];
+  const actif = await (await import("./releve-internet.server")).releveInternetActif();
+  return actif ? [] : ["Relevé Internet coupé : ce qui vient d'Internet n'est pas reçu ; le chef de division l'active dans Capteurs › Outils."];
 }
