@@ -6,7 +6,15 @@ export const POSTE_EXERCICE = "poste-exercice";
 
 const IPV4 =
   /\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b/g;
-const IPV6 = /\b(?:[0-9a-f]{1,4}:){2,7}[0-9a-f:]{1,4}\b/gi;
+// Une IPv6 a huit groupes, ou une compression « :: » ; une heure (18:10:22) n'a ni l'un ni
+// l'autre et reste telle quelle. L'ancien motif effaçait les heures — jusque dans le récapitulatif
+// des incidents — et laissait passer fe80::1 ou ::1.
+const H = "[0-9a-f]{1,4}";
+const IPV6 = new RegExp(
+  `(?<![0-9a-z:])(?:(?:${H}:){7}${H}|${H}(?::${H}){0,6}::(?:${H}(?::${H}){0,6})?|::${H}(?::${H}){0,6})(?![0-9a-z:])`,
+  "gi",
+);
+const MAC = /\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b/gi;
 const IP_HEADERS = /\b(?:x-forwarded-for|x-real-ip|cf-connecting-ip|true-client-ip|forwarded)\b/gi;
 
 export function sanitizeMachineLabel(raw?: string | null): string {
@@ -25,6 +33,7 @@ export function stripIps(text: string): string {
   return String(text ?? "")
     .replace(IPV4, "[ip]")
     .replace(IPV6, "[ip]")
+    .replace(MAC, "[mac]")
     .replace(IP_HEADERS, "x-hdr");
 }
 

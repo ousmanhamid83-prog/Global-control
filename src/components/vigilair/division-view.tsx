@@ -1,9 +1,10 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   AlertTriangle,
   KeyRound,
   Mail,
   ShieldAlert,
+  Trash2,
   Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import {
   ackIncident,
   agentRecap,
+  effacerJournal,
   ejectAgent,
   listIncidents,
   listOpsLog,
@@ -22,6 +24,7 @@ import {
   teamRecap,
   type AgentRecap,
   type IncidentRow,
+  type JournalOps,
   type OpsLogRow,
   type RosterRow,
   type TeamRecapRow,
@@ -45,7 +48,7 @@ import {
   type BotPublicSettings,
   type StaffTeam,
 } from "@/lib/vigilair/staff";
-import { withChefSeal } from "@/lib/vigilair/seal-client";
+import { isSealRequired, withChefSeal } from "@/lib/vigilair/seal-client";
 import { useStaff } from "@/lib/vigilair/staff-context";
 import { useVigilair } from "@/lib/vigilair/store";
 import { InstallPoste } from "@/components/vigilair/install-poste";
@@ -624,49 +627,218 @@ function TeamRecapPanel() {
   );
 }
 
+type CibleEffacement = { id: string } | { genre: string };
+
+/** Efface au journal ; connexion multi-agents active, le sceau chef est demandé s'il manque. */
+async function effacerAuJournal(cible: CibleEffacement): Promise<number> {
+  const appel = () => effacerJournal({ data: cible });
+  try {
+    return (await appel()).effacees;
+  } catch (e) {
+    if (!isSealRequired(e)) throw e;
+    return (await withChefSeal(appel)).effacees;
+  }
+}
+
+/** Les plus récentes d'abord, chaque entrée une fois. */
+function fusionner(a: OpsLogRow[], b: OpsLogRow[]): OpsLogRow[] {
+  const vues = new Map([...b, ...a].map((e) => [e.id, e]));
+  return [...vues.values()].sort((x, y) =>
+    x.at === y.at ? (x.id < y.id ? 1 : -1) : x.at < y.at ? 1 : -1,
+  );
+}
+
 function OpsPanel() {
-  const [rows, setRows] = useState<OpsLogRow[]>([]);
+  const [genre, setGenre] = useState("");
+  const [entrees, setEntrees] = useState<OpsLogRow[]>([]);
+  const [plus, setPlus] = useState(false);
+  const [genres, setGenres] = useState<JournalOps["genres"]>([]);
+  const [base, setBase] = useState<JournalOps["base"]>(null);
+  const [confirmer, setConfirmer] = useState<CibleEffacement | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [occupe, setOccupe] = useState(false);
+  const [tour, setTour] = useState(0);
+  const generation = useRef(0);
+
+  // Première page, puis toutes les 8 s les nouvelles entrées, fusionnées : les pages plus
+  // anciennes déjà ouvertes restent, sans trou entre elles et la première.
+  // Une réponse arrivée après un changement de genre ou un effacement est ignorée : elle
+  // remettrait à l'écran des entrées d'un autre genre, ou déjà effacées.
   useEffect(() => {
-    const load = () => {
-      listOpsLog()
-        .then(setRows)
-        .catch(() => setRows([]));
+    const gen = (generation.current += 1);
+    let neuve = true;
+    const charger = () => {
+      listOpsLog({ data: { genre: genre || null } })
+        .then((p) => {
+          if (gen !== generation.current) return;
+          // Figé ici : React applique la mise à jour plus tard, au rendu.
+          const remplacer = neuve;
+          neuve = false;
+          setGenres(p.genres);
+          setBase(p.base);
+          setEntrees((avant) => (remplacer ? p.entrees : fusionner(p.entrees, avant)));
+          if (remplacer) setPlus(p.suite !== null);
+        })
+        .catch(() => undefined);
     };
-    load();
-    const id = window.setInterval(load, 8000);
+    charger();
+    const id = window.setInterval(charger, 8000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [genre, tour]);
+
+  const plusAnciennes = () => {
+    const derniere = entrees.at(-1);
+    if (!derniere) return;
+    const gen = generation.current;
+    void listOpsLog({
+      data: { genre: genre || null, avant: { at: derniere.at, id: derniere.id } },
+    }).then((p) => {
+      if (gen !== generation.current) return;
+      setEntrees((avant) => fusionner(avant, p.entrees));
+      setPlus(p.suite !== null);
+    });
+  };
+
+  const effacer = async (cible: CibleEffacement) => {
+    setOccupe(true);
+    try {
+      const n = await effacerAuJournal(cible);
+      const s = n > 1 ? "s" : "";
+      setMessage(n > 0 ? `${n} entrée${s} effacée${s} — l'effacement est tracé au journal.` : "Rien à effacer.");
+      setConfirmer(null);
+      if ("genre" in cible) setGenre("");
+      setTour((t) => t + 1);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Effacement impossible.");
+    } finally {
+      setOccupe(false);
+    }
+  };
+
+  const total = genres.reduce((s, g) => s + g.n, 0);
+  const choisi = genres.find((g) => g.genre === genre);
+  const confirmeGenre = confirmer && "genre" in confirmer;
 
   return (
     <section className="space-y-4">
       <div>
         <h2 className="text-lg font-semibold">Travail en cours</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Journal d'activité de tout le personnel. Append-only — pas d'édition.
+          Journal d'activité de tout le personnel, gardé sans limite de durée. Seul le chef efface —
+          une entrée ou tout un genre — et chaque effacement reste tracé. Incidents de sécurité et
+          bulletins (preuves chaînées) ne s'effacent jamais.
         </p>
+        {base?.mode === "disque" ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Base du poste sur disque : <span className="font-mono">{base.dossier}</span>
+          </p>
+        ) : base?.mode === "memoire" ? (
+          <p className="mt-1 flex items-start gap-1.5 text-xs text-warn">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+            Base en mémoire, perdue à l'arrêt du serveur : {base.raison}.
+          </p>
+        ) : null}
       </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          className={SELECT}
+          aria-label="Genre d'entrées"
+          value={genre}
+          onChange={(e) => {
+            setConfirmer(null);
+            setGenre(e.target.value);
+          }}
+        >
+          <option value="">Tous les genres ({total})</option>
+          {genres.map((g) => (
+            <option key={g.genre} value={g.genre}>
+              {g.genre} ({g.n})
+            </option>
+          ))}
+        </select>
+        {choisi && choisi.genre !== "effacement" ? (
+          confirmeGenre ? (
+            <span className="flex flex-wrap items-center gap-2 text-sm">
+              Effacer définitivement les {choisi.n} entrées « {choisi.genre} » ?
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={occupe}
+                onClick={() => void effacer({ genre: choisi.genre })}
+              >
+                Effacer
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setConfirmer(null)}>
+                Annuler
+              </Button>
+            </span>
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => setConfirmer({ genre: choisi.genre })}>
+              <Trash2 className="size-3.5" />
+              Effacer les {choisi.n} entrées « {choisi.genre} »
+            </Button>
+          )
+        ) : null}
+      </div>
+      {message ? (
+        <p role="status" className="text-xs text-muted-foreground">
+          {message}
+        </p>
+      ) : null}
       <ul className="max-h-96 space-y-1 overflow-y-auto">
-        {rows.length === 0 ? (
+        {entrees.length === 0 ? (
           <li className="text-sm text-muted-foreground">
             Le journal se remplit dès qu'un agent travaille le COP.
           </li>
         ) : (
-          rows.map((r) => (
+          entrees.map((r) => (
             <li
               key={r.id}
               className="flex flex-wrap items-baseline justify-between gap-2 rounded-md border border-border/60 px-3 py-2"
             >
-              <span className="text-sm">
+              <span className="min-w-0 text-sm">
+                <Badge tone={r.severity === "crit" ? "crit" : r.severity === "warn" ? "warn" : "default"}>
+                  {r.kind}
+                </Badge>{" "}
                 <span className="font-medium">{r.actor}</span>{" "}
                 <span className="text-muted-foreground">{r.title}</span>
               </span>
-              <span className="font-mono text-xs text-muted-foreground">
+              <span className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
                 {formatDate(Date.parse(r.at) || Date.now())}
+                {r.kind === "effacement" ? null : confirmer && "id" in confirmer && confirmer.id === r.id ? (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={occupe}
+                      onClick={() => void effacer({ id: r.id })}
+                    >
+                      Effacer
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setConfirmer(null)}>
+                      Annuler
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Effacer l'entrée « ${r.title} »`}
+                    onClick={() => setConfirmer({ id: r.id })}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                )}
               </span>
             </li>
           ))
         )}
       </ul>
+      {plus ? (
+        <Button variant="outline" size="sm" onClick={plusAnciennes}>
+          Plus anciennes
+        </Button>
+      ) : null}
     </section>
   );
 }

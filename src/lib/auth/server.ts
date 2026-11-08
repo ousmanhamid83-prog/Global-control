@@ -35,7 +35,8 @@ import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { getCookie } from "@tanstack/react-start/server";
 import { randomBytes } from "node:crypto";
 import { Pool } from "pg";
-import { ensureDbReady, getPglite } from "../db";
+import { secretDuPoste } from "../base-poste.server";
+import { dbSource, ensureDbReady, getPglite } from "../db";
 import { authSetting } from "../env.server";
 import { emailAndPasswordEnabled } from "./email-password";
 import { GATE_PROVIDER_ID, gateIdentitySessions } from "./gate-session.server";
@@ -52,16 +53,21 @@ import {
 void ensureDbReady();
 
 /**
- * Preview secret must outlive module reloads: PGLite (and its session rows) is
- * stored on `globalThis`, so an HMR re-eval of this file must NOT mint a new
- * signing secret or every existing session becomes invalid mid-dev. Process
- * restart clears both the secret and PGLite together.
+ * Without BETTER_AUTH_SECRET, the signing secret must outlive module reloads:
+ * an HMR re-eval of this file must NOT mint a new secret or every existing
+ * session becomes invalid mid-dev. It must outlive the process too, now that
+ * the poste keeps its PGLite base on disk (data/base, session rows included):
+ * the secret is kept beside it (data/base.secret), so a session survives a
+ * restart like the base that stores it. A base in memory gets a secret for the
+ * life of the process, as before.
  */
 const globalAuthRef = globalThis as typeof globalThis & {
   __grokAuthPreviewSecret__?: string;
 };
 function previewAuthSecret(): string {
-  globalAuthRef.__grokAuthPreviewSecret__ ??= randomBytes(32).toString("hex");
+  globalAuthRef.__grokAuthPreviewSecret__ ??=
+    (dbSource === "pglite" ? secretDuPoste(process.env.AFRICONTROL_BASE, process.cwd()) : null) ??
+    randomBytes(32).toString("hex");
   return globalAuthRef.__grokAuthPreviewSecret__;
 }
 

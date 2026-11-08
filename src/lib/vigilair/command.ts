@@ -25,6 +25,16 @@ import {
 import { requireCopOpen } from "./cop-lock";
 import { POSTE_ETRANGER, POSTE_EXERCICE, POSTE_LABEL, sanitizeMachineLabel, scrubSessionIps } from "./privacy";
 import { CHEF_SESSION_CAP, pruneOldSessions, requireChefSeal } from "./seal";
+import type { EtatBase } from "@/lib/base-poste.server";
+import { formatDate } from "./format";
+import {
+  effacerDuJournal,
+  genresDuJournal,
+  GENRE_EFFACEMENT,
+  pageDuJournal,
+  type Curseur,
+  type EntreeJournal,
+} from "./journal-base";
 export type OpsKind =
   | "login"
   | "logout"
@@ -82,18 +92,14 @@ export type RosterRow = {
   actions: number;
 };
 
-export type OpsLogRow = {
-  id: string;
-  userId: string;
-  actor: string;
-  role: string;
-  team: string;
-  kind: string;
-  title: string;
-  detail: string;
-  trackId: string | null;
-  severity: string;
-  at: string;
+export type OpsLogRow = EntreeJournal;
+
+/** Une page du journal, ses genres et où la base du poste le garde (chef seul : genres, base). */
+export type JournalOps = {
+  entrees: OpsLogRow[];
+  suite: Curseur | null;
+  genres: { genre: string; n: number }[];
+  base: EtatBase | null;
 };
 
 export type IncidentRow = {
@@ -688,65 +694,77 @@ async function punishSabotage(opts: {
   };
 }
 
+const GENRE_VALIDE = /^[a-z0-9_-]{1,40}$/;
+const HEURE_VALIDE = /^\d{4}-\d\d-\d\d[ T][\d:.]{8,15}([+-]\d\d(:?\d\d)?|Z)?$/;
+
+/**
+ * Le journal, gardé sans limite : le chef lit celui de tout le personnel, un agent le sien ; par
+ * pages (`avant` : la suite rendue par la page précédente), d'un genre ou de tous.
+ */
 export const listOpsLog = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .handler(async ({ context }): Promise<OpsLogRow[]> => {
+  .validator((raw: { avant?: Curseur | null; genre?: string | null } | undefined) => {
+    const genre = typeof raw?.genre === "string" && GENRE_VALIDE.test(raw.genre) ? raw.genre : null;
+    const a = raw?.avant;
+    const avant =
+      a && typeof a.at === "string" && HEURE_VALIDE.test(a.at) && typeof a.id === "string" && a.id.length <= 64
+        ? { at: a.at, id: a.id }
+        : null;
+    return { genre, avant };
+  })
+  .handler(async ({ context, data }): Promise<JournalOps> => {
     const staff = await ensureStaffRow(context.userId);
     const sql = await getSql();
-    const rows =
-      staff.role === "superadmin"
-        ? await sql<{
-            id: string;
-            user_id: string;
-            actor: string;
-            role: string;
-            team: string;
-            kind: string;
-            title: string;
-            detail: string;
-            track_id: string | null;
-            severity: string;
-            created_at: string;
-          }>`
-            select id, user_id, actor, role, team, kind, title, detail, track_id, severity,
-                   created_at::text as created_at
-            from ops_log
-            order by created_at desc
-            limit 120
-          `
-        : await sql<{
-            id: string;
-            user_id: string;
-            actor: string;
-            role: string;
-            team: string;
-            kind: string;
-            title: string;
-            detail: string;
-            track_id: string | null;
-            severity: string;
-            created_at: string;
-          }>`
-            select id, user_id, actor, role, team, kind, title, detail, track_id, severity,
-                   created_at::text as created_at
-            from ops_log
-            where user_id = ${context.userId}
-            order by created_at desc
-            limit 60
-          `;
-    return rows.map((r) => ({
-      id: r.id,
-      userId: r.user_id,
-      actor: r.actor,
-      role: r.role,
-      team: r.team,
-      kind: r.kind,
-      title: r.title,
-      detail: r.detail,
-      trackId: r.track_id,
-      severity: r.severity,
-      at: r.created_at,
-    }));
+    const chef = staff.role === "superadmin";
+    const page = await pageDuJournal(sql, {
+      userId: chef ? null : context.userId,
+      genre: data.genre,
+      avant: data.avant,
+      limite: chef ? 120 : 60,
+    });
+    if (!chef) return { ...page, genres: [], base: null };
+    const { etatBase } = await import("@/lib/base-poste.server");
+    return { ...page, genres: await genresDuJournal(sql), base: etatBase() };
+  });
+
+/**
+ * Le chef efface une entrée du journal, ou toutes celles d'un genre. Sceau exigé (mot de passe
+ * retapé) quand la connexion multi-agents est active ; sans elle, le poste n'a pas de mot de passe
+ * à retaper et la confirmation se fait à l'écran. L'effacement reste tracé, au nom du chef :
+ * combien, de quel genre, de quand à quand — rien de ce qui a été effacé. Les traces d'effacement
+ * et les preuves chaînées (incidents, bulletins) ne s'effacent pas.
+ */
+export const effacerJournal = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { id?: string; genre?: string }) => {
+    const id = typeof raw?.id === "string" ? raw.id.trim().slice(0, 64) : "";
+    const genre = typeof raw?.genre === "string" && GENRE_VALIDE.test(raw.genre) ? raw.genre : "";
+    if (Boolean(id) === Boolean(genre)) throw new Error("Effacer : une entrée ou un genre, l'un ou l'autre.");
+    return id ? { id } : { genre };
+  })
+  .handler(async ({ context, data }): Promise<{ effacees: number }> => {
+    const chef = await requireSuperadmin(context.userId);
+    const { DEV_USER_ID } = await import("@/lib/auth/verify.server");
+    if (context.userId !== DEV_USER_ID) await requireChefSeal(context.userId);
+    const r = await effacerDuJournal(await getSql(), data);
+    if (r.n > 0 && r.de && r.a) {
+      const s = r.n > 1 ? "s" : "";
+      const quand =
+        r.de === r.a
+          ? `du ${formatDate(Date.parse(r.de))}`
+          : `du ${formatDate(Date.parse(r.de))} au ${formatDate(Date.parse(r.a))}`;
+      await insertOpsLog({
+        userId: chef.userId,
+        actor: chef.label,
+        role: chef.role,
+        team: chef.team,
+        kind: GENRE_EFFACEMENT,
+        title: `Journal : ${r.n} entrée${s} « ${r.genre} » effacée${s} par le chef`,
+        detail: `${"id" in data ? "Une entrée" : "Tout le genre"}, ${quand} (heure de N'Djamena). Ce qui a été effacé n'est gardé nulle part.`,
+        severity: "warn",
+      });
+    }
+    return { effacees: r.n };
   });
 
 export const listIncidents = createServerFn({ method: "GET" })
