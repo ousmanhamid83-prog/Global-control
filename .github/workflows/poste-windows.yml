@@ -1,8 +1,11 @@
 # Le script de préparation du poste sur un VRAI Windows (machine neuve de GitHub) : Windows
 # PowerShell 5.1, celui livré avec Windows, et PowerShell 7. Étapes sans Docker — build, IA
 # (Ollama, plus petit modèle), relief (une petite zone) — puis le serveur construit lancé et
-# interrogé. L'itinéraire, le relais Signal et la recherche demandent Docker Desktop, absent de
-# ces machines : ils restent essayés sous Linux.
+# interrogé, et sa base sur disque (verrou, sauvegarde, reprise d'une base abîmée).
+# Une seconde machine, sans winget : Ollama par l'installeur officiel, le modèle choisi par le
+# script selon la mémoire, puis Docker absent et Docker tel qu'il est ici (conteneurs Windows).
+# L'itinéraire, le relais Signal et la recherche demandent Docker Desktop en conteneurs Linux,
+# impossible sur ces machines : ils restent essayés sous Linux.
 # Relancé aussi quand changent les dépendances ou les scripts que lance « npm run build » : les deux
 # premières exécutions y ont trouvé un package-lock.json refusé par « npm ci » et un vite.cmd que
 # with-app-env.mjs ne savait pas lancer.
@@ -14,10 +17,19 @@ on:
       - "scripts/poste/**"
       - "scripts/with-app-env.mjs"
       - "scripts/migrate.mjs"
+      - "src/lib/db.ts"
+      - "src/lib/base-poste.server.ts"
+      - "src/lib/base-poste.test.ts"
+      - "src/lib/base-coupure.test.ts"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/poste-windows.yml"
   workflow_dispatch:
+
+# Un nouvel envoi sur la même branche annule l'essai encore en cours.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -51,6 +63,13 @@ jobs:
       - name: poste.env écrit par le script
         shell: cmd
         run: type poste.env
+
+      # fsync (Windows refuse de forcer un fichier ouvert en lecture seule), coupure de courant
+      # simulée, sauvegarde et reprise : les tests de la base, sous Windows.
+      - name: Base du poste, tests sous Windows (fsync, coupure simulée, sauvegarde, reprise)
+        if: matrix.ps == 'powershell'
+        shell: cmd
+        run: node --experimental-strip-types --test src/lib/base-poste.test.ts src/lib/base-coupure.test.ts
 
       - name: Le serveur construit démarre, lit poste.env et répond
         shell: pwsh
@@ -110,6 +129,13 @@ jobs:
           if (-not (Pret 8081)) { Get-Content a.err; exit 1 }
           Write-Host "1. verrou laissé par l'arrêt net précédent : $verrouLaisse ; repris : $(Ligne 'a' '[base] sur disque')"
           if (-not (Test-Path data\base.verrou)) { Write-Host "pas de verrou posé"; exit 1 }
+          # La sauvegarde du jour : faite au premier démarrage sur disque (étape précédente) ou, s'il
+          # a été arrêté net pendant, par celui-ci.
+          for ($i = 0; $i -lt 60 -and -not (Test-Path data\base.sauvegarde\PG_VERSION); $i++) { Start-Sleep -Seconds 1 }
+          $s = Select-String -Path serveur.log, a.out -Pattern "[base] sauvegarde faite" -SimpleMatch -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $s) { Get-Content serveur.log, a.out, a.err; Write-Host "pas de sauvegarde"; exit 1 }
+          Write-Host "   sauvegarde : $($s.Line)"
           $b = Lancer 8082 "b"
           if (-not (Pret 8082)) { Get-Content b.err; exit 1 }
           Write-Host "2. second serveur, même dossier : $(Ligne 'b' '[base] EN M')"
@@ -119,5 +145,104 @@ jobs:
           if (-not (Pret 8081)) { Get-Content c.err; exit 1 }
           Write-Host "3. relancé après un arrêt net : $(Ligne 'c' '[base] sur disque')"
           Stop-Process -Id $c.Id -Force
+          Wait-Process -Id $c.Id -ErrorAction SilentlyContinue
           if (Select-String -Path "c.out", "c.err" -Pattern "[base] EN M" -SimpleMatch -Quiet) { exit 1 }
+          # Base abîmée (le fichier de contrôle de Postgres effacé) : mise de côté, sauvegarde reprise.
+          # Sous Windows, la mettre de côté demande que PGLite ait relâché ses fichiers.
+          Remove-Item data\base\global\pg_control
+          $d = Lancer 8081 "d"
+          if (-not (Pret 8081)) { Get-Content d.err; exit 1 }
+          Write-Host "4. base abîmée, relancé : $(Ligne 'd' 'reprise de la sauvegarde')"
+          $cote = @(Get-ChildItem data -Directory -Filter "base.illisible-*")
+          Stop-Process -Id $d.Id -Force
+          if ($cote.Count -ne 1 -or -not (Test-Path (Join-Path $cote[0].FullName "PG_VERSION"))) { Get-ChildItem data; exit 1 }
+          Write-Host "   la base abîmée, gardée telle quelle : data\$($cote[0].Name)"
+          if (Select-String -Path "d.out", "d.err" -Pattern "[base] EN M" -SimpleMatch -Quiet) { exit 1 }
           Get-ChildItem data | Format-Table Name, Length
+
+  sans-winget:
+    name: sans winget · modèle selon la mémoire · Docker
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # winget est sur ces machines : sans lui, le script prend l'installeur officiel d'Ollama,
+      # jamais essayé jusqu'ici. Le PATH sans winget vaut pour les étapes suivantes.
+      - name: Cacher winget
+        shell: pwsh
+        run: |
+          $chemin = $env:Path
+          for ($i = 0; $i -lt 5; $i++) {
+            $w = Get-Command winget -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $w) { break }
+            $dossier = (Split-Path $w.Source).TrimEnd('\')
+            Write-Host "winget caché : $($w.Source)"
+            $chemin = (($chemin -split ';') | Where-Object { $_ -and $_.TrimEnd('\') -ne $dossier }) -join ';'
+            $env:Path = $chemin
+          }
+          if (Get-Command winget -ErrorAction SilentlyContinue) { Write-Host "winget toujours là"; exit 1 }
+          "PATH=$chemin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # Sans -Modele : le script lit la mémoire de la machine et choisit le modèle (7b dès 15 Go).
+      - name: IA seule, sans winget, modèle laissé au script
+        shell: cmd
+        run: |
+          where winget && exit /b 1
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\poste\preparer-poste.ps1 -SansBuild -SansRelief > prep-ia.log 2>&1
+          set CODE=%ERRORLEVEL%
+          type prep-ia.log
+          exit /b %CODE%
+
+      - name: Installeur officiel pris, modèle selon la mémoire, première réponse
+        shell: pwsh
+        run: |
+          $log = Get-Content prep-ia.log -Raw
+          if ($log -notmatch "installeur officiel d'ollama\.com") { Write-Host "le repli sans winget n'a pas servi"; exit 1 }
+          $memoire = [Math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)
+          $attendu = if ($memoire -ge 15) { "qwen2.5:7b" } elseif ($memoire -ge 7) { "qwen2.5:3b" } else { "qwen2.5:1.5b" }
+          $choisi = (Select-String -Path poste.env -Pattern "^AFRICONTROL_IA_MODELE=(.+)$").Matches[0].Groups[1].Value
+          $temps = [regex]::Match($log, "pond en (\d+) s").Groups[1].Value
+          Write-Host "mémoire : $memoire Go ; modèle choisi par le script : $choisi (attendu : $attendu) ; première réponse en $temps s"
+          if ($choisi -ne $attendu -or -not $temps) { exit 1 }
+
+      # Docker caché, puis Docker tel qu'il est sur ces machines (conteneurs Windows, quand il y
+      # est et tourne) : le script doit dire pourquoi, sans tenter un téléchargement voué à l'échec.
+      - name: Docker absent, puis tel qu'il est ici — le script dit pourquoi
+        if: success() || failure()
+        shell: pwsh
+        run: |
+          function Essai($nom) {
+            $p = Start-Process powershell -Wait -PassThru -NoNewWindow `
+              -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts\poste\preparer-poste.ps1",
+                "-SansBuild", "-SansIA", "-SansRelief", "-Itineraire", "-Signal", "-Recherche" `
+              -RedirectStandardOutput "$nom.out" -RedirectStandardError "$nom.err"
+            $sortie = Get-Content "$nom.out" -Raw
+            Write-Host "---- $nom (code $($p.ExitCode))"
+            Write-Host $sortie
+            return @{ code = $p.ExitCode; sortie = $sortie }
+          }
+          function Verifier($r, $motif) {
+            $n = ([regex]::Matches($r.sortie, [regex]::Escape($motif))).Count
+            if ($r.code -ne 1 -or $n -lt 3) { Write-Host "attendu : code 1 et « $motif » pour les trois (code $($r.code), $n fois)"; exit 1 }
+            if ($r.sortie -match "pas pu .tre t.l.charg") { Write-Host "un téléchargement a été tenté"; exit 1 }
+          }
+          $vrai = $env:Path
+          $docker = Get-Command docker -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($docker) {
+            $dossier = (Split-Path $docker.Source).TrimEnd('\')
+            $env:Path = (($vrai -split ';') | Where-Object { $_ -and $_.TrimEnd('\') -ne $dossier }) -join ';'
+          }
+          Verifier (Essai "sans-docker") "Docker Desktop absent"
+          $env:Path = $vrai
+          if (-not $docker) { Write-Host "Pas de Docker sur cette machine : seul le cas « absent » est essayé."; exit 0 }
+          $systeme = (& docker info --format "{{.OSType}}" 2> $null | Out-String).Trim()
+          $code = $LASTEXITCODE
+          Write-Host "Docker de cette machine : $($docker.Source) ; docker info : code $code, conteneurs « $systeme »"
+          if ($code -ne 0) { Verifier (Essai "docker-arrete") "Docker Desktop arr" }
+          elseif ($systeme -ne "linux") { Verifier (Essai "docker-windows") "conteneurs Windows" }
+          else { Write-Host "Docker en conteneurs Linux ici : inattendu sur ces machines, rien de plus à essayer." }

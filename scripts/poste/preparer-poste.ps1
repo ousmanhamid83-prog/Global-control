@@ -149,9 +149,21 @@ function Zones([string[]]$Valeurs) {
   return $zones
 }
 
-function DockerPret {
-  if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { return $false }
-  return (Reussit { docker info })
+# Docker Desktop prêt pour les images du poste, qui sont des images Linux : $null, sinon ce qui
+# manque. En conteneurs Windows, chaque téléchargement échouerait sans dire pourquoi.
+function DockerManque {
+  if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+    return "Docker Desktop absent (https://docs.docker.com/desktop/setup/install/windows-install/)"
+  }
+  $ErrorActionPreference = "Continue"
+  $systeme = (& docker info --format "{{.OSType}}" 2> $null | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0) {
+    return "Docker Desktop arrêté : le lancer, attendre « Engine running », puis relancer le script"
+  }
+  if ($systeme -ne "linux") {
+    return "Docker est en conteneurs Windows ($systeme) : clic droit sur l'icône de Docker Desktop, « Switch to Linux containers », puis relancer le script"
+  }
+  return $null
 }
 
 # Une image déjà là n'est pas retéléchargée : relancer le script hors ligne reste possible.
@@ -356,8 +368,9 @@ $UrlRoute = "http://127.0.0.1:5810/route/v1/driving/15.0444,12.1067;20.8324,13.8
 
 if ($Itineraire) {
   Etape "Itinéraire (serveur OSRM du poste, carte OpenStreetMap du Tchad)"
-  if (-not (DockerPret)) {
-    Rate "itinéraire : Docker Desktop absent ou arrêté (https://docs.docker.com/desktop/setup/install/windows-install/)"
+  $docker = DockerManque
+  if ($docker) {
+    Rate "itinéraire : $docker"
   } else {
     $dossierOsrm = Join-Path $Racine (Join-Path "data" "osrm")
     New-Item -ItemType Directory -Force -Path $dossierOsrm | Out-Null
@@ -396,8 +409,9 @@ if ($Itineraire) {
 
 if ($Signal) {
   Etape "Relais Signal du poste (détail des alertes, chiffré jusqu'aux téléphones)"
-  if (-not (DockerPret)) {
-    Rate "relais Signal : Docker Desktop absent ou arrêté (https://docs.docker.com/desktop/setup/install/windows-install/)"
+  $docker = DockerManque
+  if ($docker) {
+    Rate "relais Signal : $docker"
   } else {
     $dossierSignal = Join-Path $Racine (Join-Path "data" "signal")
     New-Item -ItemType Directory -Force -Path $dossierSignal | Out-Null
@@ -427,8 +441,9 @@ if ($Signal) {
 
 if ($Recherche) {
   Etape "Moteur de recherche du poste (SearXNG, pour /recherche)"
-  if (-not (DockerPret)) {
-    Rate "recherche : Docker Desktop absent ou arrêté (https://docs.docker.com/desktop/setup/install/windows-install/)"
+  $docker = DockerManque
+  if ($docker) {
+    Rate "recherche : $docker"
   } else {
     $dossierRecherche = Join-Path $Racine (Join-Path "data" "searxng")
     New-Item -ItemType Directory -Force -Path $dossierRecherche | Out-Null
