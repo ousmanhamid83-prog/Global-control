@@ -180,7 +180,7 @@ if (-not $SansBuild) {
     Remove-Item Env:NITRO_PRESET
   }
   if ($code -ne 0) {
-    Write-Host "Le build a échoué (messages ci-dessus) : vérifier la connexion, puis relancer le script."
+    Write-Host "Le build a échoué (messages ci-dessus). Coupure réseau : relancer le script. Autre erreur (npm ci, build) : la signaler avec ces messages."
     exit 1
   }
   Ok "serveur construit : .output\server\index.mjs"

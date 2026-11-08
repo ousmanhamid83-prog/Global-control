@@ -136,7 +136,7 @@ ok "Node $(node -v)"
 if [ "$BUILD" = 1 ]; then
   etape "Serveur AfriControl (dépendances, build autonome)"
   if ! npm ci --no-audit --no-fund || ! NITRO_PRESET=node-server npm run build; then
-    echo "Le build a échoué (messages ci-dessus) : vérifier la connexion, puis relancer le script." >&2
+    echo "Le build a échoué (messages ci-dessus). Coupure réseau : relancer le script. Autre erreur (npm ci, build) : la signaler avec ces messages." >&2
     exit 1
   fi
   ok "serveur construit : .output/server/index.mjs"

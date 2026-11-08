@@ -3,12 +3,16 @@
 # (Ollama, plus petit modèle), relief (une petite zone) — puis le serveur construit lancé et
 # interrogé. L'itinéraire, le relais Signal et la recherche demandent Docker Desktop, absent de
 # ces machines : ils restent essayés sous Linux.
+# Relancé aussi quand les dépendances changent : le script commence par « npm ci », qui refuse un
+# package-lock.json désynchronisé — c'est ce que la première exécution a trouvé.
 name: Poste sous Windows
 
 on:
   push:
     paths:
       - "scripts/poste/**"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/poste-windows.yml"
   workflow_dispatch:
 
