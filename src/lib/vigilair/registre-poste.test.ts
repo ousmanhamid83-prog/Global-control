@@ -136,6 +136,14 @@ describe("registre en ligne : lignes et journal", () => {
     ]);
   });
 
+  it("INDICATIF : seulement s'il est émis — un repli sur l'immatriculation n'en est pas un", () => {
+    const sansIndicatif = { ...PIC.aircraft[0]!, flight: "D2-EEB", flightTx: false };
+    assert.equal(
+      lignesRegistre(reg({ cible: { hex: "0900b5", ac: sansIndicatif } }))[0],
+      "Registre en ligne de 0900B5, entendu par l'antenne du poste.",
+    );
+  });
+
   it("INCONNU OU INJOIGNABLE : dit tel quel ; avion absent de l'image : dit aussi", () => {
     const l = lignesRegistre(reg({ cible: { hex: "ae1234", ac: null }, adsbdb: null }));
     assert.equal(l[0], "Registre en ligne de AE1234, absent de l'image du poste.");
@@ -156,6 +164,10 @@ describe("registre en ligne : lignes et journal", () => {
     assert.equal(
       resumeRegistre(reg({ adsblol: { suivi: false, militaire: null } })),
       "0900B5, entendu par l'antenne du poste · adsbdb : D2-EEB · adsb.lol : non suivi",
+    );
+    assert.equal(
+      resumeRegistre(reg({ adsblol: { suivi: true, militaire: false } })),
+      "0900B5, entendu par l'antenne du poste · adsbdb : D2-EEB · adsb.lol : non marqué",
     );
   });
 });

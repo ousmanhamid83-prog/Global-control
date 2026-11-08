@@ -201,12 +201,11 @@ function distance(a: string, b: string): number {
 
 /**
  * La commande qu'un mot mal tapé voulait dire (« situtation » → situation, vu sur un vrai
- * téléphone) : une lettre d'écart pour un nom de 5 lettres au plus, deux au-delà. Rien pour un
- * mot de moins de 4 lettres, trop proche de tout.
+ * téléphone) : une lettre d'écart pour un nom de 5 lettres au plus, deux au-delà. Les noms de
+ * moins de 4 lettres (sit, mil, gps…) ne servent pas de cible : « mail » n'est pas « mil ».
  */
 export function commandeProche(mot: string): Commande | null {
   const m = normaliser(mot);
-  if (m.length < 4) return null;
   let proche: Commande | null = null;
   let meilleure = Infinity;
   for (const c of COMMANDES) {

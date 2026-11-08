@@ -227,7 +227,8 @@ Commandes du poste — Capteurs > Outils
   qu'elle rapporte est dit « reçu (registre en ligne) » : Internet, non vérifié, pas des données
   capteurs. Un marquage que rien n'a donné est « inconnu », jamais « non » : l'absence de marque
   n'est pas une preuve. L'outil Registre ICAO24 (Capteurs > Outils) passe par le même code. Mesuré
-  sur le vrai réseau : 140 à 660 ms, les deux requêtes en parallèle. 9 tests.
+  sur le vrai réseau : 140 à 660 ms, les deux requêtes en parallèle. 10 tests, 12 mutations
+  prises ; un mot mal tapé (« Situtation ») reçoit la commande proche, 3 mutations prises.
 - L'AGENT CHOISIT LUI-MÊME SES COMMANDES (src/lib/vigilair/competences-agent.ts). L'assistant et
   /ia consultent, en plus des faits du relevé, les commandes utiles à la question — soleil,
   phénomènes, état des capteurs, une piste nommée (trois au plus) — et seulement celles activées
@@ -273,7 +274,7 @@ Recherche en ligne sur demande — Capteurs > Outils
   division voit « Faire sortir sur ordre du chef » : la requête part telle quelle, et va au journal
   en sévérité critique, avec son texte et le motif du filtre. Seulement à la console, seulement si
   /recherche y est activée, jamais par un téléphone ; vide ou trop longue, elle reste refusée.
-  Mesuré avec le vrai SearXNG : 5 trouvailles en 1,35 s ; 4 tests.
+  Mesuré avec le vrai SearXNG : 5 trouvailles en 1,35 s ; 4 tests, 3 mutations prises.
 
 Bot Signal du poste — Capteurs > Outils
 - BOT SIGNAL DU POSTE (src/lib/vigilair/bot-signal.server.ts). Un numéro autorisé envoie une
@@ -1120,7 +1121,7 @@ Relevé Internet du poste — Capteurs > Outils
 - RELEVÉ INTERNET : MESURÉ sur le serveur construit, vraies sources. Bascule en 58 ms. Coupé, trois
   images en 58 à 66 ms, et l'heure du dernier relevé ne bouge pas : rien n'est sorti. « Relever
   maintenant » coupé : 2,85 s, 10 sources sur 10 ; aussitôt après, 0 ms et aucune requête. Dans le
-  navigateur, 0 erreur. 5 tests.
+  navigateur, 0 erreur. 5 tests, 4 mutations prises ; côté bot, 5 mutations prises.
 
 Diagnostic du poste — Capteurs > Outils
 - Une vue qui dit honnêtement l'état de CHAQUE source : 1090ES réseau, METAR, SIGMET, météo spatiale,

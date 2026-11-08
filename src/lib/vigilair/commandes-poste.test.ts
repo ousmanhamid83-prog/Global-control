@@ -198,7 +198,7 @@ describe("commandes du poste : un registre pour la console, l'agent et le bot", 
     assert.deepEqual(suggestions("meteo", "console", RIEN), []);
   });
 
-  it("MOT MAL TAPÉ : la commande proche ; rien pour un mot sans rapport ou trop court", () => {
+  it("MOT MAL TAPÉ : la commande proche ; rien pour un mot sans rapport ou trop loin", () => {
     // Vu sur un vrai téléphone : « Situtation ».
     assert.equal(commandeProche("Situtation")?.nom, "situation");
     assert.equal(commandeProche("metoe")?.nom, "meteo", "deux lettres inversées : une seule faute");
@@ -208,7 +208,9 @@ describe("commandes du poste : un registre pour la console, l'agent et le bot", 
     assert.equal(commandeProche("Soliel")?.nom, "soleil");
     assert.equal(commandeProche("bonjour"), null);
     assert.equal(commandeProche("merci"), null);
-    assert.equal(commandeProche("mto"), null, "moins de 4 lettres");
+    assert.equal(commandeProche("mto"), null, "deux lettres d'écart avec « meteo »");
+    assert.equal(commandeProche("aid")?.nom, "aide", "un mot court aussi");
+    assert.equal(commandeProche("mail"), null, "« mil » est trop court pour servir de cible");
   });
 
   it("AIDE : la liste du canal ; ce qui est désactivé est dit, avec qui peut l'activer", () => {
