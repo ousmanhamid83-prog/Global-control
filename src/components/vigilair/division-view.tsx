@@ -729,9 +729,17 @@ function OpsPanel() {
           bulletins (preuves chaînées) ne s'effacent jamais.
         </p>
         {base?.mode === "disque" ? (
-          <p className="mt-1 text-xs text-muted-foreground">
-            Base du poste sur disque : <span className="font-mono">{base.dossier}</span>
-          </p>
+          <>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Base du poste sur disque : <span className="font-mono">{base.dossier}</span>
+            </p>
+            {base.reprise ? (
+              <p className="mt-1 flex items-start gap-1.5 text-xs text-crit">
+                <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                {base.reprise}.
+              </p>
+            ) : null}
+          </>
         ) : base?.mode === "memoire" ? (
           <p className="mt-1 flex items-start gap-1.5 text-xs text-warn">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />

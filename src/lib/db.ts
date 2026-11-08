@@ -48,6 +48,7 @@ const globalRef = globalThis as typeof globalThis & {
   __pgSqlPromise__?: Promise<Sql>;
   __pgliteInstance__?: Promise<import("@electric-sql/pglite").PGlite>;
   __pgliteMigrateChain__?: Promise<void>;
+  __pgliteSauvegardes__?: boolean;
 };
 
 /**
@@ -113,7 +114,8 @@ async function createPgliteSql(): Promise<Sql> {
   // base-poste.server.ts).
   globalRef.__pgliteInstance__ ??= (async () => {
     const { PGlite } = await import("@electric-sql/pglite");
-    const { ouvrirBase } = await import("./base-poste.server");
+    const { NodeFS } = await import("@electric-sql/pglite/nodefs");
+    const { ouvrirBase, ouvrirPgliteDurable } = await import("./base-poste.server");
     const parsers = {
       [OID_INT8]: Number,
       [OID_DATE]: identity,
@@ -121,7 +123,9 @@ async function createPgliteSql(): Promise<Sql> {
     };
     const pg = await ouvrirBase(
       async (dataDir) => {
-        const instance = new PGlite(dataDir ? { dataDir, parsers } : { parsers });
+        // On disk: a real fsync, so a power cut keeps every confirmed write.
+        if (dataDir) return ouvrirPgliteDurable(PGlite, NodeFS, dataDir, { parsers });
+        const instance = new PGlite({ parsers });
         await instance.waitReady;
         return instance;
       },
@@ -171,6 +175,16 @@ async function createPgliteSql(): Promise<Sql> {
     .then(migrate);
   globalRef.__pgliteMigrateChain__ = pass;
   await pass;
+
+  // Once per process, schema in place: a base recovered at startup goes to the journal, and
+  // the daily backup (data/base.sauvegarde) is scheduled.
+  const { etatBase, noterReprise, programmerSauvegardes } = await import("./base-poste.server");
+  await noterReprise(pg);
+  const etat = etatBase();
+  if (etat?.mode === "disque" && !globalRef.__pgliteSauvegardes__) {
+    globalRef.__pgliteSauvegardes__ = true;
+    void programmerSauvegardes(pg, etat.dossier);
+  }
 
   return toSql(async <T>(text: string, params: unknown[]) => {
     const result = await pg.query<T>(text, params);
