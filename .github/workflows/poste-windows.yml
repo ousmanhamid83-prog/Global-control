@@ -3,14 +3,17 @@
 # (Ollama, plus petit modèle), relief (une petite zone) — puis le serveur construit lancé et
 # interrogé. L'itinéraire, le relais Signal et la recherche demandent Docker Desktop, absent de
 # ces machines : ils restent essayés sous Linux.
-# Relancé aussi quand les dépendances changent : le script commence par « npm ci », qui refuse un
-# package-lock.json désynchronisé — c'est ce que la première exécution a trouvé.
+# Relancé aussi quand changent les dépendances ou les scripts que lance « npm run build » : les deux
+# premières exécutions y ont trouvé un package-lock.json refusé par « npm ci » et un vite.cmd que
+# with-app-env.mjs ne savait pas lancer.
 name: Poste sous Windows
 
 on:
   push:
     paths:
       - "scripts/poste/**"
+      - "scripts/with-app-env.mjs"
+      - "scripts/migrate.mjs"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/poste-windows.yml"
