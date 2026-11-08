@@ -74,3 +74,50 @@ jobs:
             exit 1
           }
           Write-Host "Serveur construit : HTTP 200 sur http://127.0.0.1:8080/, poste.env lu."
+
+      # Le verrou de la base est ce qui dépend le plus du système : process.kill(pid, 0), le témoin
+      # sur 127.0.0.1, les fichiers. Le serveur de l'étape précédente, arrêté net, a laissé le sien.
+      - name: Base du poste sur disque, un seul serveur, reprise après un arrêt brutal
+        shell: pwsh
+        run: |
+          function Lancer($port, $nom) {
+            $env:PORT = "$port"
+            Start-Process node -ArgumentList ".output\server\index.mjs" -PassThru -NoNewWindow `
+              -RedirectStandardOutput "$nom.out" -RedirectStandardError "$nom.err"
+          }
+          function Pret($port) {
+            for ($i = 0; $i -lt 90; $i++) {
+              try {
+                $r = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/" -TimeoutSec 30
+                if ($r.StatusCode -eq 200) { return $true }
+              } catch {}
+              Start-Sleep -Seconds 1
+            }
+            return $false
+          }
+          function Ligne($nom, $motif) {
+            for ($i = 0; $i -lt 40; $i++) {
+              $l = Select-String -Path "$nom.out", "$nom.err" -Pattern $motif -SimpleMatch -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+              if ($l) { return $l.Line }
+              Start-Sleep -Seconds 1
+            }
+            Get-Content "$nom.out", "$nom.err"
+            throw "$nom : « $motif » jamais écrit"
+          }
+          $verrouLaisse = Test-Path data\base.verrou
+          $a = Lancer 8081 "a"
+          if (-not (Pret 8081)) { Get-Content a.err; exit 1 }
+          Write-Host "1. verrou laissé par l'arrêt net précédent : $verrouLaisse ; repris : $(Ligne 'a' '[base] sur disque')"
+          if (-not (Test-Path data\base.verrou)) { Write-Host "pas de verrou posé"; exit 1 }
+          $b = Lancer 8082 "b"
+          if (-not (Pret 8082)) { Get-Content b.err; exit 1 }
+          Write-Host "2. second serveur, même dossier : $(Ligne 'b' '[base] EN M')"
+          Stop-Process -Id $b.Id, $a.Id -Force
+          Wait-Process -Id $b.Id, $a.Id -ErrorAction SilentlyContinue
+          $c = Lancer 8081 "c"
+          if (-not (Pret 8081)) { Get-Content c.err; exit 1 }
+          Write-Host "3. relancé après un arrêt net : $(Ligne 'c' '[base] sur disque')"
+          Stop-Process -Id $c.Id -Force
+          if (Select-String -Path "c.out", "c.err" -Pattern "[base] EN M" -SimpleMatch -Quiet) { exit 1 }
+          Get-ChildItem data | Format-Table Name, Length
