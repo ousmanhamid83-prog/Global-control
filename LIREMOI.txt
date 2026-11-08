@@ -81,20 +81,26 @@ Préparer le poste en une commande (une fois, en ligne)
   l'itinéraire, le profil de relief et l'altitude de zone (Komé : 381 à 408 m) fonctionnent, et
   l'espion réseau n'a vu partir que 127.0.0.1:11434 (IA) et 127.0.0.1:5810 (itinéraire) : le
   relief ne fait aucune requête.
-- Windows : ESSAYÉ SUR UN VRAI WINDOWS (machine neuve GitHub Actions, Windows 10.0.26100), sous
-  Windows PowerShell 5.1 (celui livré avec Windows) et sous PowerShell 7, à chaque changement du
-  script ou des dépendances (.github/workflows/poste-windows.yml) : npm ci (431 paquets, 23 s),
-  build, Ollama installé par winget, modèle qwen2.5:0.5b imposé (397 Mo) qui répond « Prêt. » en
-  2 s, 4 tuiles de relief (17 Mo), puis le serveur construit lancé, qui lit poste.env et répond
-  HTTP 200. La base du poste aussi : sur disque, verrou repris après un arrêt net, second serveur
-  dans le même dossier en mémoire qui le dit, base reprise après l'arrêt net des deux. Bilan sans
-  échec sur les deux. Ce vrai Windows a trouvé trois défauts, corrigés : le
-  package-lock.json refusé par npm ci depuis la mise à jour de sécurité du 2 novembre (un poste
-  neuf échouait au build, sous Linux aussi), le vite.cmd que le build ne savait pas lancer sous
-  Windows, et la réponse d'essai de l'IA mal décodée sous PowerShell 5.1 (« PrÃªt. »). PAS
-  ESSAYÉ sur un vrai Windows : le choix du modèle selon la mémoire (modèle imposé), l'installeur
-  de secours quand winget manque, Docker Desktop (itinéraire, relais Signal, recherche). Si l'un
-  rate, le bilan le dit.
+- Windows : ESSAYÉ SUR UN VRAI WINDOWS (machines neuves GitHub Actions, Windows 10.0.26100), à
+  chaque changement du script, de la base ou des dépendances (.github/workflows/poste-windows.yml).
+  Sous Windows PowerShell 5.1 (celui livré avec Windows) et sous PowerShell 7 : npm ci, build,
+  Ollama installé par winget, modèle qwen2.5:0.5b imposé (397 Mo) qui répond « Prêt. » en 2 s,
+  4 tuiles de relief (17 Mo), puis le serveur construit lancé, qui lit poste.env et répond HTTP
+  200. La base du poste aussi : ses 24 tests sous Windows (fsync, coupure simulée, sauvegarde,
+  reprise), puis sur le vrai serveur le verrou repris après un arrêt net, un second serveur en
+  mémoire qui le dit, la sauvegarde du jour (1,5 s, requêtes en attente 0,7 s) et une base abîmée
+  reprise de sa sauvegarde. Une autre machine, winget caché : Ollama par l'installeur officiel,
+  modèle choisi par le script selon la mémoire (16 Go → qwen2.5:7b, 4,7 Go) qui répond en 8 s,
+  2 min 45 s en tout ; puis Docker caché, et Docker tel qu'il est sur ces machines (conteneurs
+  Windows) : le bilan dit lequel des deux et quoi faire, sans rien télécharger. Ce vrai Windows a
+  trouvé quatre défauts, corrigés : le package-lock.json refusé par npm ci depuis la mise à jour
+  de sécurité du 2 novembre (un poste neuf échouait au build, sous Linux aussi), le vite.cmd que
+  le build ne savait pas lancer sous Windows, la réponse d'essai de l'IA mal décodée sous
+  PowerShell 5.1 (« PrÃªt. »), et le script bloqué sans fin quand winget manque (il attendait
+  aussi l'application d'Ollama que lance l'installeur, qui reste ouverte). Il en a confirmé un
+  cinquième, corrigé avant l'essai : Windows refuse de forcer sur le disque un fichier ouvert en
+  lecture seule. PAS ESSAYÉ sur un vrai Windows : Docker Desktop en conteneurs Linux (itinéraire,
+  relais Signal, recherche), impossible sur ces machines. Si l'un rate, le bilan le dit.
 
 Lancer comme un vrai serveur (sans mode dev)
 - npm run dev est pratique mais c'est le mode développement. Pour un serveur autonome lançable
