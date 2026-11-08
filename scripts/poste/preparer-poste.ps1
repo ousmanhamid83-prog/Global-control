@@ -235,7 +235,9 @@ if (-not $SansIA) {
       $debut = Get-Date
       $question = @{ model = $Modele; max_tokens = 12; messages = @(@{ role = "user"; content = "Réponds seulement : prêt." }) } | ConvertTo-Json -Depth 4
       try {
-        $reponse = Invoke-RestMethod -Method Post -TimeoutSec 300 -Uri "http://127.0.0.1:11434/v1/chat/completions" -ContentType "application/json; charset=utf-8" -Body ([Text.Encoding]::UTF8.GetBytes($question))
+        # Octets lus en UTF-8 : PowerShell 5.1 décode sinon en Latin-1 un JSON sans charset (« PrÃªt. »).
+        $brut = Invoke-WebRequest -UseBasicParsing -Method Post -TimeoutSec 300 -Uri "http://127.0.0.1:11434/v1/chat/completions" -ContentType "application/json; charset=utf-8" -Body ([Text.Encoding]::UTF8.GetBytes($question))
+        $reponse = [Text.Encoding]::UTF8.GetString($brut.RawContentStream.ToArray()) | ConvertFrom-Json
         $secondes = [Math]::Round(((Get-Date) - $debut).TotalSeconds)
         Ok "IA : $Modele répond en $secondes s (« $($reponse.choices[0].message.content.Trim()) »)"
       } catch {
