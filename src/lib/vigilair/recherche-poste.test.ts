@@ -56,7 +56,8 @@ function journal() {
   const ecrit: string[] = [];
   return {
     ecrit,
-    f: async (titre: string, detail: string) => void ecrit.push(`${titre} · ${detail}`),
+    f: async (titre: string, detail: string, options?: { severite?: string }) =>
+      void ecrit.push(`${options?.severite ? `[${options.severite}] ` : ""}${titre} · ${detail}`),
   };
 }
 
@@ -84,9 +85,33 @@ describe("recherche en ligne : par le moteur SearXNG du poste, filtrée, journal
     assert.deepEqual(r, {
       ok: false,
       erreur: "Requête refusée : elle nomme AFR123, contact du relevé. Rien n'est sorti du poste.",
+      forcable: true,
     });
     assert.equal(recues.length, 0, "rien n'est parti");
     assert.match(j.ecrit[0]!, /^Recherche en ligne refusée · Requête refusée : elle nomme AFR123/);
+  });
+
+  it("FORCÉE SUR ORDRE DU CHEF : elle sort, et le journal dit en critique ce qui est sorti et pourquoi", async () => {
+    const j = journal();
+    const r = await chercherEnLigne("qui opère AFR123", PIC, j.f, true);
+    assert.equal(r.ok, true);
+    assert.equal(recues.length, 1, "la requête est partie au moteur");
+    assert.match(decodeURIComponent(recues[0]!), /q=qui\+op[èe]re\+AFR123|q=qui opère AFR123/);
+    assert.deepEqual(j.ecrit, [
+      "[crit] Recherche en ligne FORCÉE sur ordre du chef · « qui opère AFR123 » est sortie du poste malgré le filtre (elle nomme AFR123, contact du relevé) · 5 trouvaille(s)",
+    ]);
+    // Une requête ordinaire forcée n'a rien à contourner : journal ordinaire.
+    const k = journal();
+    await chercherEnLigne("portée d'un drone", PIC, k.f, true);
+    assert.deepEqual(k.ecrit, ["Recherche en ligne · « portée d'un drone » · 5 trouvaille(s)"]);
+  });
+
+  it("FORCÉE, MAIS VIDE OU TROP LONGUE : refusée quand même, sans bouton à proposer", async () => {
+    const j = journal();
+    const r = await chercherEnLigne("x".repeat(500), PIC, j.f, true);
+    assert.equal(r.ok, false);
+    assert.equal("forcable" in r, false);
+    assert.equal(recues.length, 0);
   });
 
   it("MOTEUR NON RÉGLÉ OU HORS DU POSTE : rien ne part, rien au journal", async () => {

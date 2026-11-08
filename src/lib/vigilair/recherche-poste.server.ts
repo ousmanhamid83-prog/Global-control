@@ -15,7 +15,15 @@ import { verifierRequete } from "./recherche-sure.ts";
 import { RESEAU_POSTE_EXEMPLES, serveurPoste } from "./reseau-poste.ts";
 
 /** Écrit une action au journal des opérations (titre, détail). */
-export type Journal = (titre: string, detail: string) => Promise<void>;
+/**
+ * Écrit une action sensible au journal des opérations, au nom de qui l'a lancée. Sans `options`,
+ * la sévérité suit le titre (« refusée » : warn) et le genre est « recherche ».
+ */
+export type Journal = (
+  titre: string,
+  detail: string,
+  options?: { severite?: "info" | "warn" | "crit"; genre?: string },
+) => Promise<void>;
 
 /** Trouvailles gardées par recherche. */
 export const RECHERCHE_TROUVAILLES = 5;
@@ -24,8 +32,10 @@ export const RECHERCHE_DELAI_MS = 12_000;
 
 export type Trouvaille = { titre: string; url: string; extrait: string };
 
+/** `forcable` : refusée par le filtre de souveraineté, le chef peut la faire sortir (console). */
 export type Recherche =
-  { ok: true; requete: string; trouvailles: Trouvaille[] } | { ok: false; erreur: string };
+  | { ok: true; requete: string; trouvailles: Trouvaille[] }
+  | { ok: false; erreur: string; forcable?: true };
 
 /** Pourquoi la recherche ne peut pas partir (moteur non réglé, ou hors du poste) ; null si prête. */
 export function rechercheIndisponible(): string | null {
@@ -83,23 +93,35 @@ async function rechercher(requete: string): Promise<Recherche> {
  * qui ne doit pas sortir), envoi au moteur du poste, journal. Rien ne part si le moteur n'est pas
  * réglé ; une requête refusée est journalisée aussi.
  */
+/**
+ * `forcer` : ordre du chef de division, à la console — une requête que le filtre refuse sort quand
+ * même. Elle va au journal en sévérité critique, avec le texte qui est sorti et ce que le filtre
+ * reprochait : elle peut révéler ce que suit le poste, ou où il est.
+ */
 export async function chercherEnLigne(
   question: string,
   pic: LivePicture | null,
   journal: Journal,
+  forcer = false,
 ): Promise<Recherche> {
   const indispo = rechercheIndisponible();
   if (indispo) return { ok: false, erreur: indispo };
-  const verdict = verifierRequete(question, pic);
+  const verdict = verifierRequete(question, pic, forcer);
   if (!verdict.ok) {
     await journal("Recherche en ligne refusée", verdict.raison);
-    return { ok: false, erreur: verdict.raison };
+    return { ok: false, erreur: verdict.raison, ...(verdict.filtre ? { forcable: true as const } : {}) };
   }
   const r = await rechercher(verdict.requete);
-  await journal(
-    "Recherche en ligne",
-    `« ${verdict.requete} » · ${r.ok ? `${r.trouvailles.length} trouvaille(s)` : r.erreur}`,
-  );
+  const issue = r.ok ? `${r.trouvailles.length} trouvaille(s)` : r.erreur;
+  if (verdict.contourne) {
+    await journal(
+      "Recherche en ligne FORCÉE sur ordre du chef",
+      `« ${verdict.requete} » est sortie du poste malgré le filtre (${verdict.contourne}) · ${issue}`,
+      { severite: "crit" },
+    );
+  } else {
+    await journal("Recherche en ligne", `« ${verdict.requete} » · ${issue}`);
+  }
   return r;
 }
 

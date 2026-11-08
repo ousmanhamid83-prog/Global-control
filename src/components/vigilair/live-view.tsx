@@ -37,16 +37,21 @@ import {
   downloadArchive,
   downloadAtcSegment,
   fetchArchives,
+  basculerReleveInternet,
   linkStatus,
+  lireReleveInternet,
   lookupAircraft,
   posteDiagnostic,
+  releverMaintenant,
   sentinelCheck,
   setAutoArchive,
   setContinentSweep,
   type AircraftLookup,
   type DiagRow,
+  type EtatReleveEcran,
   type ReponseAssistant,
 } from "@/lib/vigilair/live-feeds";
+import { dureeLisible } from "@/lib/vigilair/bot-signal";
 import {
   IA_CONTACTS_VUS,
   IA_DELAI_S,
@@ -56,7 +61,12 @@ import {
 import { ReponseIa } from "@/components/vigilair/reponse-ia";
 import { appairerBotSignal, basculerBotSignal, gererNumeroBot, inscrireBotSignal, lireBotSignal } from "@/lib/vigilair/bot-api";
 import type { ActionNumero, EtatBot } from "@/lib/vigilair/bot-signal.server";
-import { basculerCommande, lancerCommande, lireCommandes } from "@/lib/vigilair/commandes-api";
+import {
+  basculerCommande,
+  forcerRecherche,
+  lancerCommande,
+  lireCommandes,
+} from "@/lib/vigilair/commandes-api";
 import {
   COMMANDES,
   LIBELLE_CANAL,
@@ -1167,7 +1177,12 @@ function LinkStatusCard() {
       .finally(() => setBusy(false));
   };
   useEffect(() => {
-    run();
+    // Relevé Internet coupé par le chef : pas de requête de test sans qu'on la demande.
+    lireReleveInternet()
+      .then((e) => {
+        if (e.actif) run();
+      })
+      .catch(() => undefined);
   }, []);
   const tone = !st ? "default" : st.reachable === st.total ? "ok" : st.online ? "warn" : "crit";
   const label = !st ? "…" : st.reachable === st.total ? "en ligne" : st.online ? "partiel" : "hors ligne";
@@ -1204,6 +1219,102 @@ function LinkStatusCard() {
             </li>
           ))}
         </ul>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * Relevé Internet du poste, sur décision du chef : activé (comme à la livraison) ou coupé — plus
+ * rien ne sort du poste pour le relevé. « Relever maintenant » : un relevé, à l'ordre du chef.
+ */
+function ReleveInternetSection() {
+  const { isSuperadmin } = useStaff();
+  const [etat, setEtat] = useState<EtatReleveEcran | null>(null);
+  const [occupe, setOccupe] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const now = useWallClock();
+
+  useEffect(() => {
+    let vivant = true;
+    const lire = () => {
+      lireReleveInternet()
+        .then((e) => vivant && setEtat(e))
+        .catch(() => undefined);
+    };
+    lire();
+    const id = window.setInterval(lire, 5000);
+    return () => {
+      vivant = false;
+      window.clearInterval(id);
+    };
+  }, []);
+
+  const basculer = () => {
+    if (!etat) return;
+    const actif = !etat.actif;
+    const t0 = performance.now();
+    setOccupe(true);
+    basculerReleveInternet({ data: { actif } })
+      .then((e) => {
+        setEtat(e);
+        setMsg(
+          `Relevé Internet ${actif ? "activé" : "coupé"} en ${Math.round(performance.now() - t0)} ms${e.enregistrement === "memoire" ? " — disque en lecture seule : valable jusqu'au redémarrage" : ""}.`,
+        );
+      })
+      .catch((err: unknown) => setMsg(err instanceof Error ? err.message : "refusé"))
+      .finally(() => setOccupe(false));
+  };
+
+  const relever = () => {
+    setOccupe(true);
+    setMsg("Relevé en cours…");
+    releverMaintenant()
+      .then((e) => {
+        setEtat(e);
+        setMsg(
+          `Relevé fait en ${e.ms.toLocaleString("fr-FR")} ms : ${e.dernier ? `${e.dernier.recues}/${e.dernier.sources} sources Internet reçues` : "aucune source reçue"}.`,
+        );
+      })
+      .catch((err: unknown) => setMsg(err instanceof Error ? err.message : "refusé"))
+      .finally(() => setOccupe(false));
+  };
+
+  const d = etat?.dernier;
+  return (
+    <section className="space-y-3 rounded-md border border-border bg-surface p-4 col-span-2 hud">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-medium">Relevé Internet du poste</h2>
+        <div className="flex items-center gap-2">
+          <Badge tone={!etat ? "default" : etat.actif ? "ok" : "warn"}>
+            {!etat ? "…" : etat.actif ? "activé" : "coupé par le chef"}
+          </Badge>
+          <Button size="sm" variant="outline" disabled={!isSuperadmin || occupe || !etat} onClick={basculer}>
+            {etat?.actif === false ? "Activer" : "Couper"}
+          </Button>
+          <Button size="sm" disabled={!isSuperadmin || occupe} onClick={relever}>
+            Relever maintenant
+          </Button>
+        </div>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Activé, le poste relève ses sources Internet — ADS-B des agrégateurs, METAR, TAF, SIGMET,
+        météo spatiale, phénomènes — toutes les 20 s au plus, console ouverte ou bot. Coupé, plus
+        rien ne sort du poste pour le relevé : l'image garde l'antenne du poste et le dernier relevé,
+        qui vieillit à vue, et ce qui ne vient que d'Internet est dit{" "}
+        {"«\u00a0non reçu\u00a0». «\u00a0Relever maintenant\u00a0»"} : un relevé, un seul, à l'ordre
+        du chef. Chaque geste va au journal.
+      </p>
+      <p className="text-xs">
+        {d
+          ? `Dernier relevé : ${new Date(d.at).toISOString().slice(11, 19)} Z, il y a ${dureeLisible(now - d.at)} · ${d.recues}/${d.sources} sources Internet reçues`
+          : "Aucun relevé Internet depuis le démarrage du poste."}
+        {etat?.ordreA ? ` · dernier ordre du chef : ${new Date(etat.ordreA).toISOString().slice(11, 19)} Z` : ""}
+      </p>
+      {d && d.erreurs.length > 0 ? <p className="text-xs text-warn">{d.erreurs.join(" · ")}</p> : null}
+      {msg ? <p className="text-xs text-muted-foreground">{msg}</p> : null}
+      {!isSuperadmin ? (
+        <p className="text-[11px] text-muted-foreground">Couper, activer, relever : chef de division seul.</p>
       ) : null}
     </section>
   );
@@ -1461,6 +1572,8 @@ function ResultatCommandeVue({ res, allerRetour }: { res: ResultatCommande; alle
 }
 
 function AssistantSection({ bascules }: { bascules: Bascules }) {
+  const { isSuperadmin } = useStaff();
+  const [forcage, setForcage] = useState(false);
   const [st, setSt] = useState<{
     configured: boolean;
     ok: boolean;
@@ -1512,6 +1625,21 @@ function AssistantSection({ bascules }: { bascules: Bascules }) {
           allerRetour: performance.now() - t0,
         }),
       );
+  };
+
+  // Ordre du chef : la requête que le filtre a retenue sort quand même (journal : critique).
+  const forcer = (requete: string) => {
+    const t0 = performance.now();
+    setForcage(true);
+    forcerRecherche({ data: { requete } })
+      .then((r) => setRes({ r, allerRetour: performance.now() - t0 }))
+      .catch((e: unknown) =>
+        setRes({
+          r: { ok: false, commande: "recherche", lignes: [e instanceof Error ? e.message : "refusé"], ms: 0 },
+          allerRetour: performance.now() - t0,
+        }),
+      )
+      .finally(() => setForcage(false));
   };
 
   // Compléter la saisie avec une commande proposée ; la lancer si elle n'attend rien.
@@ -1660,6 +1788,24 @@ function AssistantSection({ bascules }: { bascules: Bascules }) {
       ) : null}
       {depuis != null ? <Redaction depuis={depuis} /> : null}
       {res ? <ResultatCommandeVue res={res.r} allerRetour={res.allerRetour} /> : null}
+      {res?.r.forcable && isSuperadmin ? (
+        <div className="space-y-2 rounded-sm border border-border bg-bg/60 p-3 text-xs">
+          <p className="text-warn">
+            Le filtre de souveraineté a retenu cette requête. La faire sortir peut révéler ce que suit
+            le poste, ou où il est : elle partira telle quelle vers les moteurs publics, et ira au
+            journal en sévérité critique, avec son texte.
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={forcage}
+            onClick={() => forcer(res.r.forcable!)}
+          >
+            {forcage ? "Recherche…" : "Faire sortir sur ordre du chef"}
+          </Button>
+        </div>
+      ) : null}
       {rep && depuis == null ? <ReponseAssistantVue rep={rep} duree={duree} /> : null}
       {!st?.configured ? (
         <div className="space-y-2 rounded-sm border border-border bg-bg/60 p-3 text-xs text-muted-foreground">
@@ -2210,6 +2356,7 @@ function BotSignalSection() {
 }
 
 function ToolsPanel({ onGoTab }: { onGoTab: (id: Tab) => void }) {
+  const { isSuperadmin } = useStaff();
   const [commandes, setCommandes] = useState<EtatBascules | null>(null);
   useEffect(() => {
     lireCommandes()
@@ -2239,6 +2386,7 @@ function ToolsPanel({ onGoTab }: { onGoTab: (id: Tab) => void }) {
           registration: null,
           operator: null,
           country: null,
+          militaire: "inconnu",
           error: e instanceof Error ? e.message : "échec",
         }),
       )
@@ -2261,13 +2409,16 @@ function ToolsPanel({ onGoTab }: { onGoTab: (id: Tab) => void }) {
 
   return (
     <div className="grid gap-4 grid-cols-2">
+      <ReleveInternetSection />
       <LinkStatusCard />
       <DiagnosticSection onGoTab={onGoTab} />
       <section className="space-y-3 rounded-md border border-border bg-surface p-4 hud">
-        <h2 className="text-sm font-medium">Registre ICAO24 · adsbdb</h2>
+        <h2 className="text-sm font-medium">Registre ICAO24 · adsbdb + adsb.lol</h2>
         <p className="text-sm text-muted-foreground">
-          Interrogation réelle du registre Mode S (type, immat, opérateur). Pas
-          une base locale. Lecture seule.
+          Registre en ligne d'un avion : type, immatriculation, propriétaire (adsbdb), marquage
+          militaire (adsb.lol, s'il suit l'avion en ce moment). La requête nomme l'avion et sort du
+          poste : <strong>chef de division seul</strong>, chaque requête au journal. Même code que
+          /registre.
         </p>
         <div className="flex gap-2">
           <Input
@@ -2281,7 +2432,7 @@ function ToolsPanel({ onGoTab }: { onGoTab: (id: Tab) => void }) {
           <Button
             type="button"
             onClick={runLookup}
-            disabled={looking || hex.replace(/[^0-9a-f]/gi, "").length !== 6}
+            disabled={!isSuperadmin || looking || hex.replace(/[^0-9a-f]/gi, "").length !== 6}
           >
             {looking ? "…" : "Identifier"}
           </Button>
@@ -2302,6 +2453,8 @@ function ToolsPanel({ onGoTab }: { onGoTab: (id: Tab) => void }) {
                 <dd>{lookup.operator ?? "—"}</dd>
                 <dt className="text-muted-foreground">État</dt>
                 <dd>{lookup.country ?? "—"}</dd>
+                <dt className="text-muted-foreground">Marquage militaire</dt>
+                <dd>{lookup.militaire}</dd>
                 <dt className="text-muted-foreground">Allocation OACI</dt>
                 <dd>{icaoNation(lookup.hex) ?? "—"}</dd>
               </>
@@ -2309,9 +2462,19 @@ function ToolsPanel({ onGoTab }: { onGoTab: (id: Tab) => void }) {
               <>
                 <dt className="text-muted-foreground">Statut</dt>
                 <dd className="text-warn">{lookup.error}</dd>
+                <dt className="text-muted-foreground">Marquage militaire</dt>
+                <dd>{lookup.militaire}</dd>
               </>
             )}
           </dl>
+        ) : null}
+        {lookup?.ok ? (
+          <p className="text-[11px] text-muted-foreground">
+            Reçu (registre en ligne) : Internet, non vérifié, pas des données capteurs.
+          </p>
+        ) : null}
+        {!isSuperadmin ? (
+          <p className="text-[11px] text-muted-foreground">Réservé au chef de division.</p>
         ) : null}
       </section>
       <section className="space-y-3 rounded-md border border-border bg-surface p-4 hud">

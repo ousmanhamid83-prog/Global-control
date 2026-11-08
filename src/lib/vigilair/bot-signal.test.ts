@@ -351,6 +351,22 @@ describe("bot Signal : âge du relevé Internet sous la réponse", () => {
     );
   });
 
+  it("COUPÉ PAR LE CHEF : toujours dit, avec l'âge du dernier relevé, même frais", () => {
+    assert.equal(
+      noteReleve({ ok: true, commande: "meteo" }, { ageMs: 5000, frais: true, coupe: true }),
+      "Relevé Internet coupé par le chef de division : dernier relevé vieux de 5 s.",
+    );
+    assert.equal(
+      noteReleve({ ok: true, commande: "situation" }, { ageMs: null, frais: false, coupe: true }),
+      "Relevé Internet coupé par le chef de division : rien d'Internet, antenne du poste seule.",
+    );
+    assert.equal(
+      noteReleve({ ok: true, commande: "aide" }, { ageMs: null, frais: false, coupe: true }),
+      null,
+      "l'aide ne lit pas le relevé",
+    );
+  });
+
   it("QUAND ATTENDRE LE RELEVÉ NEUF : absent ou vieux de 2 min, sauf tentative de moins de 2 min", () => {
     const longtemps = 10 * RELEVE_VIEUX_MS;
     assert.equal(attendreReleve(null, longtemps), true, "absent : le premier");

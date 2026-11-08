@@ -219,6 +219,15 @@ Commandes du poste — Capteurs > Outils
   dit). À la livraison, coupées pour le bot : les commandes qui donnent des positions ou le
   marquage d'État, et celles qui passent par l'IA. /recherche est coupée partout ; /aide ne se
   coupe pas.
+- /REGISTRE : LE REGISTRE EN LIGNE D'UN AVION (src/lib/vigilair/registre-poste.ts). « /registre
+  0900B5 », ou son indicatif, ou son immatriculation : adsbdb dit le type, l'immatriculation et le
+  propriétaire ; adsb.lol, le marquage d'État quand il suit l'avion à cet instant. La requête
+  nomme l'avion et sort du poste : coupée partout à la livraison ; à la console, le chef de
+  division seul ; par le bot, seulement relevé Internet activé ; chaque requête au journal. Ce
+  qu'elle rapporte est dit « reçu (registre en ligne) » : Internet, non vérifié, pas des données
+  capteurs. Un marquage que rien n'a donné est « inconnu », jamais « non » : l'absence de marque
+  n'est pas une preuve. L'outil Registre ICAO24 (Capteurs > Outils) passe par le même code. Mesuré
+  sur le vrai réseau : 140 à 660 ms, les deux requêtes en parallèle. 9 tests.
 - L'AGENT CHOISIT LUI-MÊME SES COMMANDES (src/lib/vigilair/competences-agent.ts). L'assistant et
   /ia consultent, en plus des faits du relevé, les commandes utiles à la question — soleil,
   phénomènes, état des capteurs, une piste nommée (trois au plus) — et seulement celles activées
@@ -260,6 +269,11 @@ Recherche en ligne sur demande — Capteurs > Outils
   garde-fou signale « ℹ Tiré de la recherche en ligne » tout identifiant qui ne vient que d'elles.
   Mesuré avec le vrai SearXNG : 5 trouvailles en 962 ms. Sur un noyau sans IPv6, l'image SearXNG
   s'arrêtait au lancement ; le script la fait écouter en IPv4 (GRANIAN_HOST=0.0.0.0).
+- RECHERCHE FORCÉE SUR ORDRE DU CHEF. Quand le filtre refuse une requête à la console, le chef de
+  division voit « Faire sortir sur ordre du chef » : la requête part telle quelle, et va au journal
+  en sévérité critique, avec son texte et le motif du filtre. Seulement à la console, seulement si
+  /recherche y est activée, jamais par un téléphone ; vide ou trop longue, elle reste refusée.
+  Mesuré avec le vrai SearXNG : 5 trouvailles en 1,35 s ; 4 tests.
 
 Bot Signal du poste — Capteurs > Outils
 - BOT SIGNAL DU POSTE (src/lib/vigilair/bot-signal.server.ts). Un numéro autorisé envoie une
@@ -306,10 +320,13 @@ Bot Signal du poste — Capteurs > Outils
   ancien et n'est pas exécuté. Réponse de 3 500 caractères au plus, la suite à la console. Chaque
   commande reçue va au journal (numéro masqué : +235•••••234) avec sa durée sur le poste ; l'écran
   montre les dix derniers échanges et les cinq derniers messages ignorés, avec leur raison. Sans
-  console ouverte, personne ne relève Internet : le bot lance le relevé sans l'attendre (il prend
-  plus de 1,5 s), répond aussitôt avec ce que le poste a, et dit l'âge du relevé lu quand il a
-  plus de 20 s ; la commande suivante lit le neuf. Une commande qui plante, un journal en panne,
-  un relais coupé ou muet : dit à l'écran, et le bot continue — rien ne fait tomber le serveur.
+  console ouverte, personne ne relève Internet : absent ou vieux de plus de 2 min, une commande
+  qui lit le relevé attend le neuf, 12 s au plus (7,4 à 9,4 s mesurés à froid), et la réponse dit
+  l'attente — vu au premier essai réel : deux réponses vides juste après le démarrage. Hors ligne,
+  une seule attente par 2 min. Sinon la réponse part aussitôt et dit l'âge du relevé lu quand il
+  a plus de 20 s ; relevé coupé par le chef, elle le dit. Un mot mal tapé (« Situtation ») reçoit
+  la commande proche, proposée et non exécutée. Une commande qui plante, un journal en panne, un
+  relais coupé ou muet : dit à l'écran, et le bot continue — rien ne fait tomber le serveur.
 - BOT SIGNAL : DURÉES MESURÉES (serveur construit, faux relais aux délais du vrai 0.101 mesurés sur
   ce poste : 250 ms par lancement de signal-cli en mode native, 49 ms par envoi en json-rpc). Sur
   le poste, une commande prend 1 ms en médiane (1,6 ms au plus) : c'est le relais qui compte. Mode
@@ -1087,6 +1104,23 @@ Balayage continental (chef de division) — Capteurs > 1090ES
   (Europe, Amériques, Asie, Océanie) à chaque relevé — le radar « tous continents » montre alors
   de VRAIS contacts 1090ES, pas une carte vide. Les cellules partent en lots parallèles bornés.
 - Toute piste réelle est verrouillable : un clic sur l'indicatif dans la liste 1090ES l'ouvre.
+
+Relevé Internet du poste — Capteurs > Outils
+- RELEVÉ INTERNET, SUR DÉCISION DU CHEF (src/lib/vigilair/releve-internet.server.ts). Activé à la
+  livraison, comme avant : le poste relève ses sources Internet (ADS-B des agrégateurs, METAR,
+  TAF, bulletins de l'OACI, météo spatiale, phénomènes) quand la console ou le bot en a besoin,
+  toutes les 20 s au plus. Coupé par le chef de division : plus rien ne sort du poste pour le
+  relevé. L'image garde l'antenne du poste et le dernier relevé, qui vieillit à vue, et le dit ;
+  les commandes et le bot disent « Relevé Internet coupé par le chef » ; ce qui ne vient que
+  d'Internet est « non reçu ». « Relever maintenant » : un relevé, un seul, à l'ordre du chef,
+  même coupé ; un relevé de moins de 20 s est rendu tel quel, et le journal dit que rien n'est
+  sorti. Chaque geste va au journal ; l'état survit au redémarrage (data/releve-internet.json),
+  et seul un « false » écrit coupe : un fichier abîmé ne coupe rien en silence. Coupé, le test de
+  liaison ne part plus seul à l'ouverture des Outils.
+- RELEVÉ INTERNET : MESURÉ sur le serveur construit, vraies sources. Bascule en 58 ms. Coupé, trois
+  images en 58 à 66 ms, et l'heure du dernier relevé ne bouge pas : rien n'est sorti. « Relever
+  maintenant » coupé : 2,85 s, 10 sources sur 10 ; aussitôt après, 0 ms et aucune requête. Dans le
+  navigateur, 0 erreur. 5 tests.
 
 Diagnostic du poste — Capteurs > Outils
 - Une vue qui dit honnêtement l'état de CHAQUE source : 1090ES réseau, METAR, SIGMET, météo spatiale,

@@ -1017,12 +1017,16 @@ function refreshNetwork(): Promise<LivePicture> {
  */
 export async function releveInternetPourBot(
   maxMs: number,
-): Promise<{ ageMs: number | null; frais: boolean; attenduMs: number }> {
+): Promise<{ ageMs: number | null; frais: boolean; attenduMs: number; coupe: boolean }> {
   const age = () => {
     const lu = peekLiveCache();
     return lu ? Date.now() - lu.at : null;
   };
   let ageMs = age();
+  // Coupé par le chef : rien ne part ; la commande lit ce que le poste a, et le dit.
+  if (!(await (await import("./releve-internet.server")).releveInternetActif())) {
+    return { ageMs, frais: ageMs != null && ageMs < TTL_MS, attenduMs: 0, coupe: true };
+  }
   let attenduMs = 0;
   if (ageMs == null || ageMs >= TTL_MS) {
     const enCours = refreshNetwork();
@@ -1039,8 +1043,102 @@ export async function releveInternetPourBot(
       ageMs = age();
     }
   }
-  return { ageMs, frais: ageMs != null && ageMs < TTL_MS, attenduMs };
+  return { ageMs, frais: ageMs != null && ageMs < TTL_MS, attenduMs, coupe: false };
 }
+
+/** Dit dans l'image quand le chef a coupé le relevé Internet. */
+export const RELEVE_COUPE =
+  "Relevé Internet coupé par le chef de division : antenne du poste et dernier relevé seulement.";
+
+/** Le dernier relevé Internet, pour l'écran du chef : son heure et ses sources reçues. */
+export type ResumeReleve = { at: number; recues: number; sources: number; erreurs: string[] };
+
+function resumeReleve(): ResumeReleve | null {
+  const lu = peekLiveCache();
+  if (!lu) return null;
+  // « rx » est l'antenne du poste : pas une source Internet.
+  const net = lu.sources.filter((s) => s.id !== "rx");
+  return { at: lu.at, recues: net.filter((s) => s.ok).length, sources: net.length, erreurs: lu.errors.slice(0, 4) };
+}
+
+export type EtatReleveEcran = import("./releve-internet.server").EtatReleveInternet & {
+  dernier: ResumeReleve | null;
+};
+
+/** État du relevé Internet : tout agent connecté le lit. */
+export const lireReleveInternet = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async (): Promise<EtatReleveEcran> => {
+    const srv = await import("./releve-internet.server");
+    return { ...(await srv.lireReleve()), dernier: resumeReleve() };
+  });
+
+/** Le chef active ou coupe le relevé Internet ; chaque bascule va au journal. */
+export const basculerReleveInternet = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { actif?: boolean }) => {
+    if (typeof raw?.actif !== "boolean") throw new Error("Bascule invalide");
+    return { actif: raw.actif };
+  })
+  .handler(async ({ data, context }): Promise<EtatReleveEcran> => {
+    const { insertOpsLog, requireSuperadmin } = await import("./staff");
+    const chef = await requireSuperadmin(context.userId);
+    const srv = await import("./releve-internet.server");
+    const e = await srv.basculerReleve(data.actif);
+    await insertOpsLog({
+      userId: chef.userId,
+      actor: chef.label,
+      role: chef.role,
+      team: chef.team,
+      kind: "releve",
+      title: `Relevé Internet ${data.actif ? "activé" : "coupé"} par le chef`,
+      detail: [
+        data.actif
+          ? "Le poste relève de nouveau ses sources Internet, toutes les 20 s au plus."
+          : "Plus rien ne sort du poste pour le relevé : antenne du poste et dernier relevé seulement ; « relever maintenant » reste au chef.",
+        e.enregistrement === "fichier"
+          ? "Enregistré sur le poste (data/releve-internet.json)."
+          : "Disque en lecture seule : valable jusqu'au redémarrage du serveur.",
+      ].join(" "),
+      // Coupé, l'image perd ce qui ne vient que d'Internet : à voir au journal.
+      severity: data.actif ? "info" : "warn",
+    });
+    return { ...e, dernier: resumeReleve() };
+  });
+
+/**
+ * « Relever maintenant » : un relevé Internet à l'ordre du chef, même relevé coupé — un seul, et
+ * journalisé. Un relevé de moins de 20 s est rendu tel quel, sans nouvelle requête.
+ */
+export const releverMaintenant = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<EtatReleveEcran & { ms: number }> => {
+    const { insertOpsLog, requireSuperadmin } = await import("./staff");
+    const chef = await requireSuperadmin(context.userId);
+    const srv = await import("./releve-internet.server");
+    const avant = peekLiveCache()?.at ?? null;
+    const t0 = performance.now();
+    await refreshNetwork();
+    const ms = Math.round(performance.now() - t0);
+    const d = resumeReleve();
+    // Un relevé de moins de 20 s est rendu tel quel : rien n'est sorti, et le journal le dit.
+    const neuf = d != null && d.at !== avant;
+    if (neuf) await srv.noterOrdre(d.at);
+    const e = await srv.lireReleve();
+    await insertOpsLog({
+      userId: chef.userId,
+      actor: chef.label,
+      role: chef.role,
+      team: chef.team,
+      kind: "releve",
+      title: "Relevé Internet sur ordre du chef",
+      detail: !neuf
+        ? `Relevé de moins de 20 s rendu tel quel${d ? ` (${d.recues}/${d.sources} sources)` : ""} : rien n'est sorti du poste.`
+        : `${d.recues}/${d.sources} sources Internet reçues en ${ms.toLocaleString("fr-FR")} ms${e.actif ? "." : " — relevé coupé : ce seul relevé est sorti du poste."}`,
+      severity: neuf && !e.actif ? "warn" : "info",
+    });
+    return { ...e, dernier: d, ms };
+  });
 
 export const fetchLivePicture = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
@@ -1048,8 +1146,14 @@ export const fetchLivePicture = createServerFn({ method: "GET" })
     const rx = await import("./rx1090.server");
     await rx.receiverReady();
     const status = rx.receiverStatus();
+    const coupe = !(await (await import("./releve-internet.server")).releveInternetActif());
     let net: LivePicture;
-    if (releve.cache && Date.now() - releve.cache.at < TTL_MS) {
+    if (coupe) {
+      // Coupé par le chef : aucune requête ; le dernier relevé vieillit à vue, et l'image le dit.
+      net = releve.lastGood
+        ? { ...releve.lastGood, errors: [RELEVE_COUPE, ...releve.lastGood.errors].slice(0, 6) }
+        : emptyPicture(RELEVE_COUPE);
+    } else if (releve.cache && Date.now() - releve.cache.at < TTL_MS) {
       net = releve.cache.data;
     } else if (!status.connected) {
       net = await refreshNetwork();
@@ -1227,9 +1331,15 @@ export type AircraftLookup = {
   registration: string | null;
   operator: string | null;
   country: string | null;
+  /** Le marquage militaire et sa source, ou « inconnu » (voir registre-poste.marquage). */
+  militaire: string;
   error?: string;
 };
 
+/**
+ * Registre ICAO24 de la console : le même code que /registre (adsbdb, marquage adsb.lol), réservé
+ * au chef de division et journalisé — la requête nomme l'avion et sort du poste.
+ */
 export const lookupAircraft = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((raw: { hex: string }) => ({
@@ -1238,55 +1348,50 @@ export const lookupAircraft = createServerFn({ method: "POST" })
       .toLowerCase()
       .slice(0, 6),
   }))
-  .handler(async ({ data }): Promise<AircraftLookup> => {
-    if (!/^[0-9a-f]{6}$/.test(data.hex)) {
-      return { ok: false, hex: data.hex, type: null, icaoType: null, manufacturer: null, registration: null, operator: null, country: null, error: "ICAO24 — 6 hex" };
-    }
-    try {
-      const raw = await fetchJson(`https://api.adsbdb.com/v0/aircraft/${data.hex}`, 6000);
-      const ac =
-        raw && typeof raw === "object"
-          ? (raw as { response?: { aircraft?: Record<string, unknown> } }).response?.aircraft
-          : null;
-      if (!ac) {
-        return {
-          ok: false,
-          hex: data.hex,
-          type: null,
-          icaoType: null,
-          manufacturer: null,
-          registration: null,
-          operator: null,
-          country: null,
-          error: "Inconnu du registre adsbdb",
-        };
-      }
-      return {
-        ok: true,
-        hex: data.hex,
-        type: typeof ac.type === "string" ? ac.type : null,
-        icaoType: typeof ac.icao_type === "string" ? ac.icao_type : null,
-        manufacturer: typeof ac.manufacturer === "string" ? ac.manufacturer : null,
-        registration: typeof ac.registration === "string" ? ac.registration : null,
-        operator: typeof ac.registered_owner === "string" ? ac.registered_owner : null,
-        country:
-          typeof ac.registered_owner_country_name === "string"
-            ? ac.registered_owner_country_name
-            : null,
-      };
-    } catch (e) {
-      return {
-        ok: false,
-        hex: data.hex,
-        type: null,
-        icaoType: null,
-        manufacturer: null,
-        registration: null,
-        operator: null,
-        country: null,
-        error: e instanceof Error ? e.message : "registre indisponible",
-      };
-    }
+  .handler(async ({ data, context }): Promise<AircraftLookup> => {
+    const vide: AircraftLookup = {
+      ok: false,
+      hex: data.hex,
+      type: null,
+      icaoType: null,
+      manufacturer: null,
+      registration: null,
+      operator: null,
+      country: null,
+      militaire: "inconnu",
+    };
+    if (!/^[0-9a-f]{6}$/.test(data.hex)) return { ...vide, error: "ICAO24 — 6 hex" };
+    const { insertOpsLog, requireSuperadmin } = await import("./staff");
+    const chef = await requireSuperadmin(context.userId);
+    const reg = await import("./registre-poste");
+    const cible = reg.cibleRegistre(data.hex, await imagePoste());
+    if ("erreur" in cible) return { ...vide, error: cible.erreur };
+    const r = await (await import("./registre-poste.server")).consulterRegistre(cible);
+    await insertOpsLog({
+      userId: chef.userId,
+      actor: chef.label,
+      role: chef.role,
+      team: chef.team,
+      kind: "registre",
+      title: `Registre en ligne : ${data.hex.toUpperCase()}`,
+      detail: reg.resumeRegistre(r),
+      severity: "warn",
+    });
+    const db = r.adsbdb;
+    const militaire = reg.marquage(r);
+    if (db == null) return { ...vide, militaire, error: "Inconnu du registre adsbdb" };
+    if ("erreur" in db) return { ...vide, militaire, error: `adsbdb ${db.erreur}` };
+    return {
+      ok: true,
+      hex: data.hex,
+      type: db.type,
+      icaoType: db.icaoType,
+      manufacturer: db.constructeur,
+      registration: db.immat,
+      operator: db.proprietaire,
+      country: db.pays,
+      militaire,
+    };
   });
 
 /** Briefing de la situation par l'IA du poste, à partir des commandes activées pour la console. */

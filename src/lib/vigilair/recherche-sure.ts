@@ -14,7 +14,14 @@ import type { LivePicture } from "./live-adsb.ts";
 /** Longueur maximale d'une requête envoyée en ligne, en caractères. */
 export const REQUETE_MAX = 200;
 
-export type Verdict = { ok: true; requete: string } | { ok: false; raison: string };
+/**
+ * `filtre` : refusée par le filtre de souveraineté (contact du relevé, coordonnées) — le chef de
+ * division peut alors la faire sortir à la console. `contourne` : le refus auquel son ordre passe
+ * outre, pour le journal.
+ */
+export type Verdict =
+  | { ok: true; requete: string; contourne?: string }
+  | { ok: false; raison: string; filtre?: true };
 
 // 12.13, 15.03 · 12,13 15,03 · -4.5/19.2 : deux nombres décimaux qui se suivent.
 const DECIMAUX = /-?\d{1,3}[.,]\d{2,}\s*[,;/ ]\s*-?\d{1,3}[.,]\d{2,}/;
@@ -38,8 +45,12 @@ function identifiantsCites(requete: string, pic: LivePicture | null): string[] {
   return [...cites];
 }
 
-/** La requête peut-elle partir ? Sinon, la raison, à montrer telle quelle à l'opérateur. */
-export function verifierRequete(texte: string, pic: LivePicture | null): Verdict {
+/**
+ * La requête peut-elle partir ? Sinon, la raison, à montrer telle quelle à l'opérateur. `forcer` :
+ * ordre du chef — le filtre de souveraineté ne retient plus la requête, mais son refus est rendu
+ * dans `contourne` ; une requête vide ou trop longue reste refusée.
+ */
+export function verifierRequete(texte: string, pic: LivePicture | null, forcer = false): Verdict {
   const requete = texte.trim().replace(/\s+/g, " ");
   if (!requete) return { ok: false, raison: "Requête vide : rien à chercher." };
   if (requete.length > REQUETE_MAX) {
@@ -49,17 +60,13 @@ export function verifierRequete(texte: string, pic: LivePicture | null): Verdict
     };
   }
   const cites = identifiantsCites(requete, pic);
-  if (cites.length > 0) {
-    return {
-      ok: false,
-      raison: `Requête refusée : elle nomme ${cites.join(", ")}, contact du relevé. Rien n'est sorti du poste.`,
-    };
-  }
-  if (DECIMAUX.test(requete) || DEGRES.test(requete) || MGRS.test(requete)) {
-    return {
-      ok: false,
-      raison: "Requête refusée : elle contient des coordonnées. Rien n'est sorti du poste.",
-    };
-  }
-  return { ok: true, requete };
+  const motif =
+    cites.length > 0
+      ? `elle nomme ${cites.join(", ")}, contact du relevé`
+      : DECIMAUX.test(requete) || DEGRES.test(requete) || MGRS.test(requete)
+        ? "elle contient des coordonnées"
+        : null;
+  if (motif == null) return { ok: true, requete };
+  if (forcer) return { ok: true, requete, contourne: motif };
+  return { ok: false, raison: `Requête refusée : ${motif}. Rien n'est sorti du poste.`, filtre: true };
 }

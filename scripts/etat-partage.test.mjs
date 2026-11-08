@@ -3,7 +3,8 @@
 // commandes, l'agent et la relève une troisième. Un état gardé en variable de module existait donc
 // en double : le relevé remplissait le sien, les autres lisaient le leur, toujours vide. Mesuré en
 // ligne : METAR FTTJ à la console, « non reçu » à /meteo. L'état vit maintenant sur globalThis —
-// relevé, bascules des commandes, bot Signal (un seul bot doit écouter) ; ces tests gardent la règle.
+// relevé, bascules des commandes, bot Signal (un seul bot doit écouter), décision du chef sur le
+// relevé Internet ; ces tests gardent la règle.
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -17,6 +18,7 @@ const MODULES = [
   ["src/lib/vigilair/live-feeds.ts", "__afriReleve", "function peekLiveCache"],
   ["src/lib/vigilair/commandes-poste.server.ts", "__afriCommandes", "function lireBascules"],
   ["src/lib/vigilair/bot-signal.server.ts", "__afriBot", "function assurerBot"],
+  ["src/lib/vigilair/releve-internet.server.ts", "__afriReleveInternet", "function noterOrdre"],
 ];
 
 function fichiers(dossier) {

@@ -31,6 +31,11 @@ export type ResultatCommande = {
   lignes: string[];
   /** Temps d'exécution sur le serveur du poste, en millisecondes. */
   ms: number;
+  /**
+   * Console : la requête que le filtre de souveraineté a refusée, et que le chef de division peut
+   * faire sortir (voir rechercheForcee). Absent partout ailleurs.
+   */
+  forcable?: string;
 };
 
 export type EtatBascules = {
@@ -102,8 +107,9 @@ async function notice(question: string): Promise<string[]> {
 /** /recherche : filtre de souveraineté, moteur SearXNG du poste, journal. */
 async function recherche(
   question: string,
+  canal: Canal,
   journal: Journal,
-): Promise<{ ok: boolean; lignes: string[] }> {
+): Promise<{ ok: boolean; lignes: string[]; forcable?: string }> {
   if (!question)
     return {
       ok: false,
@@ -111,7 +117,77 @@ async function recherche(
     };
   const srv = await import("./recherche-poste.server");
   const r = await srv.chercherEnLigne(question, await imagePoste(), journal);
-  return { ok: r.ok, lignes: srv.lignesRecherche(r) };
+  // Seule la console peut faire sortir sur ordre du chef ; un téléphone, jamais.
+  const forcable = !r.ok && r.forcable && canal === "console" ? { forcable: question } : {};
+  return { ok: r.ok, lignes: srv.lignesRecherche(r), ...forcable };
+}
+
+/**
+ * Ordre du chef de division, à la console : la requête que le filtre a refusée sort quand même
+ * (journal en sévérité critique). /recherche doit être activée pour la console : l'ordre passe
+ * outre au filtre, pas à la bascule.
+ */
+export async function rechercheForcee(question: string, journal: Journal): Promise<ResultatCommande> {
+  const t0 = performance.now();
+  const fin = (ok: boolean, lignes: string[]): ResultatCommande => ({
+    ok,
+    commande: "recherche",
+    lignes,
+    ms: Math.round((performance.now() - t0) * 100) / 100,
+  });
+  const { bascules } = await etat();
+  const c = COMMANDES.find((x) => x.nom === "recherche")!;
+  if (!commandeActive(c, "console", bascules)) {
+    return fin(false, [
+      "/recherche est désactivée pour la console : l'activer d'abord (Capteurs › Outils › Commandes du poste).",
+    ]);
+  }
+  const srv = await import("./recherche-poste.server");
+  const r = await srv.chercherEnLigne(question, await imagePoste(), journal, true);
+  return fin(r.ok, [
+    "Sortie sur ordre du chef de division, filtre de souveraineté passé outre (journal : critique).",
+    ...srv.lignesRecherche(r),
+  ]);
+}
+
+/**
+ * /registre : la requête nomme l'avion et sort du poste. À la console, le chef seul ; par le bot,
+ * seulement relevé Internet activé — coupé, aucun téléphone ne fait sortir le nom d'un avion.
+ */
+async function registre(
+  argument: string,
+  canal: Canal,
+  estChef: () => Promise<boolean>,
+  journal: Journal,
+): Promise<{ ok: boolean; lignes: string[] }> {
+  if (canal === "console" && !(await estChef())) {
+    return {
+      ok: false,
+      lignes: ["/registre est réservée au chef de division : la requête nomme l'avion et sort du poste."],
+    };
+  }
+  const coupe = !(await (await import("./releve-internet.server")).releveInternetActif());
+  if (coupe && canal === "bot") {
+    return {
+      ok: false,
+      lignes: ["Relevé Internet coupé par le chef : /registre seulement à la console, par le chef."],
+    };
+  }
+  const { cibleRegistre, lignesRegistre, resumeRegistre } = await import("./registre-poste");
+  const cible = cibleRegistre(argument, await imagePoste());
+  if ("erreur" in cible) return { ok: false, lignes: [cible.erreur] };
+  const r = await (await import("./registre-poste.server")).consulterRegistre(cible);
+  await journal(`Registre en ligne : ${cible.hex.toUpperCase()}`, resumeRegistre(r), {
+    severite: "warn",
+    genre: "registre",
+  });
+  return {
+    ok: true,
+    lignes: [
+      ...lignesRegistre(r),
+      ...(coupe ? ["Relevé Internet coupé : cette requête est sortie du poste sur ordre du chef."] : []),
+    ],
+  };
 }
 
 /** /ia : l'agent répond ; sans IA, les lignes des commandes consultées et la notice. */
@@ -155,12 +231,14 @@ async function briefing(canal: Canal): Promise<{ ok: boolean; lignes: string[] }
 
 /**
  * Exécute une ligne « /commande argument » reçue sur un canal. `journal` : au nom de qui écrire
- * les actions sensibles (une recherche en ligne).
+ * les actions sensibles (une recherche en ligne, un registre). `estChef` : la ligne vient-elle du
+ * chef de division ? Demandé seulement par /registre, qui l'exige à la console.
  */
 export async function lancer(
   texte: string,
   canal: Canal,
   journal: Journal,
+  estChef: () => Promise<boolean> = async () => false,
 ): Promise<ResultatCommande> {
   const t0 = performance.now();
   const fin = (r: Omit<ResultatCommande, "ms">): ResultatCommande => ({
@@ -202,7 +280,10 @@ export async function lancer(
   if (commande.nom === "ia")
     return fin({ commande: "ia", ...(await ia(argument, canal, journal)) });
   if (commande.nom === "recherche") {
-    return fin({ commande: "recherche", ...(await recherche(argument, journal)) });
+    return fin({ commande: "recherche", ...(await recherche(argument, canal, journal)) });
+  }
+  if (commande.nom === "registre") {
+    return fin({ commande: "registre", ...(await registre(argument, canal, estChef, journal)) });
   }
   if (commande.nom === "briefing") {
     return fin({ commande: "briefing", ...(await briefing(canal)) });

@@ -17,7 +17,25 @@ export const lancerCommande = createServerFn({ method: "POST" })
   .handler(async ({ data, context }): Promise<ResultatCommande> => {
     const srv = await import("./commandes-poste.server");
     const { journalDe } = await import("./journal-poste.server");
-    return srv.lancer(data.texte, "console", journalDe(context.userId));
+    const estChef = async () =>
+      (await (await import("./staff")).loadStaff(context.userId))?.role === "superadmin";
+    return srv.lancer(data.texte, "console", journalDe(context.userId), estChef);
+  });
+
+/**
+ * « Faire sortir sur ordre du chef » : la requête que le filtre de souveraineté a refusée part
+ * quand même — chef de division seul, à la console, journal en sévérité critique.
+ */
+export const forcerRecherche = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { requete?: string }) => ({
+    requete: String(raw?.requete ?? "").slice(0, IA_QUESTION_MAX),
+  }))
+  .handler(async ({ data, context }): Promise<ResultatCommande> => {
+    await (await import("./staff")).requireSuperadmin(context.userId);
+    const srv = await import("./commandes-poste.server");
+    const { journalDe } = await import("./journal-poste.server");
+    return srv.rechercheForcee(data.requete, journalDe(context.userId));
   });
 
 export const lireCommandes = createServerFn({ method: "GET" })

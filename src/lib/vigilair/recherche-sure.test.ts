@@ -15,6 +15,31 @@ const refus = (q: string, pic: LivePicture | null = PIC) => {
   return v.ok ? null : v.raison;
 };
 
+describe("recherche en ligne : ordre du chef", () => {
+  it("FORCÉE : le filtre ne retient plus, mais rend ce qu'il reprochait ; vide ou trop longue, non", () => {
+    assert.deepEqual(verifierRequete("route de AFR123", PIC, true), {
+      ok: true,
+      requete: "route de AFR123",
+      contourne: "elle nomme AFR123, contact du relevé",
+    });
+    assert.deepEqual(verifierRequete("près de 12.13, 15.03", PIC, true), {
+      ok: true,
+      requete: "près de 12.13, 15.03",
+      contourne: "elle contient des coordonnées",
+    });
+    assert.deepEqual(verifierRequete("drone", PIC, true), { ok: true, requete: "drone" }, "rien à contourner");
+    assert.equal(verifierRequete("   ", PIC, true).ok, false);
+    assert.equal(verifierRequete("x".repeat(REQUETE_MAX + 1), PIC, true).ok, false);
+  });
+
+  it("REFUS DU FILTRE : marqué forçable ; un refus de longueur, non", () => {
+    const v = verifierRequete("route de AFR123", PIC);
+    assert.ok(!v.ok && v.filtre === true);
+    const w = verifierRequete("x".repeat(REQUETE_MAX + 1), PIC);
+    assert.ok(!w.ok && w.filtre === undefined);
+  });
+});
+
 describe("recherche en ligne : ce qu'une requête n'a pas le droit d'emporter hors du poste", () => {
   it("REQUÊTE ORDINAIRE : elle part, espaces resserrés", () => {
     assert.deepEqual(verifierRequete("  portée   d'un drone DJI Mavic 3 ", PIC), {

@@ -160,11 +160,11 @@ describe("commandes du poste : un registre pour la console, l'agent et le bot", 
   it("DÉSACTIVÉES À LA LIVRAISON pour le bot : positions et marquage militaire seulement", () => {
     assert.deepEqual(
       COMMANDES.filter((c) => !c.defaut.bot).map((c) => c.nom),
-      ["trafic", "piste", "militaires", "ia", "briefing", "recherche"],
+      ["trafic", "piste", "militaires", "ia", "briefing", "recherche", "registre"],
     );
     assert.deepEqual(
       COMMANDES.filter((c) => !c.defaut.console).map((c) => c.nom),
-      ["recherche"],
+      ["recherche", "registre"],
       "la requête sort du poste : désactivée partout",
     );
   });
@@ -219,7 +219,7 @@ describe("commandes du poste : un registre pour la console, l'agent et le bot", 
     );
     assert.equal(
       console_.at(-1),
-      "Désactivées au poste : /recherche (le chef de division les active).",
+      "Désactivées au poste : /recherche, /registre (le chef de division les active).",
     );
     const bot = aide("", "bot", RIEN);
     // Vu sur un vrai téléphone : « Commandes de le bot Signal ».
@@ -227,7 +227,7 @@ describe("commandes du poste : un registre pour la console, l'agent et le bot", 
     assert.ok(!bot.some((l) => l.startsWith("  /trafic")));
     assert.equal(
       bot.at(-2),
-      "Désactivées au poste : /trafic, /piste, /militaires, /ia, /briefing, /recherche (le chef de division les active).",
+      "Désactivées au poste : /trafic, /piste, /militaires, /ia, /briefing, /recherche, /registre (le chef de division les active).",
     );
     assert.equal(bot.at(-1), "La barre « / » est facultative : « meteo » suffit.");
     assert.ok(!console_.some((l) => l.includes("facultative")), "à la console, la barre reste la règle");

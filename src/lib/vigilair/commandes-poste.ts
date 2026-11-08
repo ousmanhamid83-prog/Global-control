@@ -139,6 +139,14 @@ export const COMMANDES: Commande[] = [
     argument: "<requête>",
     defaut: NULLE_PART,
   },
+  {
+    nom: "registre",
+    alias: ["immat", "adsbdb"],
+    resume:
+      "Registre en ligne d'un avion : type, immatriculation, marquage militaire (la requête nomme l'avion et sort du poste ; chef de division à la console)",
+    argument: "<adresse|indicatif|immat>",
+    defaut: NULLE_PART,
+  },
 ];
 
 /** Bascules réglées au poste ; une commande absente garde son réglage de livraison. */
