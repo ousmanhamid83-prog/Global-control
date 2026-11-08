@@ -12,6 +12,8 @@ import {
   RELAIS_DEFAUT,
   assurerBot,
   basculerBot,
+  gererNumero,
+  inscrireBot,
   lireEtatBot,
   suspendreBot,
   type EtatBot,
@@ -51,6 +53,16 @@ const DEPART = {
   muetWs: false,
   /** Poignées de main websocket acceptées depuis le début du test. */
   connexions: 0,
+  /** Appels d'inscription reçus (chemin et corps), et réponse forcée s'il le faut. */
+  inscriptions: [] as { methode: string; chemin: string; corps: Record<string, unknown> }[],
+  erreurInscription: null as null | Erreur,
+  erreurProfil: false,
+  /** Recherches chez Signal (/v1/search) : numéros demandés ; ceux que Signal trouve. */
+  recherches: [] as string[][],
+  trouvables: [] as string[],
+  /** Destinataires connus du compte du bot (/v1/contacts?all_recipients=true). */
+  contacts: [] as { uuid: string; number: string }[],
+  erreurContacts: false,
 };
 const relais = { ...DEPART, sockets: new Set<Socket>() };
 let srv: Server;
@@ -74,6 +86,40 @@ before(async () => {
       return json(res, 200, { versions: ["v1", "v2"], build: 2, mode: relais.mode, version: "0.101" });
     }
     if (u.pathname === "/v1/accounts") return json(res, 200, relais.comptes);
+    if (u.pathname.startsWith("/v1/search/")) {
+      const numeros = u.searchParams.getAll("numbers");
+      relais.recherches.push(numeros);
+      return json(res, 200, numeros.map((n) => ({ number: n, registered: relais.trouvables.includes(n) })));
+    }
+    if (u.pathname.startsWith("/v1/contacts/") && u.searchParams.get("all_recipients") === "true") {
+      if (relais.erreurContacts) return json(res, 400, { error: "contacts: échec" });
+      return json(res, 200, relais.contacts.map((c) => ({ ...c, name: "", profile_name: "" })));
+    }
+    if (u.pathname.startsWith("/v1/register/") || u.pathname.startsWith("/v1/profiles/")) {
+      let corps = "";
+      req.on("data", (d) => (corps += d));
+      req.on("end", () => {
+        const lu = (corps ? JSON.parse(corps) : {}) as Record<string, unknown>;
+        relais.inscriptions.push({ methode: req.method ?? "", chemin: u.pathname, corps: lu });
+        if (relais.erreurInscription) {
+          return res.writeHead(relais.erreurInscription.statut).end(relais.erreurInscription.corps);
+        }
+        if (relais.erreurProfil && u.pathname.startsWith("/v1/profiles/")) {
+          return json(res, 500, { error: "profile update failed" });
+        }
+        const verif = u.pathname.match(/^\/v1\/register\/([^/]+)\/verify\/(\d+)$/);
+        if (verif) {
+          if (verif[2] !== "123456") return json(res, 400, { error: "Verification failed: wrong code" });
+          relais.comptes.push(decodeURIComponent(verif[1]!));
+          return res.writeHead(201).end();
+        }
+        if (u.pathname.startsWith("/v1/register/") && lu.captcha !== "signalcaptcha://bon") {
+          return json(res, 400, { error: "Invalid captcha given" });
+        }
+        res.writeHead(u.pathname.startsWith("/v1/profiles/") ? 204 : 201).end();
+      });
+      return;
+    }
     if (u.pathname.startsWith("/v1/receive/")) {
       relais.releves++;
       relais.releveUrl = req.url ?? "";
@@ -143,7 +189,17 @@ beforeEach(() => {
   process.env.AFRICONTROL_BOT_NUMERO = POSTE;
   process.env.AFRICONTROL_BOT_AUTORISES = `${CHEF}, ${AGENT}`;
   process.env.AFRICONTROL_BOT_RELAIS = base;
-  Object.assign(relais, { ...DEPART, file: [], envois: [], retenues: [], comptes: [POSTE] });
+  Object.assign(relais, {
+    ...DEPART,
+    file: [],
+    envois: [],
+    retenues: [],
+    comptes: [POSTE],
+    inscriptions: [],
+    recherches: [],
+    trouvables: [],
+    contacts: [],
+  });
 });
 
 afterEach(async () => {
@@ -216,12 +272,13 @@ describe("bot Signal : réglage et activation", () => {
     delete process.env.AFRICONTROL_BOT_NUMERO;
     assert.deepEqual((await etat()).reglage, {
       erreur:
-        "Bot non réglé : AFRICONTROL_BOT_NUMERO, le numéro du téléphone du poste lié au relais Signal (+235…).",
+        "Bot non réglé : pas encore de numéro propre au bot. L'inscrire ci-dessous (chef de division), ou AFRICONTROL_BOT_NUMERO dans poste.env (+235…).",
     });
     process.env.AFRICONTROL_BOT_NUMERO = "00235 66 00 99 99";
     process.env.AFRICONTROL_BOT_AUTORISES = "pas-un-numéro";
     assert.deepEqual((await etat()).reglage, {
-      erreur: "Aucun numéro autorisé : AFRICONTROL_BOT_AUTORISES (+235…, séparés par des virgules).",
+      erreur:
+        "Aucun numéro autorisé : en ajouter un ci-dessous (chef de division), ou AFRICONTROL_BOT_AUTORISES dans poste.env (+235…, séparés par des virgules).",
     });
     process.env.AFRICONTROL_BOT_AUTORISES = CHEF;
     delete process.env.AFRICONTROL_BOT_RELAIS;
@@ -239,7 +296,7 @@ describe("bot Signal : réglage et activation", () => {
     const f = fauxPoste();
     const e = await basculerBot(true, f.poste);
     assert.equal(e.enregistrement, "fichier");
-    assert.deepEqual(JSON.parse(readFileSync("data/bot-signal.json", "utf8")), { actif: true });
+    assert.deepEqual(JSON.parse(readFileSync("data/bot-signal.json", "utf8")), { actif: true, numeros: [], numeroBot: null });
     // Redémarrage : l'écoute en cours s'arrête, l'état en mémoire disparaît, le fichier reste.
     g.__afriBot!.gen++;
     delete g.__afriBot;
@@ -249,12 +306,173 @@ describe("bot Signal : réglage et activation", () => {
     await attendreQue(() => relais.envois.length === 1);
     assert.equal((await etat()).ecoute, true);
     await basculerBot(false, f.poste);
-    assert.deepEqual(JSON.parse(readFileSync("data/bot-signal.json", "utf8")), { actif: false });
+    assert.deepEqual(JSON.parse(readFileSync("data/bot-signal.json", "utf8")), { actif: false, numeros: [], numeroBot: null });
     delete g.__afriBot;
     const avant = relais.requetes;
     await assurerBot(f.poste);
     await dormir(300);
     assert.equal(relais.requetes, avant);
+  });
+
+  it("NUMÉRO DE LA CONSOLE : ajouté coupé, activé sur demande du chef, effet au message suivant", async () => {
+    const TROISIEME = "+23566000003";
+    const f = fauxPoste();
+    await basculerBot(true, f.poste);
+    const ajout = await gererNumero("ajouter", "00235 66 00 00 03");
+    assert.equal(ajout.numero, "+235•••••003");
+    const n = ajout.etat.numeros.find((x) => x.source === "console")!;
+    assert.deepEqual([n.numero, n.actif], ["+235•••••003", false]);
+    assert.ok(!JSON.stringify(ajout.etat).includes(TROISIEME), "jamais en clair à l'écran");
+    assert.equal((ajout.etat.reglage as { autorises: number }).autorises, 2, "poste.env seulement");
+    assert.deepEqual(
+      ajout.etat.numeros.filter((x) => x.source === "poste.env").map((x) => [x.numero, x.actif]),
+      [
+        ["+235•••••001", true],
+        ["+235•••••002", true],
+      ],
+      "ceux de poste.env, listés, toujours écoutés",
+    );
+    // Coupé : ignoré, avec la raison, sans réponse ni journal (ce n'est pas un intrus).
+    relais.file.push(enveloppe(TROISIEME, "/meteo"));
+    await attendreQue(async () => (await etat()).compteurs.ignores === 1);
+    assert.equal(
+      (await etat()).ignores[0]!.raison,
+      "numéro coupé par le chef : l'activer dans Capteurs › Outils › Bot Signal",
+    );
+    // Activé : servi dès le message suivant, sans redémarrage.
+    const active = await gererNumero("activer", n.id);
+    assert.equal((active.etat.reglage as { autorises: number }).autorises, 3);
+    relais.file.push(enveloppe(TROISIEME, "/meteo"));
+    await attendreQue(() => relais.envois.length === 1);
+    assert.deepEqual(relais.envois[0]!.recipients, [TROISIEME]);
+    // Coupé de nouveau : ignoré. Retiré : un inconnu comme un autre, journalisé.
+    await gererNumero("couper", n.id);
+    relais.file.push(enveloppe(TROISIEME, "/meteo"));
+    await attendreQue(async () => (await etat()).compteurs.ignores === 2);
+    const retrait = await gererNumero("retirer", n.id);
+    assert.equal(retrait.etat.numeros.filter((x) => x.source === "console").length, 0);
+    relais.file.push(enveloppe(TROISIEME, "/meteo"));
+    await attendreQue(() => f.journal.some((l) => l.includes("numéro non autorisé")));
+    assert.equal(relais.envois.length, 1);
+    assert.equal(f.journal.filter((l) => l.includes("numéro non autorisé")).length, 1, "seul le retiré compte");
+  });
+
+  it("NUMÉROS DE LA CONSOLE : enregistrés sur le poste, relus au redémarrage ; refus clairs", async () => {
+    const f = fauxPoste();
+    const { etat: e } = await gererNumero("ajouter", "+23566000003");
+    await gererNumero("activer", e.numeros.find((x) => x.source === "console")!.id);
+    const lu = JSON.parse(readFileSync("data/bot-signal.json", "utf8")) as { numeros: { numero: string; actif: boolean }[] };
+    assert.deepEqual(lu.numeros.map((x) => [x.numero, x.actif]), [["+23566000003", true]]);
+    delete g.__afriBot;
+    assert.equal((await etat()).numeros.find((x) => x.source === "console")?.actif, true);
+    await assert.rejects(gererNumero("ajouter", "66000003"), /Numéro invalide/);
+    await assert.rejects(gererNumero("ajouter", "+235 66 00 00 03"), /déjà dans la liste/);
+    await assert.rejects(gererNumero("ajouter", CHEF), /déjà réglé dans poste\.env/);
+    await assert.rejects(gererNumero("couper", "00000000"), /introuvable/);
+    // Sans poste.env, un numéro de la console suffit pour que le bot écoute et réponde.
+    delete process.env.AFRICONTROL_BOT_AUTORISES;
+    await basculerBot(true, f.poste);
+    relais.file.push(enveloppe("+23566000003", "/meteo"));
+    await attendreQue(() => relais.envois.length === 1);
+    assert.deepEqual(
+      (await etat()).numeros.map((x) => [x.source, x.actif]),
+      [["console", true]],
+    );
+  });
+
+  it("NUMÉRO PROPRE AU BOT : inscrit depuis la console (captcha, code), enregistré, et le bot l'écoute", async () => {
+    const BOT = "+23566000827";
+    delete process.env.AFRICONTROL_BOT_NUMERO;
+    const f = fauxPoste();
+    const avant = await basculerBot(true, f.poste);
+    assert.equal(avant.sourceNumero, null);
+    assert.match((avant.reglage as { erreur: string }).erreur, /^Bot non réglé : pas encore de numéro propre au bot/);
+    const code = await inscrireBot({ etape: "code", numero: "00235 66 00 08 27", captcha: " signalcaptcha://bon ", voix: false }, f.poste);
+    assert.deepEqual([code.ok, code.numero], [true, "+235•••••827"]);
+    assert.equal(code.message, "Code demandé par SMS au +235•••••827 : le saisir ci-dessous.");
+    assert.deepEqual(relais.inscriptions[0], {
+      methode: "POST",
+      chemin: `/v1/register/${BOT}`,
+      corps: { captcha: "signalcaptcha://bon", use_voice: false },
+    });
+    const ok = await inscrireBot({ etape: "valider", numero: BOT, code: "123-456", pin: "", nom: "" }, f.poste);
+    assert.equal(ok.ok, true);
+    assert.equal(ok.message, "Numéro +235•••••827 inscrit chez Signal : c'est désormais celui du bot, profil « AfriControl ».");
+    assert.deepEqual(
+      relais.inscriptions.slice(1).map((x) => [x.methode, x.chemin, JSON.stringify(x.corps)]),
+      [
+        ["POST", `/v1/register/${BOT}/verify/123456`, "{}"],
+        ["PUT", `/v1/profiles/${BOT}`, '{"name":"AfriControl"}'],
+      ],
+    );
+    assert.equal(ok.etat.sourceNumero, "console");
+    assert.equal((ok.etat.reglage as { numero: string }).numero, "+235•••••827");
+    // Vu sur le vrai relais : « pas encore de numéro » restait affiché sous l'inscription réussie.
+    assert.equal(ok.etat.erreur, null, "l'erreur de l'ancien réglage n'est plus dite");
+    assert.equal(
+      (JSON.parse(readFileSync("data/bot-signal.json", "utf8")) as { numeroBot: string }).numeroBot,
+      BOT,
+    );
+    // Le bot écoute désormais SON numéro et répond depuis lui.
+    relais.file.push(enveloppe(CHEF, "/meteo"));
+    await attendreQue(() => relais.envois.length === 1);
+    assert.equal(relais.envois[0]!.number, BOT);
+    assert.equal(new URL(relais.releveUrl, base).pathname, `/v1/receive/${BOT}`);
+    // poste.env, s'il en donne un, l'emporte.
+    process.env.AFRICONTROL_BOT_NUMERO = POSTE;
+    assert.equal((await etat()).sourceNumero, "poste.env");
+  });
+
+  it("INSCRIPTION : chaque refus dit quoi faire, sans rien enregistrer", async () => {
+    const f = fauxPoste();
+    const essai = (i: Parameters<typeof inscrireBot>[0]) => inscrireBot(i, f.poste).then((r) => [r.ok, r.message]);
+    const code = { etape: "code" as const, numero: "+23566000827", captcha: "signalcaptcha://bon", voix: true };
+    const valider = { etape: "valider" as const, numero: "+23566000827", code: "123456", pin: "", nom: "Bot" };
+    assert.deepEqual(await essai({ ...code, numero: "66000827" }), [
+      false,
+      "Numéro invalide : au format +235… ou 00235…, indicatif du pays compris.",
+    ]);
+    assert.deepEqual(await essai({ ...code, captcha: "signal-hcaptcha.5fad…" }), [
+      false,
+      "Captcha : coller le lien entier, qui commence par « signalcaptcha:// ».",
+    ]);
+    assert.deepEqual(await essai({ ...code, captcha: "signalcaptcha://perime" }), [
+      false,
+      "Signal refuse le captcha (expiré ou invalide) : en refaire un sur signalcaptchas.org et le recoller aussitôt.",
+    ]);
+    assert.deepEqual(await essai(code), [true, "Code demandé par appel au +235•••••827 : le saisir ci-dessous."]);
+    assert.deepEqual(await essai({ ...valider, code: "12345" }), [false, "Code : les six chiffres reçus par SMS ou par appel."]);
+    assert.deepEqual(await essai({ ...valider, code: "654321" }), [
+      false,
+      "Code refusé : vérifier les six chiffres reçus, ou redemander un code.",
+    ]);
+    relais.erreurInscription = { statut: 429, corps: "" };
+    assert.deepEqual(await essai(code), [false, "Signal limite les demandes pour ce numéro : réessayer dans quelques heures."]);
+    relais.erreurInscription = { statut: 400, corps: JSON.stringify({ error: "Account is registration locked, pin required" }) };
+    assert.deepEqual(await essai(valider), [false, "Ce numéro a un verrou d'inscription : saisir son code PIN Signal."]);
+    relais.erreurInscription = { statut: 500, corps: JSON.stringify({ error: `boom pour +23566000827` }) };
+    assert.deepEqual(await essai(code), [false, "Relais Signal : HTTP 500 — boom pour +235•••••827."]);
+    relais.erreurInscription = null;
+    // Avec le PIN : il part avec la validation.
+    await essai({ ...valider, pin: " 4321 " });
+    assert.deepEqual(relais.inscriptions.at(-2)!.corps, { pin: "4321" });
+    // Profil refusé : le numéro est inscrit quand même, et l'écran le dit.
+    relais.erreurProfil = true;
+    assert.deepEqual(await essai(valider), [
+      true,
+      "Numéro +235•••••827 inscrit chez Signal : c'est désormais celui du bot (profil non nommé : Relais Signal : HTTP 500 — profile update failed.).",
+    ]);
+    relais.erreurProfil = false;
+    // Relais hors du poste, ou injoignable : rien ne part, et c'est dit.
+    process.env.AFRICONTROL_BOT_RELAIS = "https://signal.exemple.org";
+    assert.match((await essai(code))[1] as string, /^AFRICONTROL_BOT_RELAIS refusée/);
+    process.env.AFRICONTROL_BOT_RELAIS = base;
+    const ferme = createServer();
+    await new Promise<void>((ok) => ferme.listen(0, "127.0.0.1", ok));
+    const port = (ferme.address() as AddressInfo).port;
+    await new Promise<void>((ok) => ferme.close(() => ok()));
+    process.env.AFRICONTROL_BOT_RELAIS = `http://127.0.0.1:${port}`;
+    assert.deepEqual(await essai(code), [false, `Relais Signal injoignable à http://127.0.0.1:${port} (ECONNREFUSED).`]);
   });
 
   it("DISQUE EN LECTURE SEULE : la bascule vaut jusqu'au redémarrage, et le dit", async () => {
@@ -321,7 +539,7 @@ describe("bot Signal : relais en mode native (relève continue)", () => {
       [
         "+235•••••001 · message de groupe",
         "+235•••••999 · numéro non autorisé",
-        "numéro masqué · numéro masqué par Signal : l'enregistrer dans les contacts du téléphone du poste",
+        "numéro masqué · numéro masqué par Signal, inconnu du bot : si c'est un numéro autorisé, régler sur son téléphone Signal › Confidentialité › Numéro de téléphone › « Qui peut me trouver par mon numéro » : « Tout le monde »",
       ],
     );
   });
@@ -454,7 +672,7 @@ describe("bot Signal : relais en mode native (relève continue)", () => {
     await attendreQue(() => relais.envois.length === 1);
   });
 
-  it("NUMÉRO DU POSTE NON LIÉ : le dit avec l'adresse du QR ; pause doublée, qui repart d'1 s après une reprise", async () => {
+  it("NUMÉRO DU BOT NON INSCRIT : le dit, et où l'inscrire ; pause doublée, qui repart d'1 s après une reprise", async () => {
     relais.erreurReleve = {
       statut: 400,
       corps: JSON.stringify({
@@ -465,7 +683,7 @@ describe("bot Signal : relais en mode native (relève continue)", () => {
     await attendreQue(async () => (await etat()).erreur !== null);
     assert.equal(
       (await etat()).erreur!.texte,
-      `Le numéro +235•••••999 n'est pas lié au relais Signal : lier le téléphone du poste (${base}/v1/qrcodelink?device_name=AfriControl).`,
+      `Le numéro +235•••••999 n'est pas inscrit au relais Signal (${base}) : l'inscrire dans Capteurs › Outils › Bot Signal › Numéro propre au bot (chef de division).`,
     );
     // Échecs à 0 s, 1 s, 3 s, puis 7 s : trois relèves en 3,4 s, pas une par seconde.
     await dormir(3400);
@@ -485,7 +703,7 @@ describe("bot Signal : relais en mode native (relève continue)", () => {
 
   it("NUMÉRO ABSENT DES COMPTES DU RELAIS : dit aussitôt, sans relève ni websocket (les deux modes)", async () => {
     relais.comptes = [];
-    const attendu = `Le numéro +235•••••999 n'est pas lié au relais Signal : lier le téléphone du poste (${base}/v1/qrcodelink?device_name=AfriControl).`;
+    const attendu = `Le numéro +235•••••999 n'est pas inscrit au relais Signal (${base}) : l'inscrire dans Capteurs › Outils › Bot Signal › Numéro propre au bot (chef de division).`;
     await basculerBot(true, fauxPoste().poste);
     await attendreQue(erreurVaut(attendu));
     assert.equal((await etat()).mode, "native", "le mode du relais reste affiché");
@@ -495,7 +713,7 @@ describe("bot Signal : relais en mode native (relève continue)", () => {
     await dormir(300);
     assert.equal(relais.releves, 0);
     assert.equal(relais.sockets.size, 0, "pas de websocket muette ouverte pour rien");
-    // Le téléphone est lié ensuite : le bot le voit à son prochain essai, seul.
+    // Le numéro est inscrit ensuite : le bot le voit à son prochain essai, seul.
     relais.comptes = [POSTE];
     await attendreQue(() => relais.sockets.size === 1, 5000);
   });
@@ -585,7 +803,7 @@ describe("bot Signal : relais en mode native (relève continue)", () => {
     assert.equal(relais.releves, 1, "la lecture de l'état ne relance pas l'écoute");
     const e = await etat();
     assert.deepEqual([e.actif, e.ecoute, e.erreur], [true, false, null]);
-    assert.deepEqual(JSON.parse(readFileSync("data/bot-signal.json", "utf8")), { actif: true });
+    assert.deepEqual(JSON.parse(readFileSync("data/bot-signal.json", "utf8")), { actif: true, numeros: [], numeroBot: null });
   });
 
   it("COUPÉ PENDANT UNE RELÈVE QUI ÉCHOUE : aucune panne affichée pour un bot coupé", async () => {
@@ -615,7 +833,7 @@ describe("bot Signal : relais en mode json-rpc (websocket)", () => {
     assert.equal((await etat()).mode, "json-rpc");
     assert.equal(relais.releves, 0, "pas de relève HTTP en json-rpc");
     pousser({ error: "Specified account does not exist" });
-    await attendreQue(async () => /^Le numéro \+235•••••999 n'est pas lié/.test((await etat()).erreur?.texte ?? ""));
+    await attendreQue(async () => /^Le numéro \+235•••••999 n'est pas inscrit/.test((await etat()).erreur?.texte ?? ""));
     pousser({ error: `Rate limit exceeded for ${CHEF}` });
     await attendreQue(erreurVaut("Relais Signal — Rate limit exceeded for +235•••••001."));
     await basculerBot(false, f.poste);
@@ -672,5 +890,73 @@ describe("bot Signal : relais en mode json-rpc (websocket)", () => {
     await basculerBot(true, fauxPoste().poste);
     await attendreQue(erreurVaut(`Relais Signal injoignable à ${base} (websocket : pas de réponse à temps).`), 8000);
     assert.equal((await etat()).ecoute, true);
+  });
+});
+
+describe("bot Signal : numéro masqué par Signal (réglage par défaut depuis 2024)", () => {
+  it("RECHERCHE À L'ÉCOUTE : les numéros écoutés cherchés chez Signal, trouvables ou non à l'écran", async () => {
+    relais.trouvables = [CHEF];
+    await basculerBot(true, fauxPoste().poste);
+    await attendreQue(() => relais.recherches.length === 1);
+    assert.deepEqual([...relais.recherches[0]!].sort(), [CHEF, AGENT].sort());
+    await attendreQue(async () => (await etat()).numeros.every((n) => n.surSignal !== null));
+    assert.deepEqual(
+      (await etat()).numeros.map((n) => [n.numero, n.surSignal]),
+      [
+        ["+235•••••001", true],
+        ["+235•••••002", false],
+      ],
+    );
+  });
+
+  it("MASQUÉ, COMPTE CONNU DU BOT : reconnu, exécuté, réponse à son numéro ; une recherche par 30 s au plus", async () => {
+    relais.contacts = [
+      { uuid: "autre-uuid", number: AGENT },
+      { uuid: "6a1f0c2e-uuid", number: CHEF },
+    ];
+    const f = fauxPoste();
+    relais.file.push(enveloppe(null, "/meteo"), enveloppe(null, "Situation"));
+    await basculerBot(true, f.poste);
+    await attendreQue(() => relais.envois.length === 2);
+    assert.deepEqual(f.executees, [
+      ["/meteo", CHEF],
+      ["/situation", CHEF],
+    ]);
+    assert.deepEqual(
+      relais.envois.map((x) => x.recipients),
+      [[CHEF], [CHEF]],
+    );
+    assert.deepEqual(
+      (await etat()).echanges.map((x) => x.de),
+      ["+235•••••001", "+235•••••001"],
+    );
+    assert.equal(relais.recherches.length, 1, "celle de l'écoute suffit : moins de 30 s");
+  });
+
+  it("MASQUÉ, COMPTE INCONNU OU RELAIS EN PANNE : ignoré, dit pourquoi, et le bot continue", async () => {
+    const f = fauxPoste();
+    relais.file.push(enveloppe(null, "/meteo"));
+    await basculerBot(true, f.poste);
+    await attendreQue(async () => (await etat()).compteurs.ignores === 1);
+    assert.match((await etat()).ignores[0]!.raison, /^numéro masqué par Signal, inconnu du bot/);
+    relais.erreurContacts = true;
+    relais.contacts = [{ uuid: "6a1f0c2e-uuid", number: CHEF }];
+    relais.file.push(enveloppe(null, "/meteo"), enveloppe(CHEF, "/aide"));
+    await attendreQue(async () => (await etat()).compteurs.ignores === 2 && relais.envois.length === 1);
+    assert.deepEqual(f.executees, [["/aide", CHEF]]);
+    assert.equal((await etat()).erreur, null, "une résolution manquée n'est pas une panne du bot");
+  });
+
+  it("ACTIVÉ PAR LE CHEF PENDANT L'ÉCOUTE : cherché aussitôt chez Signal ; ajouté coupé, non", async () => {
+    await basculerBot(true, fauxPoste().poste);
+    await attendreQue(() => relais.recherches.length === 1);
+    const ajout = await gererNumero("ajouter", "+23566000003");
+    await dormir(100);
+    assert.equal(relais.recherches.length, 1, "ajouté coupé : pas cherché");
+    relais.trouvables = ["+23566000003"];
+    await gererNumero("activer", ajout.etat.numeros.find((x) => x.source === "console")!.id);
+    await attendreQue(() => relais.recherches.length === 2);
+    assert.ok(relais.recherches[1]!.includes("+23566000003"));
+    await attendreQue(async () => (await etat()).numeros.find((x) => x.source === "console")?.surSignal === true);
   });
 });

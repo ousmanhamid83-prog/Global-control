@@ -4,10 +4,20 @@
  * inconnu n'a aucune réponse (rien ne lui confirme qu'un bot écoute), un groupe non plus (la
  * réponse irait à des gens qui n'ont pas été autorisés). Module pur, testable sous node.
  */
+import { trouverCommande } from "./commandes-poste.ts";
 import { IA_QUESTION_MAX } from "./ia-limites.ts";
 
-/** Un message texte reçu ; `expediteur` vide quand Signal ne donne pas le numéro (masqué). */
-export type MessageRecu = { expediteur: string; texte: string; groupe: boolean; at: number };
+/**
+ * Un message texte reçu ; `expediteur` vide quand Signal ne donne pas le numéro (masqué).
+ * `compte` : l'identifiant du compte Signal de l'expéditeur (sourceUuid), vide s'il manque.
+ */
+export type MessageRecu = {
+  expediteur: string;
+  compte: string;
+  texte: string;
+  groupe: boolean;
+  at: number;
+};
 
 /**
  * Les messages texte d'une réception du relais : le tableau de GET /v1/receive/{numero} (mode
@@ -27,6 +37,7 @@ export function messagesRecus(brut: unknown): MessageRecu[] {
     if (!texte) continue;
     recus.push({
       expediteur: typeof env?.sourceNumber === "string" ? env.sourceNumber : "",
+      compte: typeof env?.sourceUuid === "string" ? env.sourceUuid : "",
       texte,
       groupe: dm?.groupInfo != null,
       at: Number(env?.timestamp) || 0,
@@ -45,6 +56,36 @@ export function numeroE164(brut: string): string | null {
 export function listeAutorises(brut: string | undefined): Set<string> {
   const numeros = (brut ?? "").split(/[,;]/).map(numeroE164);
   return new Set(numeros.filter((n): n is string => n !== null));
+}
+
+/** Un numéro ajouté par le chef depuis la console : le bot ne l'écoute qu'une fois activé. */
+export type NumeroBot = { numero: string; actif: boolean; ajouteA: number };
+
+/** Les numéros que le bot écoute : ceux de poste.env, toujours ; ceux de la console, activés. */
+export function autorisesEffectifs(poste: Set<string>, numeros: NumeroBot[]): Set<string> {
+  return new Set([...poste, ...numeros.filter((n) => n.actif).map((n) => n.numero)]);
+}
+
+/** Les numéros de la console relus sur le disque : valides seulement, sans doublon. */
+export function numerosValides(brut: unknown): NumeroBot[] {
+  if (!Array.isArray(brut)) return [];
+  const vus = new Set<string>();
+  const sortie: NumeroBot[] = [];
+  for (const x of brut) {
+    const lu = (x ?? {}) as { numero?: unknown; actif?: unknown; ajouteA?: unknown };
+    const numero = numeroE164(String(lu.numero ?? ""));
+    if (!numero || vus.has(numero)) continue;
+    vus.add(numero);
+    sortie.push({ numero, actif: lu.actif === true, ajouteA: Number(lu.ajouteA) || 0 });
+  }
+  return sortie;
+}
+
+/** Identifiant d'un numéro pour l'écran, qui ne le montre jamais en clair (FNV-1a, 32 bits). */
+export function idNumero(numero: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < numero.length; i++) h = Math.imul(h ^ numero.charCodeAt(i), 0x01000193) >>> 0;
+  return h.toString(16).padStart(8, "0");
 }
 
 /** Un numéro tel qu'il paraît au journal et à l'écran : « +235•••••234 ». */
@@ -82,7 +123,7 @@ export function creerLimiteur(
 }
 
 export const AIDE_BOT =
-  "Bot du poste AfriControl : envoyer une commande, par exemple /situation. La liste : /aide.";
+  "Bot du poste AfriControl : envoyer une commande, par exemple « situation » ou /situation. La liste : /aide.";
 export const TROP_DE_COMMANDES = "Trop de commandes en une minute : réessayer dans un instant.";
 
 /**
@@ -93,6 +134,16 @@ export const PERIME_MS = 5 * 60_000;
 
 function heureZ(ms: number): string {
   return `${new Date(ms).toISOString().slice(11, 16)} Z`;
+}
+
+/**
+ * « Situation », « Météo. », « piste TST101 » : sur un téléphone, on tape le nom de la commande
+ * sans la barre oblique. Le premier mot, s'il nomme une commande, en fait une ; sinon null.
+ */
+export function commandeSansBarre(texte: string): string | null {
+  const [mot = "", ...reste] = texte.trim().split(/\s+/);
+  const c = trouverCommande(mot.replace(/[.!?,;:]+$/, ""));
+  return c ? `/${[c.nom, ...reste].join(" ")}` : null;
 }
 
 export type Decision =
@@ -111,7 +162,7 @@ export function decider(
     return {
       action: "ignorer",
       raison:
-        "numéro masqué par Signal : l'enregistrer dans les contacts du téléphone du poste",
+        "numéro masqué par Signal, inconnu du bot : si c'est un numéro autorisé, régler sur son téléphone Signal › Confidentialité › Numéro de téléphone › « Qui peut me trouver par mon numéro » : « Tout le monde »",
     };
   }
   if (!autorises.has(m.expediteur)) return { action: "ignorer", raison: "numéro non autorisé" };
@@ -125,8 +176,9 @@ export function decider(
       texte: `Message envoyé à ${heureZ(m.at)}, arrivé au poste à ${heureZ(maintenant)} : trop ancien, non exécuté. Le renvoyer s'il vaut encore.`,
     };
   }
-  if (!m.texte.startsWith("/")) return { action: "repondre", texte: AIDE_BOT };
-  return { action: "executer", commande: m.texte.slice(0, IA_QUESTION_MAX) };
+  const commande = m.texte.startsWith("/") ? m.texte : commandeSansBarre(m.texte);
+  if (!commande) return { action: "repondre", texte: AIDE_BOT };
+  return { action: "executer", commande: commande.slice(0, IA_QUESTION_MAX) };
 }
 
 /** Commandes qui ne lisent pas le relevé des capteurs : son âge n'a rien à y faire. */

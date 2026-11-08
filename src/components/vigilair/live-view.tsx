@@ -54,8 +54,8 @@ import {
   IA_QUESTION_MAX,
 } from "@/lib/vigilair/ia-limites";
 import { ReponseIa } from "@/components/vigilair/reponse-ia";
-import { basculerBotSignal, lireBotSignal } from "@/lib/vigilair/bot-api";
-import type { EtatBot } from "@/lib/vigilair/bot-signal.server";
+import { basculerBotSignal, gererNumeroBot, inscrireBotSignal, lireBotSignal } from "@/lib/vigilair/bot-api";
+import type { ActionNumero, EtatBot } from "@/lib/vigilair/bot-signal.server";
 import { basculerCommande, lancerCommande, lireCommandes } from "@/lib/vigilair/commandes-api";
 import {
   COMMANDES,
@@ -1785,7 +1785,40 @@ function BotSignalSection() {
   const [etat, setEtat] = useState<EtatBot | null>(null);
   const [occupe, setOccupe] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [nouveau, setNouveau] = useState("");
+  const [inscription, setInscription] = useState({ numero: "", captcha: "", voix: false, code: "", pin: "", nom: "AfriControl" });
+  const [codeDemande, setCodeDemande] = useState(false);
   const now = useWallClock();
+
+  const inscrire = (etape: "code" | "valider") => {
+    const t0 = performance.now();
+    setOccupe(true);
+    inscrireBotSignal({ data: { etape, ...inscription } })
+      .then((r) => {
+        setEtat(r.etat);
+        setMsg(`${r.message} (${Math.round(performance.now() - t0)} ms)`);
+        if (r.ok && etape === "code") setCodeDemande(true);
+        if (r.ok && etape === "valider") {
+          setCodeDemande(false);
+          setInscription((x) => ({ ...x, captcha: "", code: "", pin: "" }));
+        }
+      })
+      .catch((err: unknown) => setMsg(err instanceof Error ? err.message : "refusé"))
+      .finally(() => setOccupe(false));
+  };
+
+  const gerer = (action: ActionNumero, valeur: string, libelle: string) => {
+    const t0 = performance.now();
+    setOccupe(true);
+    gererNumeroBot({ data: { action, valeur } })
+      .then((e) => {
+        setEtat(e);
+        if (action === "ajouter") setNouveau("");
+        setMsg(`${libelle} en ${Math.round(performance.now() - t0)} ms.`);
+      })
+      .catch((err: unknown) => setMsg(err instanceof Error ? err.message : "refusé"))
+      .finally(() => setOccupe(false));
+  };
 
   useEffect(() => {
     let vivant = true;
@@ -1862,6 +1895,193 @@ function BotSignalSection() {
             </dd>
           </dl>
         )
+      ) : null}
+      {etat && isSuperadmin ? (
+        <details className="rounded border border-border/60 p-3 text-xs" open={etat.sourceNumero == null}>
+          <summary className="cursor-pointer font-medium">
+            Numéro propre au bot{" "}
+            <span className="font-normal text-muted-foreground">
+              {etat.sourceNumero
+                ? `— ${"erreur" in etat.reglage ? "" : etat.reglage.numero} (${etat.sourceNumero})`
+                : "— à inscrire"}
+            </span>
+          </summary>
+          <p className="mt-2 text-muted-foreground">
+            Le bot a son propre numéro, inscrit chez Signal par le relais du poste : aucun téléphone
+            relié, qui verrait tous les messages de son compte. Il faut une puce qui reçoit un SMS
+            ou un appel ; un numéro déjà utilisé par Signal sur un téléphone en serait déconnecté.
+          </p>
+          <div className="mt-2 grid gap-2">
+            <Input
+              value={inscription.numero}
+              onChange={(ev) => setInscription({ ...inscription, numero: ev.target.value })}
+              placeholder="Numéro du bot : +235… ou 00235…"
+              aria-label="Numéro propre au bot"
+              className="max-w-xs font-mono"
+              maxLength={24}
+            />
+            {!codeDemande ? (
+              <>
+                <p className="text-muted-foreground">
+                  1. Résoudre le captcha de Signal sur{" "}
+                  <a
+                    className="underline"
+                    href="https://signalcaptchas.org/registration/generate"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    signalcaptchas.org
+                  </a>
+                  . Le lien « Ouvrez Signal » paraît 2 s après : clic droit ou appui long, « Copier
+                  l'adresse du lien », puis le coller ici (« signalcaptcha://… », valable quelques
+                  minutes).
+                </p>
+                <Input
+                  value={inscription.captcha}
+                  onChange={(ev) => setInscription({ ...inscription, captcha: ev.target.value })}
+                  placeholder="signalcaptcha://…"
+                  aria-label="Lien du captcha Signal"
+                  className="font-mono"
+                />
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={inscription.voix}
+                    onChange={(ev) => setInscription({ ...inscription, voix: ev.target.checked })}
+                  />
+                  Code par appel vocal plutôt que par SMS
+                </label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={occupe || !inscription.numero.trim() || !inscription.captcha.trim()}
+                  onClick={() => inscrire("code")}
+                >
+                  Recevoir le code
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="text-muted-foreground">2. Le code reçu, puis le nom que Signal montrera.</p>
+                <Input
+                  value={inscription.code}
+                  onChange={(ev) => setInscription({ ...inscription, code: ev.target.value })}
+                  placeholder="Code à six chiffres"
+                  aria-label="Code d'inscription reçu"
+                  className="max-w-xs font-mono"
+                  maxLength={12}
+                />
+                <Input
+                  value={inscription.pin}
+                  onChange={(ev) => setInscription({ ...inscription, pin: ev.target.value })}
+                  placeholder="PIN Signal (seulement si le numéro en a un)"
+                  aria-label="PIN Signal"
+                  className="max-w-xs font-mono"
+                  maxLength={32}
+                />
+                <Input
+                  value={inscription.nom}
+                  onChange={(ev) => setInscription({ ...inscription, nom: ev.target.value })}
+                  placeholder="Nom du profil : AfriControl"
+                  aria-label="Nom du profil du bot"
+                  className="max-w-xs"
+                  maxLength={26}
+                />
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={occupe || !inscription.code.trim()}
+                    onClick={() => inscrire("valider")}
+                  >
+                    Valider l'inscription
+                  </Button>
+                  <Button type="button" size="sm" variant="ghost" disabled={occupe} onClick={() => setCodeDemande(false)}>
+                    Redemander un code
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </details>
+      ) : null}
+      {etat ? (
+        <div className="space-y-2">
+          <h3 className="text-xs font-medium text-muted-foreground">
+            Numéros autorisés — ceux de poste.env sont toujours écoutés ; ceux ajoutés ici le sont
+            une fois activés par le chef
+          </h3>
+          {etat.numeros.length > 0 ? (
+            <ul className="divide-y divide-border/60 text-xs">
+              {etat.numeros.map((n) => (
+                <li key={n.id} className="flex flex-wrap items-center gap-2 py-1.5">
+                  <span className="font-mono">{n.numero}</span>
+                  <span className="text-muted-foreground">{n.source}</span>
+                  <span className={n.actif ? "text-ok" : "text-muted-foreground"}>
+                    {n.actif ? "écouté" : "coupé"}
+                  </span>
+                  {n.surSignal === false ? (
+                    <span className="basis-full text-warn">
+                      Introuvable sur Signal : le bot ne saura pas que ses messages viennent de lui.
+                      Sur ce téléphone, Signal › Confidentialité › Numéro de téléphone › « Qui peut me
+                      trouver par mon numéro » : « Tout le monde » (le numéro reste caché à qui ne
+                      l'a pas).
+                    </span>
+                  ) : null}
+                  {n.source === "console" ? (
+                    <span className="ml-auto flex gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={!isSuperadmin || occupe}
+                        onClick={() =>
+                          gerer(n.actif ? "couper" : "activer", n.id, `${n.numero} ${n.actif ? "coupé" : "activé"}`)
+                        }
+                      >
+                        {n.actif ? "Couper" : "Activer"}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={!isSuperadmin || occupe}
+                        onClick={() => gerer("retirer", n.id, `${n.numero} retiré`)}
+                      >
+                        Retirer
+                      </Button>
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-muted-foreground">Aucun numéro autorisé.</p>
+          )}
+          {isSuperadmin ? (
+            <form
+              className="flex flex-wrap gap-2"
+              onSubmit={(ev) => {
+                ev.preventDefault();
+                gerer("ajouter", nouveau, "Numéro ajouté, coupé : à activer quand il le faut,");
+              }}
+            >
+              <Input
+                value={nouveau}
+                onChange={(ev) => setNouveau(ev.target.value)}
+                placeholder="+235… ou 00235…"
+                aria-label="Numéro à autoriser"
+                className="max-w-xs font-mono"
+                maxLength={24}
+              />
+              <Button type="submit" size="sm" variant="outline" disabled={occupe || !nouveau.trim()}>
+                Ajouter (coupé)
+              </Button>
+            </form>
+          ) : null}
+        </div>
       ) : null}
       <div className="flex flex-wrap items-center gap-2">
         <Button

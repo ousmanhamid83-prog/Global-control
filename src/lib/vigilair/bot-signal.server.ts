@@ -2,7 +2,8 @@
  * Bot Signal du poste — CÔTÉ SERVEUR : il écoute le relais signal-cli du poste, exécute les
  * commandes des numéros autorisés et répond à l'expéditeur seul.
  *
- *   AFRICONTROL_BOT_NUMERO=+235XXXXXXXX           numéro du téléphone du poste, lié au relais (QR)
+ *   AFRICONTROL_BOT_NUMERO=+235XXXXXXXX           numéro propre au bot, inscrit par le relais (sinon
+ *                                                 inscrit depuis la console : Capteurs › Outils)
  *   AFRICONTROL_BOT_AUTORISES=+235…,+235…         les seuls numéros que le bot écoute
  *   AFRICONTROL_BOT_RELAIS=http://127.0.0.1:8085  le relais (par défaut), sur le réseau du poste
  *
@@ -19,15 +20,19 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { env } from "../env.server.ts";
 import {
+  autorisesEffectifs,
   creerLimiteur,
   decider,
+  idNumero,
   listeAutorises,
   masquer,
   messagesRecus,
   noteReleve,
   numeroE164,
+  numerosValides,
   reponseBot,
   type MessageRecu,
+  type NumeroBot,
   type Verdict,
 } from "./bot-signal.ts";
 import type { ResultatCommande } from "./commandes-poste.server.ts";
@@ -52,6 +57,11 @@ const RELAIS_DELAI_MS = 5_000;
 const PAUSE_MAX_MS = 30_000;
 /** Une websocket fermée avant ce délai compte comme un échec (la pause s'allonge). */
 const WS_STABLE_MS = 10_000;
+/**
+ * Au plus une recherche des numéros autorisés chez Signal par période : un flot de messages
+ * masqués ne lance pas un flot de recherches.
+ */
+const RECHERCHE_MIN_MS = 30_000;
 
 export type EchangeBot = {
   at: number;
@@ -77,11 +87,27 @@ export type CompteursBot = {
   echecsEnvoi: number;
 };
 
+/** Un numéro autorisé tel que l'écran le montre : masqué, avec d'où il vient. */
+export type NumeroEcran = {
+  /** Identifiant opaque, pour activer, couper ou retirer sans montrer le numéro. */
+  id: string;
+  numero: string;
+  actif: boolean;
+  /** « poste.env » : toujours écouté ; « console » : ajouté par le chef, activable sur demande. */
+  source: "poste.env" | "console";
+  /** Trouvé chez Signal à la dernière recherche du bot ; null : pas encore cherché. */
+  surSignal: boolean | null;
+};
+
 export type EtatBot = {
   actif: boolean;
   /** « fichier » : enregistré sur le poste ; « memoire » : jusqu'au redémarrage. */
   enregistrement: "fichier" | "memoire";
+  /** `autorises` : les numéros écoutés en ce moment (poste.env et console activés). */
   reglage: { numero: string; autorises: number; relais: string } | { erreur: string };
+  /** D'où vient le numéro du bot : poste.env, ou inscrit depuis la console ; null sans numéro. */
+  sourceNumero: "poste.env" | "console" | null;
+  numeros: NumeroEcran[];
   /** Le bot écoute le relais en ce moment. */
   ecoute: boolean;
   /** Mode du relais lu dans /v1/about : native, normal, json-rpc. */
@@ -129,6 +155,10 @@ const posteReel: Poste = {
 type Interne = {
   chargement: Promise<void> | null;
   actif: boolean;
+  /** Numéros ajoutés par le chef (data/bot-signal.json) ; ceux de poste.env n'y sont pas. */
+  numeros: NumeroBot[];
+  /** Numéro propre au bot, inscrit chez Signal depuis la console ; poste.env l'emporte. */
+  numeroBot: string | null;
   enregistrement: "fichier" | "memoire";
   /** Change à chaque démarrage et à chaque arrêt : une écoute d'avant le voit et s'arrête. */
   gen: number;
@@ -150,6 +180,10 @@ type Interne = {
    */
   files: Map<string, Promise<void>>;
   socket: WebSocket | null;
+  /** Numéros autorisés trouvés (ou non) chez Signal à la dernière recherche du bot. */
+  surSignal: Map<string, boolean>;
+  /** Heure de la dernière recherche (ms) ; 0 : à refaire dès que besoin. */
+  rechercheA: number;
 };
 
 // Sur globalThis : le serveur construit a plusieurs copies de ce module (plugin de démarrage,
@@ -162,9 +196,12 @@ function fichier(): string {
 
 async function charger(e: Interne): Promise<void> {
   try {
-    e.actif = (JSON.parse(await readFile(fichier(), "utf8")) as { actif?: unknown }).actif === true;
+    const lu = JSON.parse(await readFile(fichier(), "utf8")) as { actif?: unknown; numeros?: unknown };
+    e.actif = lu.actif === true;
+    e.numeros = numerosValides(lu.numeros);
+    e.numeroBot = numeroE164(String((lu as { numeroBot?: unknown }).numeroBot ?? ""));
   } catch {
-    // Pas de fichier, ou illisible : coupé, comme à la livraison.
+    // Pas de fichier, ou illisible : coupé, sans numéro de console, comme à la livraison.
   }
 }
 
@@ -172,6 +209,8 @@ async function etat(): Promise<Interne> {
   const e = (g.__afriBot ??= {
     chargement: null,
     actif: false,
+    numeros: [],
+    numeroBot: null,
     enregistrement: "fichier",
     gen: 0,
     fermeture: false,
@@ -186,6 +225,8 @@ async function etat(): Promise<Interne> {
     inconnus: creerLimiteur(1, 10 * 60_000),
     files: new Map(),
     socket: null,
+    surSignal: new Map(),
+    rechercheA: 0,
   });
   await (e.chargement ??= charger(e));
   return e;
@@ -195,7 +236,10 @@ async function enregistrer(e: Interne): Promise<void> {
   try {
     const f = fichier();
     await mkdir(path.dirname(f), { recursive: true });
-    await writeFile(`${f}.part`, `${JSON.stringify({ actif: e.actif })}\n`);
+    await writeFile(
+      `${f}.part`,
+      `${JSON.stringify({ actif: e.actif, numeros: e.numeros, numeroBot: e.numeroBot }, null, 2)}\n`,
+    );
     await rename(`${f}.part`, f);
     e.enregistrement = "fichier";
   } catch {
@@ -203,20 +247,22 @@ async function enregistrer(e: Interne): Promise<void> {
   }
 }
 
-type Conf = { base: string; numero: string; autorises: Set<string> };
+/** `autorisesPoste` : ceux de poste.env ; les numéros de la console se lisent au message près. */
+type Conf = { base: string; numero: string; autorisesPoste: Set<string> };
 
-function reglage(): Conf | { erreur: string } {
-  const numero = numeroE164(env("AFRICONTROL_BOT_NUMERO") ?? "");
+function reglage(e: Interne): Conf | { erreur: string } {
+  const numero = numeroE164(env("AFRICONTROL_BOT_NUMERO") ?? "") ?? e.numeroBot;
   if (!numero) {
     return {
       erreur:
-        "Bot non réglé : AFRICONTROL_BOT_NUMERO, le numéro du téléphone du poste lié au relais Signal (+235…).",
+        "Bot non réglé : pas encore de numéro propre au bot. L'inscrire ci-dessous (chef de division), ou AFRICONTROL_BOT_NUMERO dans poste.env (+235…).",
     };
   }
-  const autorises = listeAutorises(env("AFRICONTROL_BOT_AUTORISES"));
-  if (autorises.size === 0) {
+  const autorisesPoste = listeAutorises(env("AFRICONTROL_BOT_AUTORISES"));
+  if (autorisesPoste.size === 0 && e.numeros.length === 0) {
     return {
-      erreur: "Aucun numéro autorisé : AFRICONTROL_BOT_AUTORISES (+235…, séparés par des virgules).",
+      erreur:
+        "Aucun numéro autorisé : en ajouter un ci-dessous (chef de division), ou AFRICONTROL_BOT_AUTORISES dans poste.env (+235…, séparés par des virgules).",
     };
   }
   const s = serveurPoste(env("AFRICONTROL_BOT_RELAIS") ?? RELAIS_DEFAUT);
@@ -225,7 +271,7 @@ function reglage(): Conf | { erreur: string } {
       erreur: `AFRICONTROL_BOT_RELAIS refusée : le relais doit être sur le réseau du poste (${RESEAU_POSTE_EXEMPLES}).`,
     };
   }
-  return { base: s.base, numero, autorises };
+  return { base: s.base, numero, autorisesPoste };
 }
 
 /** Erreur déjà dite en clair (réponse du relais) — à l'inverse d'un relais injoignable. */
@@ -252,7 +298,7 @@ function lireErreur(corps: string): string {
 }
 
 function pasLie(conf: Conf): string {
-  return `Le numéro ${masquer(conf.numero)} n'est pas lié au relais Signal : lier le téléphone du poste (${conf.base}/v1/qrcodelink?device_name=AfriControl).`;
+  return `Le numéro ${masquer(conf.numero)} n'est pas inscrit au relais Signal (${conf.base}) : l'inscrire dans Capteurs › Outils › Bot Signal › Numéro propre au bot (chef de division).`;
 }
 
 /** En clair : la dernière ligne (signal-cli écrit d'abord ses journaux), numéros masqués. */
@@ -306,15 +352,69 @@ async function journaliser(
   }
 }
 
-async function traiterUn(e: Interne, conf: Conf, poste: Poste, m: MessageRecu): Promise<void> {
+/**
+ * Le bot cherche chez Signal les numéros qu'il écoute (/v1/search). Signal ne joint plus le numéro
+ * d'un expéditeur qui le cache — le réglage par défaut depuis 2024 : le compte du bot l'apprend
+ * par cette recherche, comme un téléphone par ses contacts, et le relais le joint ensuite à ses
+ * messages. Introuvable (« Qui peut me trouver par mon numéro : Personne »), c'est dit à l'écran.
+ */
+async function chercherAutorises(e: Interne, conf: Conf): Promise<void> {
+  e.rechercheA = Date.now();
+  const numeros = [...autorisesEffectifs(conf.autorisesPoste, e.numeros)];
+  if (numeros.length === 0) return;
+  const q = numeros.map((n) => `numbers=${encodeURIComponent(n)}`).join("&");
+  const lu = await lireRelais(conf, `/v1/search/${conf.numero}?${q}`, SIGNAL_CLI_DELAI_MS);
+  const trouves = new Set(
+    (Array.isArray(lu) ? lu : [])
+      .filter((x: { registered?: unknown } | null) => x?.registered === true)
+      .map((x: { number?: unknown }) => x.number),
+  );
+  for (const n of numeros) e.surSignal.set(n, trouves.has(n));
+}
+
+/** En arrière-plan : une recherche qui échoue laisse l'état « pas encore cherché », sans plus. */
+function chercherSansAttendre(e: Interne, conf: Conf): void {
+  chercherAutorises(e, conf).catch(() => {});
+}
+
+/**
+ * Le numéro d'un expéditeur masqué, si le compte du bot le connaît (relais, /v1/contacts) ; la
+ * recherche des autorisés est refaite d'abord, au plus une fois par RECHERCHE_MIN_MS : un numéro
+ * que son titulaire vient de rendre trouvable compte dès son message suivant. null sinon.
+ */
+async function numeroDuCompte(e: Interne, conf: Conf, compte: string): Promise<string | null> {
+  try {
+    if (Date.now() - e.rechercheA >= RECHERCHE_MIN_MS) await chercherAutorises(e, conf);
+    const connus = await lireRelais(conf, `/v1/contacts/${conf.numero}?all_recipients=true`, SIGNAL_CLI_DELAI_MS);
+    const c = (Array.isArray(connus) ? connus : []).find(
+      (x: { uuid?: unknown } | null) => x?.uuid === compte,
+    ) as { number?: unknown } | undefined;
+    return typeof c?.number === "string" ? numeroE164(c.number) : null;
+  } catch {
+    // Relais en panne : le message reste masqué, ignoré comme tel.
+    return null;
+  }
+}
+
+async function traiterUn(e: Interne, conf: Conf, poste: Poste, recu: MessageRecu): Promise<void> {
   const at = Date.now();
   e.compteurs.recus++;
+  const m =
+    recu.expediteur || !recu.compte
+      ? recu
+      : { ...recu, expediteur: (await numeroDuCompte(e, conf, recu.compte)) ?? "" };
   const de = m.expediteur ? masquer(m.expediteur) : "numéro masqué";
-  const d = decider(m, conf.autorises, e.limite, at);
+  // Lus au message près : un numéro que le chef active ou coupe compte dès le message suivant.
+  const d = decider(m, autorisesEffectifs(conf.autorisesPoste, e.numeros), e.limite, at);
   if (d.action === "ignorer") {
+    // Un numéro de la console coupé par le chef n'est pas un intrus : dit, pas journalisé.
+    const coupe = d.raison === "numéro non autorisé" && e.numeros.some((n) => n.numero === m.expediteur);
+    const raison = coupe
+      ? "numéro coupé par le chef : l'activer dans Capteurs › Outils › Bot Signal"
+      : d.raison;
     e.compteurs.ignores++;
-    e.ignores = [{ at, de, raison: d.raison }, ...e.ignores].slice(0, 5);
-    if (d.raison === "numéro non autorisé" && e.inconnus(m.expediteur, at) === "ok") {
+    e.ignores = [{ at, de, raison }, ...e.ignores].slice(0, 5);
+    if (raison === "numéro non autorisé" && e.inconnus(m.expediteur, at) === "ok") {
       await journaliser(e, poste, de, "Bot Signal : numéro non autorisé", "Message ignoré, sans réponse.", "warn");
     }
     return;
@@ -417,7 +517,7 @@ async function modeRelais(conf: Conf): Promise<string> {
 
 /**
  * Le numéro du bot est-il lié au relais (/v1/accounts) ? Sans ce contrôle, un relais json-rpc
- * dont le numéro n'est pas lié garde la websocket ouverte, muette (vérifié sur le vrai 0.101) : le
+ * dont le numéro n'est pas inscrit garde la websocket ouverte, muette (vérifié sur le vrai 0.101) : le
  * bot paraîtrait à l'écoute, et rien n'arriverait jamais.
  */
 async function verifierCompte(conf: Conf): Promise<void> {
@@ -507,7 +607,7 @@ async function ecouter(e: Interne, gen: number, poste: Poste): Promise<void> {
   let attente = 0;
   let echecA = 0;
   while (vivante(e, gen)) {
-    const conf = reglage();
+    const conf = reglage(e);
     if ("erreur" in conf) {
       // Rien à écouter avant que poste.env soit réglé et le serveur relancé.
       noter(e, conf.erreur);
@@ -516,6 +616,8 @@ async function ecouter(e: Interne, gen: number, poste: Poste): Promise<void> {
     try {
       e.mode = await modeRelais(conf);
       await verifierCompte(conf);
+      // Sans attendre : en json-rpc, un message arrivé avant l'ouverture de la websocket est perdu.
+      chercherSansAttendre(e, conf);
       if (e.mode.startsWith("json-rpc")) await ecouterWs(e, gen, conf, poste);
       else await relever(e, gen, conf, poste);
     } catch (err) {
@@ -533,6 +635,9 @@ async function ecouter(e: Interne, gen: number, poste: Poste): Promise<void> {
 function demarrer(e: Interne, poste: Poste): void {
   const gen = ++e.gen;
   e.ecoute = true;
+  // L'erreur d'avant appartient à l'ancien réglage (« pas encore de numéro » juste après
+  // l'inscription) : la nouvelle écoute dira la sienne.
+  e.erreur = null;
   void ecouter(e, gen, poste)
     // Garde-fou : une écoute en arrière-plan ne doit jamais faire tomber le serveur du poste.
     .catch((err: unknown) => noter(e, `Bot Signal arrêté : ${err instanceof Error ? err.message : "erreur"}.`))
@@ -549,14 +654,40 @@ function arreter(e: Interne): void {
 
 export async function lireEtatBot(): Promise<EtatBot> {
   const e = await etat();
-  const r = reglage();
+  const r = reglage(e);
+  const poste = listeAutorises(env("AFRICONTROL_BOT_AUTORISES"));
   return {
     actif: e.actif,
     enregistrement: e.enregistrement,
     reglage:
       "erreur" in r
         ? { erreur: r.erreur }
-        : { numero: masquer(r.numero), autorises: r.autorises.size, relais: r.base },
+        : {
+            numero: masquer(r.numero),
+            autorises: autorisesEffectifs(r.autorisesPoste, e.numeros).size,
+            relais: r.base,
+          },
+    sourceNumero: numeroE164(env("AFRICONTROL_BOT_NUMERO") ?? "")
+      ? "poste.env"
+      : e.numeroBot
+        ? "console"
+        : null,
+    numeros: [
+      ...[...poste].map((n) => ({
+        id: idNumero(n),
+        numero: masquer(n),
+        actif: true,
+        source: "poste.env" as const,
+        surSignal: e.surSignal.get(n) ?? null,
+      })),
+      ...e.numeros.map((n) => ({
+        id: idNumero(n.numero),
+        numero: masquer(n.numero),
+        actif: n.actif,
+        source: "console" as const,
+        surSignal: e.surSignal.get(n.numero) ?? null,
+      })),
+    ],
     ecoute: e.ecoute,
     mode: e.mode,
     dernierContact: e.dernierContact,
@@ -584,6 +715,134 @@ export function suspendreBot(): void {
   if (!e) return;
   e.fermeture = true;
   e.socket?.close();
+}
+
+export type InscriptionBot =
+  | { etape: "code"; numero: string; captcha: string; voix: boolean }
+  | { etape: "valider"; numero: string; code: string; pin: string; nom: string };
+
+/** Délai d'une étape d'inscription : le relais parle aux serveurs de Signal. */
+const INSCRIPTION_DELAI_MS = 45_000;
+
+/** Ce que Signal ou le relais a répondu à l'inscription, en clair. */
+function erreurInscription(statut: number, corps: string): string {
+  const derniere = (lireErreur(corps).trim().split("\n").at(-1) ?? "").trim();
+  if (/captcha/i.test(derniere)) {
+    return "Signal refuse le captcha (expiré ou invalide) : en refaire un sur signalcaptchas.org et le recoller aussitôt.";
+  }
+  if (statut === 429 || /rate ?limit/i.test(derniere)) {
+    return "Signal limite les demandes pour ce numéro : réessayer dans quelques heures.";
+  }
+  if (/verif|code/i.test(derniere)) {
+    return "Code refusé : vérifier les six chiffres reçus, ou redemander un code.";
+  }
+  if (/lock|pin/i.test(derniere)) {
+    return "Ce numéro a un verrou d'inscription : saisir son code PIN Signal.";
+  }
+  return `Relais Signal : HTTP ${statut}${derniere ? ` — ${derniere.replace(/\+\d{6,15}/g, masquer).slice(0, 160)}` : ""}.`;
+}
+
+/**
+ * Le chef inscrit chez Signal le numéro PROPRE au bot, par le relais du poste : aucun téléphone
+ * relié. Un appareil relié voit tous les messages du compte de ce téléphone ; un numéro propre ne
+ * reçoit que ce qu'on écrit au bot, et ses clés restent sur le poste. Étape « code » : Signal
+ * exige un captcha (signalcaptchas.org) puis envoie un code par SMS ou par appel. Étape
+ * « valider » : le code ; le numéro devient celui du bot, profil nommé, écoute relancée.
+ * Attention : un numéro déjà utilisé par Signal sur un téléphone en est déconnecté.
+ */
+export async function inscrireBot(
+  i: InscriptionBot,
+  poste: Poste = posteReel,
+): Promise<{ ok: boolean; message: string; numero: string; etat: EtatBot }> {
+  const e = await etat();
+  const n = numeroE164(i.numero);
+  const fin = async (ok: boolean, message: string) => ({
+    ok,
+    message,
+    numero: n ? masquer(n) : "numéro invalide",
+    etat: await lireEtatBot(),
+  });
+  if (!n) return fin(false, "Numéro invalide : au format +235… ou 00235…, indicatif du pays compris.");
+  const s = serveurPoste(env("AFRICONTROL_BOT_RELAIS") ?? RELAIS_DEFAUT);
+  if (!("base" in s)) {
+    return fin(false, `AFRICONTROL_BOT_RELAIS refusée : le relais doit être sur le réseau du poste (${RESEAU_POSTE_EXEMPLES}).`);
+  }
+  const appel = async (chemin: string, methode: string, corps: unknown) => {
+    try {
+      const r = await fetch(`${s.base}${chemin}`, {
+        method: methode,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(corps),
+        signal: AbortSignal.timeout(INSCRIPTION_DELAI_MS),
+      });
+      return r.ok ? null : erreurInscription(r.status, await r.text());
+    } catch (err) {
+      return injoignable({ base: s.base, numero: n, autorisesPoste: new Set() }, err);
+    }
+  };
+  if (i.etape === "code") {
+    const captcha = i.captcha.trim();
+    if (!captcha.startsWith("signalcaptcha://")) {
+      return fin(false, "Captcha : coller le lien entier, qui commence par « signalcaptcha:// ».");
+    }
+    const refus = await appel(`/v1/register/${n}`, "POST", { captcha, use_voice: i.voix });
+    return refus
+      ? fin(false, refus)
+      : fin(true, `Code demandé ${i.voix ? "par appel" : "par SMS"} au ${masquer(n)} : le saisir ci-dessous.`);
+  }
+  const code = i.code.replace(/[\s-]/g, "");
+  if (!/^\d{6}$/.test(code)) return fin(false, "Code : les six chiffres reçus par SMS ou par appel.");
+  const refus = await appel(`/v1/register/${n}/verify/${code}`, "POST", i.pin.trim() ? { pin: i.pin.trim() } : {});
+  if (refus) return fin(false, refus);
+  e.numeroBot = n;
+  await enregistrer(e);
+  const nom = i.nom.trim() || "AfriControl";
+  const profil = await appel(`/v1/profiles/${n}`, "PUT", { name: nom });
+  // Le bot écoute désormais son propre numéro.
+  if (e.actif) {
+    arreter(e);
+    demarrer(e, poste);
+  }
+  return fin(
+    true,
+    `Numéro ${masquer(n)} inscrit chez Signal : c'est désormais celui du bot${profil ? ` (profil non nommé : ${profil})` : `, profil « ${nom} »`}.`,
+  );
+}
+
+export type ActionNumero = "ajouter" | "activer" | "couper" | "retirer";
+
+/**
+ * Le chef gère les numéros de la console : ajouter (coupé : activable sur demande), activer,
+ * couper, retirer. Effet au message suivant, puis enregistré sur le poste. `valeur` : le numéro
+ * pour « ajouter », son identifiant d'écran sinon. Rend l'état et le numéro masqué, pour le journal.
+ */
+export async function gererNumero(
+  action: ActionNumero,
+  valeur: string,
+): Promise<{ etat: EtatBot; numero: string }> {
+  const e = await etat();
+  if (action === "ajouter") {
+    const n = numeroE164(valeur);
+    if (!n) throw new Error("Numéro invalide : au format +235… ou 00235…, indicatif du pays compris.");
+    if (listeAutorises(env("AFRICONTROL_BOT_AUTORISES")).has(n)) {
+      throw new Error(`${masquer(n)} est déjà réglé dans poste.env : toujours écouté.`);
+    }
+    if (e.numeros.some((x) => x.numero === n)) throw new Error(`${masquer(n)} est déjà dans la liste.`);
+    e.numeros = [...e.numeros, { numero: n, actif: false, ajouteA: Date.now() }];
+    await enregistrer(e);
+    return { etat: await lireEtatBot(), numero: masquer(n) };
+  }
+  const cible = e.numeros.find((x) => idNumero(x.numero) === valeur);
+  if (!cible) throw new Error("Numéro introuvable parmi ceux de la console.");
+  e.numeros =
+    action === "retirer"
+      ? e.numeros.filter((x) => x !== cible)
+      : e.numeros.map((x) => (x === cible ? { ...x, actif: action === "activer" } : x));
+  await enregistrer(e);
+  // Activé : le bot le cherche aussitôt chez Signal, et l'écran dira s'il y est trouvable.
+  const conf = reglage(e);
+  if (action === "activer" && e.ecoute && !("erreur" in conf)) chercherSansAttendre(e, conf);
+  return { etat: await lireEtatBot(), numero: masquer(cible.numero) };
 }
 
 /** Le chef active ou coupe le bot : effet immédiat, puis enregistré sur le poste. */

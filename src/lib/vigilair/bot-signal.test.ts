@@ -3,8 +3,12 @@ import { describe, it } from "node:test";
 import {
   AIDE_BOT,
   PERIME_MS,
+  autorisesEffectifs,
+  idNumero,
+  numerosValides,
   REPONSE_MAX,
   TROP_DE_COMMANDES,
+  commandeSansBarre,
   creerLimiteur,
   decider,
   listeAutorises,
@@ -24,6 +28,7 @@ const AUTORISES = new Set([CHEF]);
 const toujours = () => "ok" as const;
 const msg = (m: Partial<MessageRecu>): MessageRecu => ({
   expediteur: CHEF,
+  compte: "",
   texte: "/situation",
   groupe: false,
   at: T,
@@ -59,12 +64,12 @@ describe("bot Signal : ce que le relais a reçu", () => {
       },
     ]);
     assert.deepEqual(recus, [
-      { expediteur: CHEF, texte: "/meteo", groupe: false, at: T },
-      { expediteur: "+23566000002", texte: "/aide", groupe: true, at: 0 },
+      { expediteur: CHEF, compte: "0f6e…", texte: "/meteo", groupe: false, at: T },
+      { expediteur: "+23566000002", compte: "", texte: "/aide", groupe: true, at: 0 },
     ]);
   });
 
-  it("NUMÉRO MASQUÉ : le message reste, sans expéditeur — le bot dira pourquoi il l'ignore", () => {
+  it("NUMÉRO MASQUÉ : le message reste, sans expéditeur mais avec son compte Signal", () => {
     // Le relais met alors l'identifiant Signal dans « source » ; même un « source » en numéro
     // sans sourceNumber ne vaut pas : seul sourceNumber est le numéro.
     const recus = messagesRecus([
@@ -79,8 +84,11 @@ describe("bot Signal : ce que le relais a reçu", () => {
       { envelope: { source: CHEF, dataMessage: { message: "/aide" } } },
     ]);
     assert.deepEqual(
-      recus.map((m) => m.expediteur),
-      ["", ""],
+      recus.map((m) => [m.expediteur, m.compte]),
+      [
+        ["", "6a1f0c2e-uuid"],
+        ["", ""],
+      ],
     );
   });
 
@@ -115,6 +123,46 @@ describe("bot Signal : numéros", () => {
     assert.equal(masquer("+23566001234"), "+235•••••234");
     assert.equal(masquer("+1234567"), "+123•567");
     assert.equal(masquer("+123456"), "•••");
+  });
+});
+
+describe("bot Signal : numéros ajoutés par le chef depuis la console", () => {
+  it("ÉCOUTÉS : ceux de poste.env toujours, ceux de la console une fois activés", () => {
+    const poste = new Set(["+23566000001"]);
+    const numeros = [
+      { numero: "+23566000002", actif: true, ajouteA: 1 },
+      { numero: "+23566000003", actif: false, ajouteA: 2 },
+    ];
+    assert.deepEqual([...autorisesEffectifs(poste, numeros)].sort(), ["+23566000001", "+23566000002"]);
+    assert.deepEqual([...autorisesEffectifs(new Set(), [])], []);
+  });
+
+  it("RELUS DU DISQUE : valides seulement, sans doublon, « actif » strictement vrai", () => {
+    assert.deepEqual(
+      numerosValides([
+        { numero: "0023566000002", actif: true, ajouteA: 1700 },
+        { numero: "+23566000002", actif: true },
+        { numero: "pas un numéro", actif: true },
+        { numero: "+23566000003", actif: "oui" },
+        null,
+        { numero: "+23566000004", actif: false, ajouteA: "x" },
+      ]),
+      [
+        { numero: "+23566000002", actif: true, ajouteA: 1700 },
+        { numero: "+23566000003", actif: false, ajouteA: 0 },
+        { numero: "+23566000004", actif: false, ajouteA: 0 },
+      ],
+    );
+    assert.deepEqual(numerosValides({ numero: "+23566000002" }), []);
+    assert.deepEqual(numerosValides(undefined), []);
+  });
+
+  it("IDENTIFIANT D'ÉCRAN : stable, huit chiffres hexadécimaux, propre à chaque numéro", () => {
+    const a = idNumero("+23566000002");
+    assert.match(a, /^[0-9a-f]{8}$/);
+    assert.equal(idNumero("+23566000002"), a);
+    assert.notEqual(idNumero("+23566000003"), a);
+    assert.equal(idNumero(""), "811c9dc5", "valeur de départ de FNV-1a");
   });
 });
 
@@ -188,11 +236,26 @@ describe("bot Signal : décision", () => {
     assert.equal(decider(msg({ at: 0 }), AUTORISES, toujours, T).action, "executer", "heure inconnue");
   });
 
-  it("TEXTE SANS « / » : l'aide du bot", () => {
+  it("TEXTE SANS « / » : une commande nommée en premier mot vaut commande ; sinon l'aide du bot", () => {
     assert.deepEqual(decider(msg({ texte: "bonjour" }), AUTORISES, toujours, T), {
       action: "repondre",
       texte: AIDE_BOT,
     });
+    assert.deepEqual(decider(msg({ texte: "Situation" }), AUTORISES, toujours, T), {
+      action: "executer",
+      commande: "/situation",
+    });
+  });
+
+  it("COMMANDE SANS BARRE : nom ou alias, casse, accents et ponctuation finale ignorés", () => {
+    assert.equal(commandeSansBarre("Situation"), "/situation");
+    assert.equal(commandeSansBarre("  Météo. "), "/meteo");
+    assert.equal(commandeSansBarre("METAR!"), "/meteo", "alias");
+    assert.equal(commandeSansBarre("piste  TST101"), "/piste TST101", "argument gardé");
+    assert.equal(commandeSansBarre("7700"), "/urgences");
+    assert.equal(commandeSansBarre("bonjour le poste"), null);
+    assert.equal(commandeSansBarre("?"), null, "ponctuation seule : pas une commande");
+    assert.equal(commandeSansBarre(""), null);
   });
 });
 
