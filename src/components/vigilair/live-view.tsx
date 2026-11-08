@@ -54,7 +54,7 @@ import {
   IA_QUESTION_MAX,
 } from "@/lib/vigilair/ia-limites";
 import { ReponseIa } from "@/components/vigilair/reponse-ia";
-import { basculerBotSignal, gererNumeroBot, inscrireBotSignal, lireBotSignal } from "@/lib/vigilair/bot-api";
+import { appairerBotSignal, basculerBotSignal, gererNumeroBot, inscrireBotSignal, lireBotSignal } from "@/lib/vigilair/bot-api";
 import type { ActionNumero, EtatBot } from "@/lib/vigilair/bot-signal.server";
 import { basculerCommande, lancerCommande, lireCommandes } from "@/lib/vigilair/commandes-api";
 import {
@@ -1788,7 +1788,22 @@ function BotSignalSection() {
   const [nouveau, setNouveau] = useState("");
   const [inscription, setInscription] = useState({ numero: "", captcha: "", voix: false, code: "", pin: "", nom: "AfriControl" });
   const [codeDemande, setCodeDemande] = useState(false);
+  /** Le code d'appairage, rendu au seul chef qui l'a demandé : jamais relu du serveur. */
+  const [appairage, setAppairage] = useState<{ numero: string; code: string; expireA: number } | null>(null);
   const now = useWallClock();
+
+  const appairer = (id: string, numero: string) => {
+    const t0 = performance.now();
+    setOccupe(true);
+    appairerBotSignal({ data: { id } })
+      .then((r) => {
+        setEtat(r.etat);
+        setAppairage({ numero, code: r.code, expireA: r.expireA });
+        setMsg(`Code d'appairage pour ${numero} en ${Math.round(performance.now() - t0)} ms.`);
+      })
+      .catch((err: unknown) => setMsg(err instanceof Error ? err.message : "refusé"))
+      .finally(() => setOccupe(false));
+  };
 
   const inscrire = (etape: "code" | "valider") => {
     const t0 = performance.now();
@@ -2013,6 +2028,22 @@ function BotSignalSection() {
             Numéros autorisés — ceux de poste.env sont toujours écoutés ; ceux ajoutés ici le sont
             une fois activés par le chef
           </h3>
+          {appairage && now <= appairage.expireA ? (
+            <div className="rounded-md border border-border bg-surface px-3 py-2 text-xs">
+              <p>
+                Code d'appairage pour {appairage.numero} :{" "}
+                <span className="font-mono text-base">
+                  {appairage.code.slice(0, 3)} {appairage.code.slice(3)}
+                </span>{" "}
+                — valable jusqu'à {new Date(appairage.expireA).toISOString().slice(11, 16)} Z.
+              </p>
+              <p className="text-muted-foreground">
+                Depuis ce téléphone, envoyer au bot : « appairer {appairage.code} ». Le bot le
+                reconnaîtra ensuite par son compte Signal, même numéro masqué. Une seule fois ; trois
+                codes faux l'annulent.
+              </p>
+            </div>
+          ) : null}
           {etat.numeros.length > 0 ? (
             <ul className="divide-y divide-border/60 text-xs">
               {etat.numeros.map((n) => (
@@ -2030,8 +2061,18 @@ function BotSignalSection() {
                       l'a pas).
                     </span>
                   ) : null}
+                  {n.appaire ? <span className="text-ok">appairé</span> : null}
                   {n.source === "console" ? (
                     <span className="ml-auto flex gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={!isSuperadmin || occupe}
+                        onClick={() => appairer(n.id, n.numero)}
+                      >
+                        Appairer
+                      </Button>
                       <Button
                         type="button"
                         size="sm"

@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   AIDE_BOT,
+  APPAIRAGE_ESSAIS,
+  APPAIRAGE_MS,
   PERIME_MS,
+  codeAppairage,
   autorisesEffectifs,
   idNumero,
   numerosValides,
@@ -157,12 +160,48 @@ describe("bot Signal : numéros ajoutés par le chef depuis la console", () => {
     assert.deepEqual(numerosValides(undefined), []);
   });
 
+  it("COMPTE APPAIRÉ RELU DU DISQUE : gardé s'il a la forme d'un compte Signal, écarté sinon", () => {
+    const compte = "63881a87-0f6e-4c2a-9d1b-3e5f7a9c0b12";
+    assert.deepEqual(
+      numerosValides([
+        { numero: "+23566000002", actif: true, ajouteA: 1, compte },
+        { numero: "+23566000003", actif: true, ajouteA: 2, compte: "pas-un-compte" },
+        { numero: "+23566000004", actif: true, ajouteA: 3, compte: 42 },
+      ]),
+      [
+        { numero: "+23566000002", actif: true, ajouteA: 1, compte },
+        { numero: "+23566000003", actif: true, ajouteA: 2 },
+        { numero: "+23566000004", actif: true, ajouteA: 3 },
+      ],
+    );
+  });
+
   it("IDENTIFIANT D'ÉCRAN : stable, huit chiffres hexadécimaux, propre à chaque numéro", () => {
     const a = idNumero("+23566000002");
     assert.match(a, /^[0-9a-f]{8}$/);
     assert.equal(idNumero("+23566000002"), a);
     assert.notEqual(idNumero("+23566000003"), a);
     assert.equal(idNumero(""), "811c9dc5", "valeur de départ de FNV-1a");
+  });
+});
+
+describe("bot Signal : code d'appairage", () => {
+  it("LU DANS LE MESSAGE : « appairer » puis six chiffres, espaces et tirets permis ; le reste, non", () => {
+    assert.equal(codeAppairage("appairer 123456"), "123456");
+    assert.equal(codeAppairage("  /Appairer : 123 456 "), "123456");
+    assert.equal(codeAppairage("APPAIRER 123-456"), "123456");
+    assert.equal(codeAppairage("appairer 12345"), null, "cinq chiffres");
+    assert.equal(codeAppairage("appairer 1234567"), null, "sept chiffres");
+    assert.equal(codeAppairage("appairer abcdef"), null);
+    assert.equal(codeAppairage("123456"), null, "le mot « appairer » est exigé");
+    assert.equal(codeAppairage("appairer 123456 merci"), null);
+    assert.equal(codeAppairage("appairerx 123456"), null);
+    assert.equal(codeAppairage("appairer"), null);
+  });
+
+  it("VALIDITÉ : cinq minutes, trois essais", () => {
+    assert.equal(APPAIRAGE_MS, 300_000);
+    assert.equal(APPAIRAGE_ESSAIS, 3);
   });
 });
 

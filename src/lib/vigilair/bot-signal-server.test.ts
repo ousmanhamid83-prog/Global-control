@@ -12,6 +12,7 @@ import {
   RELAIS_DEFAUT,
   assurerBot,
   basculerBot,
+  demanderAppairage,
   gererNumero,
   inscrireBot,
   lireEtatBot,
@@ -922,9 +923,10 @@ describe("bot Signal : numéro masqué par Signal (réglage par défaut depuis 2
       ["/meteo", CHEF],
       ["/situation", CHEF],
     ]);
+    // Numéro masqué : la réponse va au compte, que le relais joint toujours.
     assert.deepEqual(
       relais.envois.map((x) => x.recipients),
-      [[CHEF], [CHEF]],
+      [["6a1f0c2e-uuid"], ["6a1f0c2e-uuid"]],
     );
     assert.deepEqual(
       (await etat()).echanges.map((x) => x.de),
@@ -958,5 +960,131 @@ describe("bot Signal : numéro masqué par Signal (réglage par défaut depuis 2
     await attendreQue(() => relais.recherches.length === 2);
     assert.ok(relais.recherches[1]!.includes("+23566000003"));
     await attendreQue(async () => (await etat()).numeros.find((x) => x.source === "console")?.surSignal === true);
+  });
+});
+
+describe("bot Signal : appairage d'un téléphone par un code du chef", () => {
+  const TROIS = "+23566000003";
+  const COMPTE = "6a1f0c2e-uuid";
+  const g2 = globalThis as { __afriBot?: { appairage: { expireA: number } | null } };
+
+  /** Bot actif, un numéro de la console activé ; rend son identifiant d'écran. */
+  async function pret(f: ReturnType<typeof fauxPoste>): Promise<string> {
+    await basculerBot(true, f.poste);
+    const id = (await gererNumero("ajouter", TROIS)).etat.numeros.find((x) => x.source === "console")!.id;
+    await gererNumero("activer", id);
+    return id;
+  }
+
+  it("BON CODE DU TÉLÉPHONE MASQUÉ : appairé, réponse à son compte ; ses commandes valent ensuite celles du numéro", async () => {
+    const f = fauxPoste();
+    const id = await pret(f);
+    const avant = Date.now();
+    const a = await demanderAppairage(id);
+    assert.match(a.code, /^\d{6}$/);
+    assert.ok(a.expireA >= avant + 300_000 && a.expireA <= Date.now() + 300_000);
+    assert.deepEqual(a.etat.appairage, { numero: "+235•••••003", expireA: a.expireA }, "sans le code");
+    relais.file.push(enveloppe(null, `Appairer ${a.code.slice(0, 3)} ${a.code.slice(3)}`));
+    await attendreQue(() => relais.envois.length === 1);
+    assert.deepEqual(relais.envois[0]!.recipients, [COMPTE]);
+    assert.equal(
+      relais.envois[0]!.message,
+      "Téléphone appairé au poste AfriControl : le bot le reconnaît désormais comme +235•••••003. Envoyer « aide » pour la liste des commandes.",
+    );
+    const e = await etat();
+    assert.equal(e.appairage, null, "un code ne sert qu'une fois");
+    assert.equal(e.numeros.find((x) => x.source === "console")!.appaire, true);
+    assert.equal(e.echanges[0]!.commande, "appairage");
+    const disque = JSON.parse(readFileSync("data/bot-signal.json", "utf8")) as { numeros: { compte?: string }[] };
+    assert.equal(disque.numeros[0]!.compte, COMPTE);
+    assert.ok(f.journal.includes(
+      "warn · +235•••••003 · Bot Signal : +235•••••003 appairé à un compte Signal · Par le code du chef ; numéro masqué par Signal. Réponse remise au relais.",
+    ));
+    // Ses commandes ensuite : sous le numéro de la console, sans recherche au relais.
+    const recherches = relais.recherches.length;
+    relais.file.push(enveloppe(null, "meteo"));
+    await attendreQue(() => relais.envois.length === 2);
+    assert.deepEqual(f.executees, [["/meteo", TROIS]]);
+    assert.deepEqual(relais.envois[1]!.recipients, [COMPTE]);
+    assert.equal(relais.recherches.length, recherches);
+    // Coupé par le chef : plus rien, même appairé.
+    await gererNumero("couper", id);
+    relais.file.push(enveloppe(null, "/meteo"));
+    await attendreQue(async () => (await etat()).compteurs.ignores === 1);
+    assert.match((await etat()).ignores[0]!.raison, /^numéro coupé par le chef/);
+    assert.ok(f.journal.every((l) => !l.includes(a.code)), "jamais le code au journal");
+  });
+
+  it("CODES FAUX : sans réponse, journalisés sans le code ; au troisième, appairage annulé", async () => {
+    const f = fauxPoste();
+    const id = await pret(f);
+    const { code } = await demanderAppairage(id);
+    const faux = code === "000000" ? "111111" : "000000";
+    for (let i = 0; i < 3; i++) relais.file.push(enveloppe(null, `appairer ${faux}`));
+    await attendreQue(async () => (await etat()).compteurs.ignores === 3);
+    assert.equal((await etat()).appairage, null);
+    assert.deepEqual(
+      (await etat()).ignores.map((x) => x.raison),
+      ["code d'appairage faux : appairage annulé (3 essais)", "code d'appairage faux", "code d'appairage faux"],
+    );
+    assert.deepEqual(
+      f.journal.filter((l) => l.includes("code d'appairage faux")).map((l) => l.split(" · ").at(-1)),
+      [
+        "Essai 1 sur 3. Aucun code n'est journalisé.",
+        "Essai 2 sur 3. Aucun code n'est journalisé.",
+        "Essai 3 sur 3 : appairage annulé. Aucun code n'est journalisé.",
+      ],
+    );
+    // Le bon code, après l'annulation : ne vaut plus.
+    relais.file.push(enveloppe(null, `appairer ${code}`));
+    await attendreQue(async () => (await etat()).compteurs.ignores === 4);
+    assert.match((await etat()).ignores[0]!.raison, /^code d'appairage sans appairage en cours/);
+    assert.equal(relais.envois.length, 0);
+    assert.equal((await etat()).numeros.find((x) => x.source === "console")!.appaire, false);
+    assert.ok(f.journal.every((l) => !l.includes(code) && !l.includes(faux)));
+  });
+
+  it("EXPIRÉ, EN GROUPE, OU REMPLACÉ PAR UN NOUVEAU : le code ne vaut pas", async () => {
+    const f = fauxPoste();
+    const id = await pret(f);
+    const vieux = await demanderAppairage(id);
+    g2.__afriBot!.appairage!.expireA = Date.now() - 1;
+    assert.equal((await etat()).appairage, null, "expiré : plus affiché");
+    relais.file.push(enveloppe(null, `appairer ${vieux.code}`));
+    await attendreQue(async () => (await etat()).compteurs.ignores === 1);
+    assert.match((await etat()).ignores[0]!.raison, /^code d'appairage sans appairage en cours/);
+    const groupe = await demanderAppairage(id);
+    relais.file.push(enveloppe(CHEF, `appairer ${groupe.code}`, { groupInfo: { groupId: "Zw==", type: "DELIVER" } }));
+    await attendreQue(async () => (await etat()).compteurs.ignores === 2);
+    assert.equal((await etat()).ignores[0]!.raison, "message de groupe");
+    assert.notEqual((await etat()).appairage, null, "le code d'un groupe ne consomme rien");
+    const nouveau = await demanderAppairage(id);
+    if (nouveau.code !== groupe.code) {
+      relais.file.push(enveloppe(null, `appairer ${groupe.code}`));
+      await attendreQue(async () => (await etat()).compteurs.ignores === 3);
+      assert.equal((await etat()).ignores[0]!.raison, "code d'appairage faux");
+    }
+    relais.file.push(enveloppe(null, `appairer ${nouveau.code}`));
+    await attendreQue(() => relais.envois.length === 1);
+    assert.equal((await etat()).numeros.find((x) => x.source === "console")!.appaire, true);
+  });
+
+  it("UN COMPTE, UN NUMÉRO : appairé à un autre numéro, il quitte le premier ; numéro inconnu refusé", async () => {
+    const f = fauxPoste();
+    const id3 = await pret(f);
+    const id4 = (await gererNumero("ajouter", "+23566000004")).etat.numeros.find((x) => x.numero === "+235•••••004")!.id;
+    relais.file.push(enveloppe(null, `appairer ${(await demanderAppairage(id3)).code}`));
+    await attendreQue(() => relais.envois.length === 1);
+    relais.file.push(enveloppe(null, `appairer ${(await demanderAppairage(id4)).code}`));
+    await attendreQue(() => relais.envois.length === 2);
+    assert.match(relais.envois[1]!.message, /comme \+235•••••004, coupé : le chef l'active dans la console\.$/);
+    assert.deepEqual(
+      (await etat()).numeros.filter((x) => x.source === "console").map((x) => [x.numero, x.appaire]),
+      [
+        ["+235•••••003", false],
+        ["+235•••••004", true],
+      ],
+    );
+    await assert.rejects(demanderAppairage("ffffffff"), /Numéro introuvable parmi ceux de la console/);
   });
 });

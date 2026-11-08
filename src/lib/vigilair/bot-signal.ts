@@ -58,8 +58,14 @@ export function listeAutorises(brut: string | undefined): Set<string> {
   return new Set(numeros.filter((n): n is string => n !== null));
 }
 
-/** Un numéro ajouté par le chef depuis la console : le bot ne l'écoute qu'une fois activé. */
-export type NumeroBot = { numero: string; actif: boolean; ajouteA: number };
+/**
+ * Un numéro ajouté par le chef depuis la console : le bot ne l'écoute qu'une fois activé.
+ * `compte` : le compte Signal appairé à ce numéro par un code du chef (sourceUuid). Il le fait
+ * reconnaître quand Signal masque le numéro et que personne ne peut le trouver par son numéro.
+ */
+export type NumeroBot = { numero: string; actif: boolean; ajouteA: number; compte?: string };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Les numéros que le bot écoute : ceux de poste.env, toujours ; ceux de la console, activés. */
 export function autorisesEffectifs(poste: Set<string>, numeros: NumeroBot[]): Set<string> {
@@ -72,13 +78,25 @@ export function numerosValides(brut: unknown): NumeroBot[] {
   const vus = new Set<string>();
   const sortie: NumeroBot[] = [];
   for (const x of brut) {
-    const lu = (x ?? {}) as { numero?: unknown; actif?: unknown; ajouteA?: unknown };
+    const lu = (x ?? {}) as { numero?: unknown; actif?: unknown; ajouteA?: unknown; compte?: unknown };
     const numero = numeroE164(String(lu.numero ?? ""));
     if (!numero || vus.has(numero)) continue;
     vus.add(numero);
-    sortie.push({ numero, actif: lu.actif === true, ajouteA: Number(lu.ajouteA) || 0 });
+    const compte = typeof lu.compte === "string" && UUID.test(lu.compte) ? { compte: lu.compte } : {};
+    sortie.push({ numero, actif: lu.actif === true, ajouteA: Number(lu.ajouteA) || 0, ...compte });
   }
   return sortie;
+}
+
+/** Un code d'appairage vaut 5 minutes, et trois codes faux l'annulent. */
+export const APPAIRAGE_MS = 5 * 60_000;
+export const APPAIRAGE_ESSAIS = 3;
+
+/** « appairer 123 456 », « /Appairer : 123-456 » → « 123456 » ; null si ce n'en est pas un. */
+export function codeAppairage(texte: string): string | null {
+  const m = /^\/?appairer\b[\s:]*([\d\s-]+)$/i.exec(texte.trim());
+  const code = m ? m[1]!.replace(/[\s-]/g, "") : "";
+  return /^\d{6}$/.test(code) ? code : null;
 }
 
 /** Identifiant d'un numéro pour l'écran, qui ne le montre jamais en clair (FNV-1a, 32 bits). */

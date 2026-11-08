@@ -16,11 +16,15 @@
  *     que le bot est coupé est perdu : le relais 0.101 ne le garde pas.
  * Chaque commande exécutée va au journal des opérations, avec le numéro masqué.
  */
+import { randomInt, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { env } from "../env.server.ts";
 import {
+  APPAIRAGE_ESSAIS,
+  APPAIRAGE_MS,
   autorisesEffectifs,
+  codeAppairage,
   creerLimiteur,
   decider,
   idNumero,
@@ -97,6 +101,8 @@ export type NumeroEcran = {
   source: "poste.env" | "console";
   /** Trouvé chez Signal à la dernière recherche du bot ; null : pas encore cherché. */
   surSignal: boolean | null;
+  /** Un téléphone y est appairé par un code du chef : reconnu même numéro masqué. */
+  appaire: boolean;
 };
 
 export type EtatBot = {
@@ -108,6 +114,8 @@ export type EtatBot = {
   /** D'où vient le numéro du bot : poste.env, ou inscrit depuis la console ; null sans numéro. */
   sourceNumero: "poste.env" | "console" | null;
   numeros: NumeroEcran[];
+  /** Appairage demandé par le chef, encore valable — sans le code, que seul le chef a vu. */
+  appairage: { numero: string; expireA: number } | null;
   /** Le bot écoute le relais en ce moment. */
   ecoute: boolean;
   /** Mode du relais lu dans /v1/about : native, normal, json-rpc. */
@@ -184,6 +192,8 @@ type Interne = {
   surSignal: Map<string, boolean>;
   /** Heure de la dernière recherche (ms) ; 0 : à refaire dès que besoin. */
   rechercheA: number;
+  /** Code d'appairage demandé par le chef : un seul à la fois, en mémoire seulement. */
+  appairage: { numero: string; code: string; expireA: number; essais: number } | null;
 };
 
 // Sur globalThis : le serveur construit a plusieurs copies de ce module (plugin de démarrage,
@@ -227,6 +237,7 @@ async function etat(): Promise<Interne> {
     socket: null,
     surSignal: new Map(),
     rechercheA: 0,
+    appairage: null,
   });
   await (e.chargement ??= charger(e));
   return e;
@@ -396,13 +407,95 @@ async function numeroDuCompte(e: Interne, conf: Conf, compte: string): Promise<s
   }
 }
 
+/** Comparaison en temps constant : la durée d'un refus ne dit rien du code. */
+function codesEgaux(a: string, b: string): boolean {
+  return a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
+function noterIgnore(e: Interne, at: number, de: string, raison: string): void {
+  e.compteurs.ignores++;
+  e.ignores = [{ at, de, raison }, ...e.ignores].slice(0, 5);
+}
+
+/**
+ * « appairer 123456 » : le compte Signal qui envoie le bon code, dans les 5 minutes, est appairé
+ * au numéro de la console pour lequel le chef l'a demandé. Un code faux, ou sans appairage en
+ * cours, n'a pas de réponse : rien ne confirme à un inconnu qu'un bot écoute.
+ */
+async function appairer(e: Interne, conf: Conf, poste: Poste, recu: MessageRecu, code: string, at: number): Promise<void> {
+  const de = recu.expediteur ? masquer(recu.expediteur) : "numéro masqué";
+  const a = e.appairage;
+  if (!a || at > a.expireA || !e.numeros.some((x) => x.numero === a.numero)) {
+    e.appairage = null;
+    return noterIgnore(e, at, de, "code d'appairage sans appairage en cours : le chef en demande un dans la console");
+  }
+  if (!codesEgaux(code, a.code)) {
+    a.essais++;
+    const annule = a.essais >= APPAIRAGE_ESSAIS;
+    if (annule) e.appairage = null;
+    noterIgnore(e, at, de, annule ? `code d'appairage faux : appairage annulé (${APPAIRAGE_ESSAIS} essais)` : "code d'appairage faux");
+    await journaliser(
+      e,
+      poste,
+      de,
+      `Bot Signal : code d'appairage faux pour ${masquer(a.numero)}`,
+      `Essai ${a.essais} sur ${APPAIRAGE_ESSAIS}${annule ? " : appairage annulé" : ""}. Aucun code n'est journalisé.`,
+      "warn",
+    );
+    return;
+  }
+  e.appairage = null;
+  // Un compte n'est appairé qu'à un numéro : l'appairer ici le retire d'ailleurs.
+  e.numeros = e.numeros.map(({ compte, ...x }) =>
+    x.numero === a.numero ? { ...x, compte: recu.compte } : compte === recu.compte ? x : { ...x, ...(compte ? { compte } : {}) },
+  );
+  await enregistrer(e);
+  const actif = e.numeros.some((x) => x.numero === a.numero && x.actif);
+  const t1 = performance.now();
+  const erreurEnvoi = await envoyer(
+    conf,
+    recu.compte,
+    `Téléphone appairé au poste AfriControl : le bot le reconnaît désormais comme ${masquer(a.numero)}${
+      actif ? ". Envoyer « aide » pour la liste des commandes." : ", coupé : le chef l'active dans la console."
+    }`,
+  );
+  if (erreurEnvoi) {
+    e.compteurs.echecsEnvoi++;
+    noter(e, erreurEnvoi);
+  } else {
+    e.compteurs.reponses++;
+  }
+  e.echanges = [
+    { at, de: masquer(a.numero), commande: "appairage", ok: true, ms: 0, envoiMs: erreurEnvoi ? null : Math.round(performance.now() - t1), erreurEnvoi },
+    ...e.echanges,
+  ].slice(0, 10);
+  await journaliser(
+    e,
+    poste,
+    masquer(a.numero),
+    `Bot Signal : ${masquer(a.numero)} appairé à un compte Signal`,
+    `Par le code du chef ; numéro ${recu.expediteur ? `visible : ${de}` : "masqué par Signal"}. Réponse ${erreurEnvoi ? `non remise : ${erreurEnvoi}` : "remise au relais"}.`,
+    "warn",
+  );
+}
+
 async function traiterUn(e: Interne, conf: Conf, poste: Poste, recu: MessageRecu): Promise<void> {
   const at = Date.now();
   e.compteurs.recus++;
+  // Pas en groupe : le code y serait lu par tous ; le message va alors au refus des groupes.
+  const code = recu.groupe ? null : codeAppairage(recu.texte);
+  if (code && recu.compte) return appairer(e, conf, poste, recu, code, at);
+  // Numéro masqué : un compte appairé par le chef, sinon ce que le compte du bot en sait.
   const m =
     recu.expediteur || !recu.compte
       ? recu
-      : { ...recu, expediteur: (await numeroDuCompte(e, conf, recu.compte)) ?? "" };
+      : {
+          ...recu,
+          expediteur:
+            e.numeros.find((x) => x.compte === recu.compte)?.numero ??
+            (await numeroDuCompte(e, conf, recu.compte)) ??
+            "",
+        };
   const de = m.expediteur ? masquer(m.expediteur) : "numéro masqué";
   // Lus au message près : un numéro que le chef active ou coupe compte dès le message suivant.
   const d = decider(m, autorisesEffectifs(conf.autorisesPoste, e.numeros), e.limite, at);
@@ -412,8 +505,7 @@ async function traiterUn(e: Interne, conf: Conf, poste: Poste, recu: MessageRecu
     const raison = coupe
       ? "numéro coupé par le chef : l'activer dans Capteurs › Outils › Bot Signal"
       : d.raison;
-    e.compteurs.ignores++;
-    e.ignores = [{ at, de, raison }, ...e.ignores].slice(0, 5);
+    noterIgnore(e, at, de, raison);
     if (raison === "numéro non autorisé" && e.inconnus(m.expediteur, at) === "ok") {
       await journaliser(e, poste, de, "Bot Signal : numéro non autorisé", "Message ignoré, sans réponse.", "warn");
     }
@@ -443,7 +535,8 @@ async function traiterUn(e: Interne, conf: Conf, poste: Poste, recu: MessageRecu
     e.compteurs.executees++;
   }
   const t1 = performance.now();
-  const erreurEnvoi = await envoyer(conf, m.expediteur, reponse);
+  // Numéro masqué par Signal : la réponse va à son compte, que le relais joint toujours.
+  const erreurEnvoi = await envoyer(conf, recu.expediteur || recu.compte, reponse);
   if (erreurEnvoi) {
     e.compteurs.echecsEnvoi++;
     noter(e, erreurEnvoi);
@@ -616,6 +709,8 @@ async function ecouter(e: Interne, gen: number, poste: Poste): Promise<void> {
     try {
       e.mode = await modeRelais(conf);
       await verifierCompte(conf);
+      // Coupé pendant ces deux appels : ni recherche ni websocket pour une écoute finie.
+      if (!vivante(e, gen)) return;
       // Sans attendre : en json-rpc, un message arrivé avant l'ouverture de la websocket est perdu.
       chercherSansAttendre(e, conf);
       if (e.mode.startsWith("json-rpc")) await ecouterWs(e, gen, conf, poste);
@@ -679,6 +774,7 @@ export async function lireEtatBot(): Promise<EtatBot> {
         actif: true,
         source: "poste.env" as const,
         surSignal: e.surSignal.get(n) ?? null,
+        appaire: false,
       })),
       ...e.numeros.map((n) => ({
         id: idNumero(n.numero),
@@ -686,8 +782,13 @@ export async function lireEtatBot(): Promise<EtatBot> {
         actif: n.actif,
         source: "console" as const,
         surSignal: e.surSignal.get(n.numero) ?? null,
+        appaire: n.compte != null,
       })),
     ],
+    appairage:
+      e.appairage && Date.now() <= e.appairage.expireA
+        ? { numero: masquer(e.appairage.numero), expireA: e.appairage.expireA }
+        : null,
     ecoute: e.ecoute,
     mode: e.mode,
     dernierContact: e.dernierContact,
@@ -807,6 +908,23 @@ export async function inscrireBot(
     true,
     `Numéro ${masquer(n)} inscrit chez Signal : c'est désormais celui du bot${profil ? ` (profil non nommé : ${profil})` : `, profil « ${nom} »`}.`,
   );
+}
+
+/**
+ * Le chef demande un code pour appairer un téléphone à un numéro de la console : six chiffres
+ * tirés au hasard, valables APPAIRAGE_MS, un seul à la fois (un nouveau remplace l'ancien). Le code
+ * n'est rendu qu'à cet appel, pour l'écran du chef : ni enregistré, ni journalisé.
+ */
+export async function demanderAppairage(
+  id: string,
+): Promise<{ etat: EtatBot; numero: string; code: string; expireA: number }> {
+  const e = await etat();
+  const cible = e.numeros.find((x) => idNumero(x.numero) === id);
+  if (!cible) throw new Error("Numéro introuvable parmi ceux de la console.");
+  const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+  const expireA = Date.now() + APPAIRAGE_MS;
+  e.appairage = { numero: cible.numero, code, expireA, essais: 0 };
+  return { etat: await lireEtatBot(), numero: masquer(cible.numero), code, expireA };
 }
 
 export type ActionNumero = "ajouter" | "activer" | "couper" | "retirer";

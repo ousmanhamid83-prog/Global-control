@@ -54,6 +54,31 @@ export const gererNumeroBot = createServerFn({ method: "POST" })
   });
 
 /**
+ * Appairage d'un téléphone à un numéro de la console, par un code à six chiffres : le chef seul.
+ * Le code n'est rendu qu'à son écran ; le journal dit qui, pour quel numéro, jamais le code.
+ */
+export const appairerBotSignal = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { id?: string }) => ({ id: String(raw?.id ?? "").slice(0, 16) }))
+  .handler(async ({ data, context }): Promise<{ etat: EtatBot; code: string; expireA: number }> => {
+    const { insertOpsLog, requireSuperadmin } = await import("./staff");
+    const chef = await requireSuperadmin(context.userId);
+    const srv = await import("./bot-signal.server");
+    const r = await srv.demanderAppairage(data.id);
+    await insertOpsLog({
+      userId: chef.userId,
+      actor: chef.label,
+      role: chef.role,
+      team: chef.team,
+      kind: "bot",
+      title: `Bot Signal : code d'appairage demandé pour ${r.numero}`,
+      detail: "Valable 5 minutes, montré au chef seul, jamais journalisé ; trois codes faux l'annulent.",
+      severity: "info",
+    });
+    return { etat: r.etat, code: r.code, expireA: r.expireA };
+  });
+
+/**
  * Inscription du numéro propre au bot chez Signal (captcha, puis code reçu) : le chef seul. Le
  * journal dit qui, quel numéro (masqué) et l'issue — jamais le captcha ni le code.
  */
