@@ -409,14 +409,14 @@ if ($Signal) {
       $null = Reussit { docker run -d --name africontrol-signal --restart unless-stopped -p 127.0.0.1:8085:8080 -e MODE=native -v $volume $SignalImage }
     }
     if ((Reussit { docker inspect africontrol-signal }) -and (Attendre { Repond "http://127.0.0.1:8085/v1/about" } 90)) {
-      Ok "relais Signal sur 127.0.0.1:8085, redémarre avec la machine — reste à lier le téléphone (ci-dessous)"
-      $AFaire.Add("Lier le téléphone Signal du poste (une fois) :")
-      $AFaire.Add("  1. ouvrir http://127.0.0.1:8085/v1/qrcodelink?device_name=AfriControl dans le navigateur du poste ;")
-      $AFaire.Add("  2. sur le téléphone : Signal → Paramètres → Appareils reliés → « + », scanner le QR ;")
-      $AFaire.Add("  3. AfriControl → Division → Webhook Signal, coller (number = le téléphone relié, recipients = qui reçoit) :")
+      Ok "relais Signal sur 127.0.0.1:8085, redémarre avec la machine — reste à inscrire le numéro du poste (ci-dessous)"
+      $AFaire.Add("Inscrire le numéro propre du poste chez Signal (une fois, sans relier de téléphone) :")
+      $AFaire.Add("  1. une puce active réservée au poste, dans un mobile sans Signal pour ce numéro ;")
+      $AFaire.Add("  2. AfriControl → Capteurs › Outils › Bot Signal du poste → Numéro propre au bot (chef de division) :")
+      $AFaire.Add("     captcha de https://signalcaptchas.org/registration/generate, puis le code reçu par SMS ;")
+      $AFaire.Add("  3. AfriControl → Division → Webhook Signal, coller (number = ce numéro, recipients = qui reçoit) :")
       $AFaire.Add("     http://127.0.0.1:8085/v2/send?number=+235XXXXXXXX&recipients=+235YYYYYYYY,+235ZZZZZZZZ")
-      $AFaire.Add("  4. bot Signal (facultatif) : dans poste.env, AFRICONTROL_BOT_NUMERO=+235XXXXXXXX (le téléphone relié)")
-      $AFaire.Add("     et AFRICONTROL_BOT_AUTORISES=+235YYYYYYYY,+235ZZZZZZZZ ; redémarrer, puis l'activer dans Capteurs › Outils.")
+      $AFaire.Add("  4. bot Signal (facultatif) : au même endroit, ajouter puis activer les numéros autorisés, et le bot.")
     } else {
       Rate "relais Signal : ne répond pas sur 127.0.0.1:8085 (docker logs africontrol-signal)"
     }

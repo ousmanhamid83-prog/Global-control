@@ -122,10 +122,12 @@ describe("savoir local de l'assistant : le LIREMOI du poste", () => {
     assert.match(e[0]!.titre, /récepteur GPS/);
   });
 
-  it("SIGNAL : « comment relier le téléphone Signal ? » trouve le passage du relais", () => {
+  it("SIGNAL : « comment relier le téléphone Signal ? » dit qu'on n'en relie plus, et pourquoi", () => {
+    // Le poste ne relie plus de téléphone (un appareil relié voit tous les messages du compte) :
+    // le bot a son numéro propre, inscrit par le relais.
     const e = extraitsPertinents("Comment relier le téléphone Signal ?", VRAI);
     assert.ok(e.length > 0);
-    assert.match(e[0]!.texte, /qrcodelink|Appareils reliés|relier le téléphone/i);
+    assert.match(e[0]!.texte, /aucun téléphone relié|sans relier de téléphone/i);
   });
 
   it("RELIEF : « où mettre les tuiles de relief ? » trouve data/relief", () => {

@@ -208,11 +208,15 @@ describe("commandes du poste : un registre pour la console, l'agent et le bot", 
       "Désactivées au poste : /recherche (le chef de division les active).",
     );
     const bot = aide("", "bot", RIEN);
+    // Vu sur un vrai téléphone : « Commandes de le bot Signal ».
+    assert.equal(bot[0], "Commandes du bot Signal :");
     assert.ok(!bot.some((l) => l.startsWith("  /trafic")));
     assert.equal(
-      bot.at(-1),
+      bot.at(-2),
       "Désactivées au poste : /trafic, /piste, /militaires, /ia, /briefing, /recherche (le chef de division les active).",
     );
+    assert.equal(bot.at(-1), "La barre « / » est facultative : « meteo » suffit.");
+    assert.ok(!console_.some((l) => l.includes("facultative")), "à la console, la barre reste la règle");
   });
 
   it("AIDE D'UNE COMMANDE : usage, autres noms, état par canal", () => {

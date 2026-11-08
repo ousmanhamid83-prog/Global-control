@@ -29,6 +29,7 @@ import {
   decider,
   idNumero,
   listeAutorises,
+  litLeReleve,
   masquer,
   messagesRecus,
   noteReleve,
@@ -134,11 +135,20 @@ export type Poste = {
   journal: (de: string, titre: string, detail: string, severite: "info" | "warn") => Promise<void>;
 };
 
+/**
+ * Attente au plus d'un relevé Internet neuf, quand le poste n'en a pas de récent : le premier à
+ * froid a pris 7,4 à 9,4 s à travers le proxy du poste d'essai.
+ */
+const RELEVE_ATTENTE_MS = 12_000;
+
 const posteReel: Poste = {
   async executer(texte, expediteur) {
-    // Sans console ouverte, personne ne relève Internet : le bot lance le relevé pour la commande
-    // suivante, sans l'attendre, et la réponse dit l'âge de celui qu'elle a lu.
-    const releve = (await import("./live-feeds")).releveInternetPourBot();
+    // Sans console ouverte, personne ne relève Internet. Vu au premier essai réel : juste après le
+    // démarrage, deux réponses « pas encore de relevé ». Une commande qui lit le relevé attend donc
+    // le neuf quand il manque ou a plus de 2 min ; sinon elle répond aussitôt et dit son âge.
+    const releve = await (await import("./live-feeds")).releveInternetPourBot(
+      litLeReleve(texte) ? RELEVE_ATTENTE_MS : 0,
+    );
     const { lancer } = await import("./commandes-poste.server");
     const { journalBot } = await import("./journal-poste.server");
     const r = await lancer(texte, "bot", journalBot(expediteur));

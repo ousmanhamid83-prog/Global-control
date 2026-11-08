@@ -1612,7 +1612,7 @@ function AssistantSection({ bascules }: { bascules: Bascules }) {
           placeholder={
             st?.configured
               ? "Question, ou « / » pour une commande — ex. /situation"
-              : "ex. Comment relier le téléphone Signal ? — ou /aide"
+              : "ex. Comment inscrire le numéro du bot Signal ? — ou /aide"
           }
           aria-label="Question à l'assistant ou commande du poste"
           aria-autocomplete="list"

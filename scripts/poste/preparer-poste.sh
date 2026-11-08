@@ -346,15 +346,15 @@ if [ "$SIGNAL" = 1 ]; then
         -v "$RACINE/data/signal:/home/.local/share/signal-cli" "$SIGNAL_IMAGE" >/dev/null
     fi
     if docker inspect africontrol-signal >/dev/null 2>&1 && attendre signal_repond 90; then
-      ok "relais Signal sur 127.0.0.1:8085, redémarre avec la machine — reste à lier le téléphone (ci-dessous)"
+      ok "relais Signal sur 127.0.0.1:8085, redémarre avec la machine — reste à inscrire le numéro du poste (ci-dessous)"
       A_FAIRE+=(
-        "Lier le téléphone Signal du poste (une fois) :"
-        "  1. ouvrir http://127.0.0.1:8085/v1/qrcodelink?device_name=AfriControl dans le navigateur du poste ;"
-        "  2. sur le téléphone : Signal → Paramètres → Appareils reliés → « + », scanner le QR ;"
-        "  3. AfriControl → Division → Webhook Signal, coller (number = le téléphone relié, recipients = qui reçoit) :"
+        "Inscrire le numéro propre du poste chez Signal (une fois, sans relier de téléphone) :"
+        "  1. une puce active réservée au poste, dans un mobile sans Signal pour ce numéro ;"
+        "  2. AfriControl → Capteurs › Outils › Bot Signal du poste → Numéro propre au bot (chef de division) :"
+        "     captcha de https://signalcaptchas.org/registration/generate, puis le code reçu par SMS ;"
+        "  3. AfriControl → Division → Webhook Signal, coller (number = ce numéro, recipients = qui reçoit) :"
         "     http://127.0.0.1:8085/v2/send?number=+235XXXXXXXX&recipients=+235YYYYYYYY,+235ZZZZZZZZ"
-        "  4. bot Signal (facultatif) : dans poste.env, AFRICONTROL_BOT_NUMERO=+235XXXXXXXX (le téléphone relié)"
-        "     et AFRICONTROL_BOT_AUTORISES=+235YYYYYYYY,+235ZZZZZZZZ ; redémarrer, puis l'activer dans Capteurs › Outils."
+        "  4. bot Signal (facultatif) : au même endroit, ajouter puis activer les numéros autorisés, et le bot."
       )
     else
       rate "relais Signal : ne répond pas sur 127.0.0.1:8085 (docker logs africontrol-signal)"

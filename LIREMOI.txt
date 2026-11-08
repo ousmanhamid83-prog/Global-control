@@ -58,10 +58,11 @@ Préparer le poste en une commande (une fois, en ligne)
   · itinéraire (--itineraire, Docker) : carte OpenStreetMap du Tchad (151 Mo), graphe OSRM
     préparé, serveur sur 127.0.0.1:5810 qui redémarre avec la machine ; essai N'Djamena → Abéché ;
   · relais Signal (--signal, Docker) : signal-cli-rest-api sur 127.0.0.1:8085, qui redémarre
-    avec la machine. Reste à relier le téléphone du poste (le script donne le QR à scanner), puis
-    à coller dans Division → Webhook Signal :
+    avec la machine. Reste à inscrire le numéro propre du poste chez Signal (voir « Bot Signal
+    du poste » : captcha, puis code par SMS), sans relier de téléphone, puis à coller dans
+    Division → Webhook Signal :
       http://127.0.0.1:8085/v2/send?number=+235XXXXXXXX&recipients=+235YYYYYYYY,+235ZZZZZZZZ
-    (number = le téléphone relié, recipients = qui reçoit les alertes). La console reconnaît le
+    (number = le numéro inscrit, recipients = qui reçoit les alertes). La console reconnaît le
     relais et lui envoie le détail, que Signal chiffre de bout en bout jusqu'aux téléphones ;
     Division affiche « Relais Signal du poste · détail chiffré » ;
   · écrit AFRICONTROL_IA, AFRICONTROL_IA_MODELE et AFRICONTROL_ITINERAIRE dans poste.env.
@@ -262,18 +263,42 @@ Recherche en ligne sur demande — Capteurs > Outils
 
 Bot Signal du poste — Capteurs > Outils
 - BOT SIGNAL DU POSTE (src/lib/vigilair/bot-signal.server.ts). Un numéro autorisé envoie une
-  commande au téléphone du poste (« /meteo », « /aide ») ; le bot l'exécute sur le poste et répond
-  à l'expéditeur seul, par le relais Signal du poste. Réglage dans poste.env, puis redémarrer :
-    AFRICONTROL_BOT_NUMERO=+235…            le téléphone du poste, relié au relais (QR à scanner,
-                                            voir « Préparer le poste en une commande »)
-    AFRICONTROL_BOT_AUTORISES=+235…,+235…   les seuls numéros qui peuvent écrire au bot
+  commande au numéro du bot (« aide », « meteo », avec ou sans « / ») ; le bot l'exécute sur le
+  poste et répond à l'expéditeur seul, par le relais Signal du poste. Le bot a SON numéro, inscrit
+  chez Signal par le relais : aucun téléphone relié. Un appareil relié voit tous les messages du
+  compte de ce téléphone ; un numéro propre ne reçoit que ce qu'on écrit au bot, et ses clés restent
+  sur le poste. Il suffit d'une puce active, dans n'importe quel mobile sans Signal sur ce numéro
+  (Signal n'admet qu'un compte principal par numéro : l'inscription en déconnecte un autre).
+- BOT SIGNAL : INSCRIRE SON NUMÉRO (chef de division, Capteurs > Outils > Bot Signal du poste >
+  Numéro propre au bot). 1) Ouvrir https://signalcaptchas.org/registration/generate, résoudre le
+  captcha ; 2 s après paraît le lien « Ouvrez Signal » : clic droit ou appui long, « Copier
+  l'adresse du lien » (« signalcaptcha://… », valable quelques minutes), le coller, « Recevoir le
+  code » ; 2) saisir les six chiffres reçus par SMS (ou par appel), « Valider l'inscription ». Le
+  profil prend le nom « AfriControl », que le téléphone affiche après la première réponse. Un PIN
+  n'est demandé que si le numéro a déjà un verrou d'inscription. Le journal dit qui a inscrit quel
+  numéro (masqué), jamais le captcha ni le code. Vérifié sur un vrai numéro : code demandé en 2,3 s,
+  inscription validée en 3,5 s. Le numéro peut aussi venir de poste.env, qui l'emporte :
+    AFRICONTROL_BOT_NUMERO=+235…            numéro déjà inscrit au relais
+    AFRICONTROL_BOT_AUTORISES=+235…,+235…   numéros toujours écoutés
     AFRICONTROL_BOT_RELAIS=http://…         facultatif ; par défaut http://127.0.0.1:8085,
                                             refusé hors du réseau du poste
-  Enregistrer aussi les numéros autorisés dans le répertoire du téléphone du poste : Signal ne
-  dit le numéro d'un expéditeur qu'à qui le connaît, et sans lui le bot ignore le message
-  (« numéro masqué », raison affichée). Coupé à la livraison : le chef l'active dans Capteurs >
-  Outils > Bot Signal du poste ; l'état survit au redémarrage (data/bot-signal.json), et le serveur
-  relance seul un bot actif, sans console ouverte.
+- BOT SIGNAL : NUMÉROS AUTORISÉS. Ceux de poste.env sont toujours écoutés. Le chef en ajoute
+  d'autres à l'écran : coupés à l'ajout, écoutés une fois activés, coupés ou retirés d'un clic,
+  chaque geste au journal ; effet au message suivant. Coupé à la livraison, le bot s'active au même
+  endroit ; l'état survit au redémarrage (data/bot-signal.json), et le serveur relance seul un bot
+  actif, sans console ouverte.
+- BOT SIGNAL : NUMÉRO CACHÉ PAR SIGNAL. Depuis 2024, Signal ne joint plus le numéro d'un expéditeur
+  qui le cache (réglage par défaut) : le bot cherche donc ses numéros autorisés chez Signal — à
+  chaque ouverture de l'écoute, à chaque activation, et sur un message sans numéro (une fois par
+  30 s au plus) — puis les reconnaît, et répond au compte de l'expéditeur. L'écran dit « Introuvable
+  sur Signal » d'un numéro dont le titulaire a réglé « Qui peut me trouver par mon numéro :
+  Personne ». Deux remèdes : régler ce choix sur « Tout le monde » (le numéro reste caché à qui ne
+  l'a pas) ; ou l'APPAIRAGE : le chef clique « Appairer » à côté du numéro, un code à six chiffres
+  s'affiche (5 minutes, une seule fois, trois codes faux l'annulent), et le téléphone envoie au bot
+  « appairer 123456 ». Le bot reconnaît alors ce compte Signal quel que soit son réglage ; activer
+  ou couper reste au chef. Jamais le code au journal. Vu au premier essai réel : trois messages
+  arrivés sans numéro, ignorés ; le titulaire a rendu son numéro trouvable, et la recherche du bot
+  l'a reconnu dès le message suivant.
 - BOT SIGNAL : CE QU'IL FAIT, CE QU'IL REFUSE. Il ne répond qu'aux commandes activées pour le
   bot. Un numéro inconnu ou un groupe n'a aucune réponse (rien ne lui dit qu'un bot écoute) ;
   l'inconnu va au journal, une fois par 10 min. Six commandes par minute et par numéro, puis un
@@ -293,14 +318,20 @@ Bot Signal du poste — Capteurs > Outils
   250 ms pour envoyer. Mode json-rpc : 51 ms (53 ms au plus). Le bot lit le mode du relais seul ;
   pour le json-rpc, recréer le conteneur avec -e MODE=json-rpc (une JVM tourne alors en continu,
   plus de mémoire), sachant qu'un message arrivé bot coupé y est perdu.
+  ESSAI RÉEL (vrai relais 0.101 en json-rpc, numéro propre inscrit, un téléphone autorisé) : « aide »
+  servie en 31 ms sur le poste (premier usage : modules chargés) et remise au relais en 813 ms (le
+  premier envoi ouvre la session chiffrée avec ce téléphone) ; les deux commandes suivantes en
+  0,77 et 0,24 ms, remises en 108 ms chacune.
   ARRÊT DU SERVEUR (SIGTERM, Ctrl+C) : le bot cesse aussitôt de relever le relais, finit la relève
   commencée et y répond. Vérifié : message envoyé 7 ms après l'arrêt, réponse remise à 1,3 s, plus
   aucune relève ensuite. Avant ce correctif, un serveur qui s'arrêtait relevait encore quelques
   secondes et perdait ce qu'il prenait (vu à l'essai). Au redémarrage, un bot actif reprend seul,
-  sans console ouverte (premier message servi en 90 ms en json-rpc). Avec le vrai relais 0.101 non
-  lié, dans les deux modes : « pas lié au relais », l'adresse du QR, et de nouveaux essais à pause
-  croissante (1 s, 2 s, 4 s… 30 s au plus). 45 tests ; 107 mutations : les 8 qui survivaient en
-  route ont mené à 6 tests ajoutés et à 2 morceaux de code mort retirés.
+  sans console ouverte (premier message servi en 90 ms en json-rpc). Avec le vrai relais 0.101 sans
+  ce numéro, dans les deux modes : « pas inscrit au relais », où l'inscrire, et de nouveaux essais à
+  pause croissante (1 s, 2 s, 4 s… 30 s au plus). 64 tests.
+- BOT SIGNAL : JOURNAL DU RELAIS. Le journal Docker du conteneur signal-cli-rest-api garde les
+  numéros (dans les adresses des requêtes) et, en json-rpc, le texte des messages reçus : il reste
+  sur le poste (docker logs). Pour ne rien garder, recréer le conteneur avec --log-driver none.
 
 Antenne 1090 du poste (clé SDR + dump1090)
 Lancer dump1090 avec le port brut AVR, et un port web qui ne prend pas 8080 (celui de AfriControl) :

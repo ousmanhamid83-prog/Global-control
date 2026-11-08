@@ -50,6 +50,7 @@ import type { ReceiverFeed } from "./rx1090.server";
 import { couvertureVerdict, type CellOutcome } from "./portee";
 import { cellulesDuReleve, reunirLots, vieCellule, type Lot } from "./releve-reseau";
 import { UA_POSTE as UA } from "./agent-http";
+import { attendreReleve } from "./bot-signal";
 
 type Cell = { lat: number; lon: number; label: string };
 
@@ -153,6 +154,8 @@ type EtatReleve = {
   lastGood: LivePicture | null;
   /** Relevé Internet en cours (un seul à la fois). */
   netPending: Promise<LivePicture> | null;
+  /** Fin du dernier relevé Internet, abouti ou non (ms) ; 0 : aucun encore. */
+  tentativeA: number;
   netLast: LivePicture | null;
   continentSweep: boolean;
   /** Feux FIRMS, gardés le temps de leur TTL. */
@@ -162,6 +165,7 @@ const releve = ((globalThis as { __afriReleve?: EtatReleve }).__afriReleve ??= {
   cache: null,
   lastGood: null,
   netPending: null,
+  tentativeA: 0,
   netLast: null,
   continentSweep: false,
   firms: null,
@@ -999,6 +1003,7 @@ function refreshNetwork(): Promise<LivePicture> {
     })
     .finally(() => {
       releve.netPending = null;
+      releve.tentativeA = Date.now();
     });
   return releve.netPending;
 }
@@ -1006,15 +1011,35 @@ function refreshNetwork(): Promise<LivePicture> {
 /**
  * Pour le bot Signal, qui répond sans console ouverte (c'est la console qui relève Internet
  * d'habitude) : l'âge du relevé Internet que lira la commande, et s'il a plus de 20 s, un nouveau
- * relevé lancé pour la commande suivante. Rien ne l'attend : il prend plus d'une seconde et demie
- * (mesuré), la commande répond tout de suite avec ce que le poste a, et dit son âge.
+ * relevé lancé. Absent ou vieux de plus de 2 min (voir attendreReleve), la commande l'attend,
+ * `maxMs` au plus : 7,4 à 9,4 s mesurés à froid à travers le proxy du poste d'essai. Sinon rien
+ * n'attend : la commande répond avec ce que le poste a, et dit son âge.
  */
-export function releveInternetPourBot(): { ageMs: number | null; frais: boolean } {
-  const lu = peekLiveCache();
-  const ageMs = lu ? Date.now() - lu.at : null;
-  const frais = ageMs != null && ageMs < TTL_MS;
-  if (!frais) void refreshNetwork();
-  return { ageMs, frais };
+export async function releveInternetPourBot(
+  maxMs: number,
+): Promise<{ ageMs: number | null; frais: boolean; attenduMs: number }> {
+  const age = () => {
+    const lu = peekLiveCache();
+    return lu ? Date.now() - lu.at : null;
+  };
+  let ageMs = age();
+  let attenduMs = 0;
+  if (ageMs == null || ageMs >= TTL_MS) {
+    const enCours = refreshNetwork();
+    if (maxMs > 0 && attendreReleve(ageMs, Date.now() - releve.tentativeA)) {
+      const t0 = Date.now();
+      await Promise.race([
+        enCours.then(
+          () => undefined,
+          () => undefined,
+        ),
+        new Promise<void>((ok) => setTimeout(ok, maxMs).unref()),
+      ]);
+      attenduMs = Date.now() - t0;
+      ageMs = age();
+    }
+  }
+  return { ageMs, frais: ageMs != null && ageMs < TTL_MS, attenduMs };
 }
 
 export const fetchLivePicture = createServerFn({ method: "GET" })

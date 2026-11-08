@@ -5,6 +5,9 @@ import {
   APPAIRAGE_ESSAIS,
   APPAIRAGE_MS,
   PERIME_MS,
+  RELEVE_VIEUX_MS,
+  attendreReleve,
+  litLeReleve,
   codeAppairage,
   autorisesEffectifs,
   idNumero,
@@ -320,6 +323,48 @@ describe("bot Signal : âge du relevé Internet sous la réponse", () => {
       "Pas encore de relevé Internet au poste : le premier est en cours, pour la commande suivante.",
     );
     assert.equal(noteReleve({ ok: true, commande: "meteo" }, { ageMs: 5000, frais: true }), null);
+  });
+
+  it("ATTENDU : neuf après une attente d'au moins 1 s, dit ; sans réponse, dit aussi", () => {
+    assert.equal(
+      noteReleve({ ok: true, commande: "meteo" }, { ageMs: 900, frais: true, attenduMs: 8100 }),
+      "Relevé Internet neuf, attendu 8 s : le poste n'en avait pas de récent.",
+    );
+    assert.equal(
+      noteReleve({ ok: true, commande: "meteo" }, { ageMs: 300, frais: true, attenduMs: 999 }),
+      null,
+      "moins d'une seconde : rien à dire",
+    );
+    assert.equal(
+      noteReleve({ ok: true, commande: "situation" }, { ageMs: null, frais: false, attenduMs: 12_000 }),
+      "Relevé Internet attendu 12 s sans réponse : vérifier la liaison Internet du poste (/capteurs).",
+    );
+    assert.equal(
+      noteReleve({ ok: true, commande: "aide" }, { ageMs: 300, frais: true, attenduMs: 8100 }),
+      null,
+      "commande qui ne lit pas le relevé",
+    );
+  });
+
+  it("QUAND ATTENDRE LE RELEVÉ NEUF : absent ou vieux de 2 min, sauf tentative de moins de 2 min", () => {
+    const longtemps = 10 * RELEVE_VIEUX_MS;
+    assert.equal(attendreReleve(null, longtemps), true, "absent : le premier");
+    assert.equal(attendreReleve(RELEVE_VIEUX_MS, longtemps), true, "vieux de 2 min");
+    assert.equal(attendreReleve(RELEVE_VIEUX_MS - 1, longtemps), false, "encore récent : on lit");
+    assert.equal(attendreReleve(null, RELEVE_VIEUX_MS - 1), false, "hors ligne : une tentative vient d'échouer");
+    assert.equal(attendreReleve(null, RELEVE_VIEUX_MS), true);
+    assert.equal(RELEVE_VIEUX_MS, 120_000);
+  });
+
+  it("COMMANDES QUI LISENT LE RELEVÉ : celles du relevé ; ni l'aide, ni la notice, ni l'inconnue", () => {
+    assert.equal(litLeReleve("/meteo"), true);
+    assert.equal(litLeReleve("/situation"), true);
+    assert.equal(litLeReleve("/piste TST101"), true);
+    assert.equal(litLeReleve("/aide"), false);
+    assert.equal(litLeReleve("/notice relief"), false);
+    assert.equal(litLeReleve("/recherche abc"), false);
+    assert.equal(litLeReleve("/inconnue"), false);
+    assert.equal(litLeReleve("meteo"), false, "sans barre : le bot l'a déjà mise");
   });
 
   it("PAS DE NOTE : commande refusée, inconnue, ou qui ne lit pas le relevé", () => {

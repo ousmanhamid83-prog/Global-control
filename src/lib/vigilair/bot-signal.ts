@@ -4,7 +4,7 @@
  * inconnu n'a aucune réponse (rien ne lui confirme qu'un bot écoute), un groupe non plus (la
  * réponse irait à des gens qui n'ont pas été autorisés). Module pur, testable sous node.
  */
-import { trouverCommande } from "./commandes-poste.ts";
+import { analyser, trouverCommande } from "./commandes-poste.ts";
 import { IA_QUESTION_MAX } from "./ia-limites.ts";
 
 /**
@@ -202,6 +202,23 @@ export function decider(
 /** Commandes qui ne lisent pas le relevé des capteurs : son âge n'a rien à y faire. */
 const SANS_RELEVE = new Set(["aide", "notice", "recherche"]);
 
+/** « /meteo », « /piste TST101 » lisent le relevé ; « /aide », une commande inconnue, non. */
+export function litLeReleve(texte: string): boolean {
+  const a = analyser(texte);
+  return a != null && "commande" in a && !SANS_RELEVE.has(a.commande.nom);
+}
+
+/**
+ * Au-delà de cet âge, ou absent, le relevé Internet est attendu neuf plutôt que lu : une réponse
+ * vieille de plusieurs heures (poste resté sans console) ne dirait rien d'utile. Pas si un relevé
+ * a abouti ou échoué depuis aussi longtemps : hors ligne, chaque commande n'attend pas pour rien.
+ */
+export const RELEVE_VIEUX_MS = 120_000;
+
+export function attendreReleve(ageMs: number | null, depuisTentativeMs: number): boolean {
+  return (ageMs == null || ageMs >= RELEVE_VIEUX_MS) && depuisTentativeMs >= RELEVE_VIEUX_MS;
+}
+
 /** « 45 s », « 12 min », « 3 h ». */
 export function dureeLisible(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -211,14 +228,24 @@ export function dureeLisible(ms: number): string {
 }
 
 /**
- * Sous une commande réussie qui a lu le relevé : la ligne qui dit que sa part Internet est vieille
- * ou absente (sans console ouverte, personne ne l'a rafraîchie) ; null quand elle est fraîche.
+ * Sous une commande réussie qui a lu le relevé : la ligne qui dit que sa part Internet a été
+ * attendue, ou qu'elle est vieille ou absente (sans console ouverte, personne ne l'a rafraîchie) ;
+ * null quand elle est fraîche et n'a pas fait attendre. `attenduMs` : l'attente du relevé neuf.
  */
 export function noteReleve(
   r: { ok: boolean; commande: string | null },
-  releve: { ageMs: number | null; frais: boolean },
+  releve: { ageMs: number | null; frais: boolean; attenduMs?: number },
 ): string | null {
-  if (!r.ok || r.commande == null || SANS_RELEVE.has(r.commande) || releve.frais) return null;
+  if (!r.ok || r.commande == null || SANS_RELEVE.has(r.commande)) return null;
+  const attendu = releve.attenduMs ?? 0;
+  if (releve.frais) {
+    return attendu >= 1000
+      ? `Relevé Internet neuf, attendu ${dureeLisible(attendu)} : le poste n'en avait pas de récent.`
+      : null;
+  }
+  if (attendu > 0) {
+    return `Relevé Internet attendu ${dureeLisible(attendu)} sans réponse : vérifier la liaison Internet du poste (/capteurs).`;
+  }
   return releve.ageMs == null
     ? "Pas encore de relevé Internet au poste : le premier est en cours, pour la commande suivante."
     : `Relevé Internet du poste vieux de ${dureeLisible(releve.ageMs)} : un nouveau est en cours, pour la commande suivante.`;

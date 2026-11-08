@@ -216,13 +216,15 @@ export function aide(argument: string, canal: Canal, b: Bascules): string[] {
   const actives = COMMANDES.filter((c) => commandeActive(c, canal, b));
   const eteintes = COMMANDES.filter((c) => !commandeActive(c, canal, b));
   return [
-    `Commandes de ${LIBELLE_CANAL[canal]} :`,
+    `Commandes ${canal === "bot" ? "du bot Signal" : "de la console"} :`,
     ...actives.map((c) => `  ${usage(c)} — ${c.resume}`),
     ...(eteintes.length
       ? [
           `Désactivées au poste : ${eteintes.map((c) => `/${c.nom}`).join(", ")} (le chef de division les active).`,
         ]
       : []),
+    // Sur un téléphone, la barre oblique est malcommode : le bot lit aussi « meteo ».
+    ...(canal === "bot" ? ["La barre « / » est facultative : « meteo » suffit."] : []),
   ];
 }
 
