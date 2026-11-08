@@ -32,7 +32,7 @@ describe("anonymat : aucune adresse en base, mais les heures restent", () => {
       "du 08/11/2026 18:10:22 au 08/11/2026 18:12:05 (heure de N'Djamena)",
       "dernière action 2026-11-08 17:10:22.966+00",
       "METAR de 10:00 Z",
-      "std::vector, Note ::",
+      "std::vector, Code::42, Note ::",
     ]) {
       assert.equal(stripIps(texte), texte);
     }
