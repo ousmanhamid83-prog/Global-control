@@ -287,6 +287,11 @@ describe("bot Signal : décision", () => {
       action: "executer",
       commande: "/situation",
     });
+    // Vu sur un vrai téléphone : « Situtation » — proposée, pas exécutée à sa place.
+    assert.deepEqual(decider(msg({ texte: "Situtation ?" }), AUTORISES, toujours, T), {
+      action: "repondre",
+      texte: "« Situtation » n'est pas une commande : vouliez-vous dire « situation » ? La liste : /aide.",
+    });
   });
 
   it("COMMANDE SANS BARRE : nom ou alias, casse, accents et ponctuation finale ignorés", () => {

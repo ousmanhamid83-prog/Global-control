@@ -4,7 +4,7 @@
  * inconnu n'a aucune réponse (rien ne lui confirme qu'un bot écoute), un groupe non plus (la
  * réponse irait à des gens qui n'ont pas été autorisés). Module pur, testable sous node.
  */
-import { analyser, trouverCommande } from "./commandes-poste.ts";
+import { analyser, commandeProche, trouverCommande } from "./commandes-poste.ts";
 import { IA_QUESTION_MAX } from "./ia-limites.ts";
 
 /**
@@ -195,7 +195,17 @@ export function decider(
     };
   }
   const commande = m.texte.startsWith("/") ? m.texte : commandeSansBarre(m.texte);
-  if (!commande) return { action: "repondre", texte: AIDE_BOT };
+  if (!commande) {
+    // « Situtation » : le mot proche d'une commande la propose, sans l'exécuter à sa place.
+    const mot = m.texte.trim().split(/\s+/)[0]!.replace(/[.!?,;:]+$/, "");
+    const proche = commandeProche(mot);
+    return {
+      action: "repondre",
+      texte: proche
+        ? `« ${mot.slice(0, 40)} » n'est pas une commande : vouliez-vous dire « ${proche.nom} » ? La liste : /aide.`
+        : AIDE_BOT,
+    };
+  }
   return { action: "executer", commande: commande.slice(0, IA_QUESTION_MAX) };
 }
 

@@ -14,6 +14,7 @@ import {
   aide,
   analyser,
   basculesValides,
+  commandeProche,
   commandeActive,
   executerImage,
   lignesSources,
@@ -171,10 +172,13 @@ export async function lancer(
     return fin({ ok: false, commande: null, lignes: ["Une commande commence par « / » : /aide."] });
   }
   if ("inconnue" in a) {
+    const proche = commandeProche(a.inconnue);
     return fin({
       ok: false,
       commande: null,
-      lignes: [`Commande inconnue : /${a.inconnue}. /aide pour la liste.`],
+      lignes: [
+        `Commande inconnue : /${a.inconnue}.${proche ? ` Vouliez-vous dire /${proche.nom} ?` : ""} /aide pour la liste.`,
+      ],
     });
   }
   const { commande, argument } = a;

@@ -173,6 +173,47 @@ export function trouverCommande(mot: string): Commande | undefined {
   return COMMANDES.find((c) => c.nom === m || c.alias.includes(m));
 }
 
+/**
+ * Distance d'édition entre deux mots courts : insertion, suppression, substitution, et deux
+ * lettres voisines inversées (« metoe »), chacune pour un.
+ */
+function distance(a: string, b: string): number {
+  const d = Array.from({ length: a.length + 1 }, (_, i) =>
+    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+  );
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      let v = Math.min(d[i - 1]![j]! + 1, d[i]![j - 1]! + 1, d[i - 1]![j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, d[i - 2]![j - 2]! + 1);
+      d[i]![j] = v;
+    }
+  }
+  return d[a.length]![b.length]!;
+}
+
+/**
+ * La commande qu'un mot mal tapé voulait dire (« situtation » → situation, vu sur un vrai
+ * téléphone) : une lettre d'écart pour un nom de 5 lettres au plus, deux au-delà. Rien pour un
+ * mot de moins de 4 lettres, trop proche de tout.
+ */
+export function commandeProche(mot: string): Commande | null {
+  const m = normaliser(mot);
+  if (m.length < 4) return null;
+  let proche: Commande | null = null;
+  let meilleure = Infinity;
+  for (const c of COMMANDES) {
+    for (const nom of [c.nom, ...c.alias]) {
+      if (nom.length < 4) continue;
+      const d = distance(m, nom);
+      if (d <= (nom.length <= 5 ? 1 : 2) && d < meilleure) {
+        meilleure = d;
+        proche = c;
+      }
+    }
+  }
+  return proche;
+}
+
 export type Analyse = { commande: Commande; argument: string } | { inconnue: string };
 
 /** « /meteo », « /Piste TST101 », « /? » ; null : la ligne n'est pas une commande. */

@@ -6,6 +6,7 @@ import {
   analyser,
   basculesValides,
   commandeActive,
+  commandeProche,
   executerImage,
   lignesSources,
   suggestions,
@@ -195,6 +196,19 @@ describe("commandes du poste : un registre pour la console, l'agent et le bot", 
     assert.equal(suggestions("/", "console", RIEN).length, COMMANDES.length);
     assert.deepEqual(suggestions("/meteo FTTJ", "console", RIEN), [], "argument en cours : rien");
     assert.deepEqual(suggestions("meteo", "console", RIEN), []);
+  });
+
+  it("MOT MAL TAPÉ : la commande proche ; rien pour un mot sans rapport ou trop court", () => {
+    // Vu sur un vrai téléphone : « Situtation ».
+    assert.equal(commandeProche("Situtation")?.nom, "situation");
+    assert.equal(commandeProche("metoe")?.nom, "meteo", "deux lettres inversées : une seule faute");
+    assert.equal(commandeProche("maseo"), null, "deux fautes : trop pour un nom de 5 lettres");
+    assert.equal(commandeProche("capteur")?.nom, "capteurs");
+    assert.equal(commandeProche("urgence")?.nom, "urgences");
+    assert.equal(commandeProche("Soliel")?.nom, "soleil");
+    assert.equal(commandeProche("bonjour"), null);
+    assert.equal(commandeProche("merci"), null);
+    assert.equal(commandeProche("mto"), null, "moins de 4 lettres");
   });
 
   it("AIDE : la liste du canal ; ce qui est désactivé est dit, avec qui peut l'activer", () => {
