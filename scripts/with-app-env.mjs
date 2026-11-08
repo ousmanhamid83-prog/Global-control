@@ -104,14 +104,35 @@ export function isMainModule(moduleUrl) {
   }
 }
 
+/**
+ * How to start `command`. A binary of a package installed under `root` (`vite`) runs as
+ * `node <its script>`: Windows cannot spawn the `.cmd` shim npm writes for it without a shell
+ * (`spawn vite ENOENT`, found by the first build on a real Windows), and node needs neither a
+ * shell nor the shim on the PATH, on any system. Anything else runs as typed.
+ */
+export function resolveCommand(command, args, root) {
+  let bin;
+  try {
+    const pkg = JSON.parse(readFileSync(join(root, "node_modules", command, "package.json"), "utf8"));
+    bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.[command];
+  } catch {
+    // Not an installed package: run as typed.
+  }
+  return typeof bin === "string"
+    ? { file: process.execPath, args: [join(root, "node_modules", command, bin), ...args] }
+    : { file: command, args };
+}
+
 function main(argv) {
   const [command, ...args] = argv;
   if (!command) {
     console.error("usage: node scripts/with-app-env.mjs <command> [args…]");
     process.exit(2);
   }
-  const env = mergeAppEnv(readAppEnv(projectRoot()), process.env);
-  const child = spawn(command, args, { stdio: "inherit", env });
+  const root = projectRoot();
+  const env = mergeAppEnv(readAppEnv(root), process.env);
+  const run = resolveCommand(command, args, root);
+  const child = spawn(run.file, run.args, { stdio: "inherit", env });
   // The dev server is long-running and is stopped by signalling this wrapper.
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     process.on(signal, () => child.kill(signal));

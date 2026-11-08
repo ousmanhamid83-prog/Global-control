@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -11,6 +11,7 @@ import {
   parseAppEnv,
   projectRoot,
   readAppEnv,
+  resolveCommand,
 } from "./with-app-env.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -111,6 +112,46 @@ test("a signal-killed command is never reported as success", async () => {
     ]),
     (err) => err.signal === "SIGTERM" || err.code !== 0,
   );
+});
+
+test("a package binary runs through node, with no shell and no PATH shim", () => {
+  // Windows cannot spawn the .cmd shim npm writes for `vite` (spawn vite ENOENT, the
+  // first build on a real Windows): the wrapper starts the package's script with node.
+  const root = mkdtempSync(join(tmpdir(), "app-env-bin-"));
+  mkdirSync(join(root, "node_modules", "outil"), { recursive: true });
+  writeFileSync(join(root, "node_modules", "outil", "package.json"), '{"bin":{"outil":"cli.js"}}');
+  assert.deepEqual(resolveCommand("outil", ["build"], root), {
+    file: process.execPath,
+    args: [join(root, "node_modules", "outil", "cli.js"), "build"],
+  });
+  writeFileSync(join(root, "node_modules", "outil", "package.json"), '{"bin":"seul.js"}');
+  assert.deepEqual(resolveCommand("outil", [], root), {
+    file: process.execPath,
+    args: [join(root, "node_modules", "outil", "seul.js")],
+  });
+});
+
+test("anything else runs as typed", () => {
+  const root = mkdtempSync(join(tmpdir(), "app-env-bin-"));
+  mkdirSync(join(root, "node_modules", "lib"), { recursive: true });
+  writeFileSync(join(root, "node_modules", "lib", "package.json"), '{"bin":{"autre":"x.js"}}');
+  assert.deepEqual(resolveCommand("lib", ["a"], root), { file: "lib", args: ["a"] });
+  assert.deepEqual(resolveCommand("absent", [], root), { file: "absent", args: [] });
+  assert.deepEqual(resolveCommand(process.execPath, ["-e", "1"], root), {
+    file: process.execPath,
+    args: ["-e", "1"],
+  });
+});
+
+test("the workspace's own binary starts with nothing on the PATH", async () => {
+  // The version proves it is this workspace's prettier, not one installed globally.
+  const { version } = JSON.parse(
+    readFileSync(join(projectRoot(), "node_modules", "prettier", "package.json"), "utf8"),
+  );
+  const { stdout } = await execFileAsync(process.execPath, [WRAPPER, "prettier", "--version"], {
+    env: { ...process.env, PATH: "/nulle-part" },
+  });
+  assert.equal(stdout.trim(), version);
 });
 
 test("the CLI still runs when invoked through a symlinked path", async () => {
