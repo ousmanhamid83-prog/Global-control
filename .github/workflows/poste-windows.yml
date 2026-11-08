@@ -189,14 +189,18 @@ jobs:
           "PATH=$chemin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       # Sans -Modele : le script lit la mémoire de la machine et choisit le modèle (7b dès 15 Go).
+      # Sortie au journal au fil de l'eau, et gardée : le premier essai, sortie dans un fichier, est
+      # resté muet plus de 14 minutes sur cette étape (7 pour une installation normale) — le script
+      # attendait aussi l'application d'Ollama que lance l'installeur. Un blocage échoue ici en
+      # 20 minutes, pas en 60.
       - name: IA seule, sans winget, modèle laissé au script
-        shell: cmd
+        timeout-minutes: 20
+        shell: pwsh
         run: |
-          where winget && exit /b 1
-          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\poste\preparer-poste.ps1 -SansBuild -SansRelief > prep-ia.log 2>&1
-          set CODE=%ERRORLEVEL%
-          type prep-ia.log
-          exit /b %CODE%
+          if (Get-Command winget -ErrorAction SilentlyContinue) { Write-Host "winget visible"; exit 1 }
+          & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\poste\preparer-poste.ps1 -SansBuild -SansRelief 2>&1 |
+            Tee-Object -FilePath prep-ia.log
+          exit $LASTEXITCODE
 
       - name: Installeur officiel pris, modèle selon la mémoire, première réponse
         shell: pwsh

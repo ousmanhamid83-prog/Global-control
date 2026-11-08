@@ -219,7 +219,10 @@ if (-not $SansIA) {
       Write-Host "  installation d'Ollama (installeur officiel d'ollama.com)…"
       $installeur = Join-Path $env:TEMP "OllamaSetup.exe"
       Invoke-WebRequest -UseBasicParsing -Uri "https://ollama.com/download/OllamaSetup.exe" -OutFile $installeur
-      Start-Process -Wait -FilePath $installeur -ArgumentList "/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES"
+      # Pas « Start-Process -Wait » : il attend aussi ce que l'installeur lance, dont l'application
+      # d'Ollama, qui reste ouverte — le script attendrait sans fin. Seul l'installeur est attendu.
+      $installation = Start-Process -PassThru -FilePath $installeur -ArgumentList "/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES"
+      $installation.WaitForExit()
     }
   }
   $ollama = OllamaExe
