@@ -1190,8 +1190,14 @@ Base du poste et journal d'activité — Division
   quand deux arrivent ensemble, doublés dans copies/fichiers ; abîmés ou absents, relus sur leur
   copie. Le trafic 1090ES reçu : dès le démarrage, console ouverte ou non, une image toutes les
   15 à 20 s, une ligne dans data/trafic/1090ES-<jour>.jsonl (jour du poste), forcée et doublée,
-  gardée sans limite. La phonie ATC : chaque morceau reçu écrit et doublé aussitôt, forcé toutes
-  les 10 s et en fin de segment ; deux segments ouverts dans la même seconde ne s'écrasent plus.
+  gardée sans limite. Le relevé Internet, quand le chef l'allume : ce qu'il reçoit en plus des
+  aéronefs (METAR, TAF, avis de phénomènes dangereux, météo spatiale, aérodrome, phénomènes) dans
+  data/releve/releve-<jour>.jsonl, chaque rubrique seulement quand elle change (ni l'ordre des
+  listes, ni l'heure GPS, ni l'heure redonnée aux phénomènes ne comptent), forcée et doublée.
+  Mesuré sur quatre vrais relevés : le premier ≈ 55 Ko, puis la météo spatiale seule (218
+  octets), puis rien, puis les avis de phénomènes dangereux (≈ 31 Ko). La phonie ATC : chaque
+  morceau reçu écrit et doublé aussitôt, forcé toutes les 10 s et en fin de segment ; deux
+  segments ouverts dans la même seconde ne s'écrasent plus.
   Rien de secret n'est copié (poste.env, data/base.secret).
 - COPIE DU JOUR, À CHAUD (copies/jour-AAAA-MM-JJ, jour du poste, toutes gardées) : prise au
   démarrage si celle du jour manque, puis chaque jour (regardé toutes les 5 min). Postgres est
