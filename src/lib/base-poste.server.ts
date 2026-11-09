@@ -421,6 +421,7 @@ function rangerAncienneGeneration(copies: string): string | null {
 /** Ce qu'il faut d'une base ouverte pour la copier à chaud. */
 type BaseInterrogeable = {
   query<R>(sql: string, params?: unknown[]): Promise<{ rows: R[] }>;
+  readonly closed: boolean;
 };
 
 /** Le premier segment du journal qu'une copie rejoue, et l'heure de la copie, lus dans son
@@ -497,7 +498,8 @@ export async function copierBase(
  * Une copie par jour (copies/jour-AAAA-MM-JJ, jour du poste) : tout de suite si celle du jour
  * manque, puis à chaque nouveau jour (vu toutes les 5 min). Toutes sont gardées. Des écritures
  * doublées en panne (clé des copies retirée) ou tout juste réparées : une copie de remise en route
- * (copies/remise-<date>) dès que le dossier des copies répond, sans attendre le lendemain.
+ * (copies/remise-<date>) dès que le dossier des copies répond, sans attendre le lendemain. Le
+ * programme s'arrête avec sa base : rien n'est tenté sur une base fermée.
  */
 export function programmerCopies(
   pg: BaseInterrogeable,
@@ -534,7 +536,12 @@ export function programmerCopies(
       enCours = false;
     }
   };
-  setInterval(() => void tenter(), 300_000).unref();
+  const minuterie = setInterval(() => {
+    // Sa base fermée (arrêt, une autre ouverte à sa place) : son programme s'arrête avec elle.
+    if (pg.closed) clearInterval(minuterie);
+    else void tenter();
+  }, 300_000);
+  minuterie.unref();
   return tenter();
 }
 
@@ -605,7 +612,8 @@ export async function compresserAnciennes(copies: string): Promise<number> {
  * copies rapatrié (rapatrierAnciennes) ; la sauvegarde de la version précédente rangée ; puis
  * compressé ce qui ne sert plus qu'en archive — les anciennes copies de la base, et le trafic reçu
  * et le relevé Internet d'avant-hier et plus vieux, au poste et dans les copies (ceux d'hier
- * peuvent encore recevoir une dernière ligne). Une erreur est dite, jamais fatale.
+ * peuvent encore recevoir une dernière ligne). Une erreur est dite, jamais fatale. Le contrôle et le
+ * rapatriement portent sur le poste du serveur, son dossier : `registres` en est le data/.
  */
 async function entretenirCopies(dossier: string, copies: string, registres: string): Promise<void> {
   try {

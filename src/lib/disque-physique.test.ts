@@ -123,7 +123,7 @@ describe("disque physique d'un dossier — pas son volume : deux partitions d'un
   );
 
   it(
-    "WINDOWS (CIM) : la lettre du lecteur a son disque ; un partage réseau, aucun ; la réponse gardée",
+    "WINDOWS (CIM) : la lettre du lecteur a son disque ; un dossier absent ou un partage réseau, aucun ; la réponse gardée",
     { skip: process.platform !== "win32" },
     async () => {
       const c = await disquesPhysiques("C:\\");
@@ -131,6 +131,11 @@ describe("disque physique d'un dossier — pas son volume : deux partitions d'un
       const t0 = performance.now();
       assert.deepEqual(await disquesPhysiques("c:\\Windows"), c, "même lettre, même disque");
       assert.ok(performance.now() - t0 < 50, "gardée : pas un second PowerShell");
+      assert.equal(
+        await disquesPhysiques(path.join(racine, "cle-retiree")),
+        null,
+        "absent : pas le disque de sa lettre",
+      );
       assert.equal(await disquesPhysiques("\\\\serveur\\partage\\copies"), null);
     },
   );

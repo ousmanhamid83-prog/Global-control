@@ -8,8 +8,8 @@
  *   - Windows : la lettre du lecteur, reliée à son disque par CIM (Win32_LogicalDiskToPartition),
  *     par Windows PowerShell — chemin absolu, sans shell, lettre vérifiée, 15 s au plus, réponse
  *     gardée 10 min.
- * null : on ne sait pas le dire (dossier réseau, conteneur, autre système) ; les volumes sont alors
- * comparés, et la Division le dit.
+ * null : on ne sait pas le dire (dossier injoignable, dossier réseau, conteneur, autre système) ;
+ * les volumes sont alors comparés, et la Division le dit.
  */
 import { execFile } from "node:child_process";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
@@ -80,6 +80,8 @@ export async function disquesLinux(
 async function disquesWindows(dossier: string): Promise<string[] | null> {
   const lettre = /^([A-Za-z]):\\$/.exec(path.win32.parse(path.win32.resolve(dossier)).root)?.[1];
   if (!lettre) return null; // dossier réseau (\\serveur\partage)
+  // Le dossier injoignable (clé retirée, effacé) : aucun disque — pas celui de sa seule lettre.
+  if (!(await stat(dossier).catch(() => null))) return null;
   const cle = lettre.toUpperCase();
   const cache = (g.__afriDisquesWindows ??= new Map());
   const deja = cache.get(cle);

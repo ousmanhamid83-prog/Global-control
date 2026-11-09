@@ -1203,7 +1203,7 @@ Base du poste et journal d'activité — Division
   octets), puis rien, puis les avis de phénomènes dangereux (≈ 31 Ko). La phonie ATC : chaque
   morceau reçu écrit et doublé aussitôt, forcé toutes les 10 s et en fin de segment ; deux
   segments ouverts dans la même seconde ne s'écrasent plus.
-  Rien de secret n'est copié (poste.env, data/base.secret).
+  Rien de secret n'est copié (poste.env, data/base.secret, data/empreintes.cle).
 - COPIE DU JOUR, À CHAUD (copies/jour-AAAA-MM-JJ, jour du poste, toutes gardées) : prise au
   démarrage si celle du jour manque, puis chaque jour (regardé toutes les 5 min). Postgres est
   prévenu (pg_backup_start) : les requêtes continuent pendant la copie (300 validations pendant une
@@ -1240,8 +1240,14 @@ Base du poste et journal d'activité — Division
   16 Mo) ; les écritures doublées, 16 Mo au moins par jour ; le trafic, ≈ 310 octets par image
   pour 3 aéronefs (≈ 1,8 Mo par jour), ≈ 27 Ko pour 250 (relevé Internet allumé, ≈ 155 Mo par
   jour) — le tout doublé. Ce qui ne sert plus qu'en archive est compressé (voir COMPRESSION). La
-  Division compare les volumes : deux partitions d'un même disque y passent pour deux disques ; le
-  bilan du script de préparation, lui, compare les disques.
+  Division compare les disques PHYSIQUES, pas les volumes : deux partitions d'un même disque sont
+  signalées comme le même disque. Linux : le montage du dossier remonté dans /sys jusqu'à ses
+  disques (partition, LVM, chiffrement, RAID) ; Windows : la lettre du lecteur reliée à son disque
+  par CIM (Windows PowerShell lancé sans shell, lettre vérifiée, réponse gardée 10 min). Un dossier
+  des copies injoignable (clé retirée, effacé) n'a pas de disque : sous Windows, il passait pour
+  celui de sa lettre — trouvé par l'essai sur un vrai Windows, corrigé. Disques pas reconnus
+  (dossier réseau) : les volumes sont comparés, et la Division le dit. Le nom du disque est affiché :
+  « disque du poste (vda) … ; disque des copies (zram0) … ».
 - COMPRESSION (gzip), sans rien risquer : chaque compressé est écrit à part, forcé sur le disque,
   relu et comparé à l'original ; alors seulement l'original est effacé. Coupé n'importe où,
   l'original ou le compressé entier reste. Fait au contrôle des copies (toutes les 5 min ; le plus
@@ -1253,22 +1259,56 @@ Base du poste et journal d'activité — Division
   (÷11), le relevé 87 → 18 Ko (÷4,8) ; 140,6 Mo regagnés au premier contrôle. Essayé : arrêt net
   (kill -9) avec 1198 entrées confirmées, puis la base ET la copie du jour abîmées : reprise de la
   copie compressée et des segments compressés, 1198 retrouvées, aucun doublon.
-- COPIES SUR UN AUTRE DISQUE. Le script de préparation règle AFRICONTROL_COPIES dans poste.env.
-  Sous Windows, il choisit seul un autre disque INTERNE de la machine (pas une autre partition du
-  même disque, jamais une clé ni un disque USB ; le plus de place libre, 10 Go au moins) :
-  X:\AfriControl-copies ; -Copies E:\AfriControl-copies impose le dossier. Sous Linux :
-  --copies /chemin. Les deux disent au bilan quand les copies restent sur le disque du poste (sa
-  panne emporterait les deux). Essayé sur un vrai Windows (GitHub Actions, deux disques) : poste
-  sur D: (disque 1), copies mises seules dans C:\AfriControl-copies (disque 0), copie du jour faite
-  là en 2,1 à 2,8 s, reprise de là après une base abîmée. Un dossier des copies changé (autre disque,
-  autre clé, vidé) reçoit tout ce que le poste gardait déjà : au démarrage, chaque jour, et dès
-  que la marque laissée dans ce dossier (recopie-faite) n'est plus la bonne, chaque fichier gardé
-  dont la copie manque ou n'a pas sa taille y est recopié en entier — sans cela, le trafic du jour
-  n'y aurait reçu que ses lignes nouvelles. La base y a sa copie du jour au premier contrôle ; les
-  copies d'avant restent dans l'ancien dossier, en archive. Essayé sur le serveur construit,
-  copies passées sur un second disque : copie du jour en 0,7 s, 3 fichiers gardés recopiés,
-  identiques ; arrêt net avec 1239 entrées confirmées, base abîmée : reprise depuis l'autre
-  disque, 1239 retrouvées.
+- COPIES SUR UN AUTRE DISQUE. Le script de préparation règle AFRICONTROL_COPIES dans poste.env. Il
+  choisit seul un autre disque INTERNE de la machine, sous Windows comme sous Linux : pas une autre
+  partition du disque du poste, jamais une clé ni un disque USB, le plus de place libre (10 Go au
+  moins) — X:\AfriControl-copies, ou sous Linux un système de fichiers monté en écriture, hors des
+  points du système (/boot, /usr, /var, /tmp, /media…), son dossier créé puis rendu à l'opérateur.
+  -Copies E:\AfriControl-copies (Windows) ou --copies /chemin (Linux) imposent le dossier. Le bilan
+  dit quand les copies restent sur le disque du poste (sa panne emporterait les deux). Essayé sur
+  un vrai Windows (GitHub Actions, deux disques) : poste sur D: (disque 1), copies mises seules dans
+  C:\AfriControl-copies (disque 0), copie du jour faite là en 2,1 à 2,8 s, reprise de là après une
+  base abîmée ; sous Linux, un second disque de 12 Go branché : choisi seul (zram0, le poste étant
+  sur vda), gardé au relancement ; trop petit (1 Go), pas choisi. Un dossier des copies changé
+  (autre disque, autre clé, vidé) reçoit tout ce que le poste gardait déjà, au contenu (voir
+  CONTRÔLE AU CONTENU) — sans cela, le trafic du jour n'y aurait reçu que ses lignes nouvelles. La
+  base y a sa copie du jour au premier contrôle.
+- ANCIENNES COPIES RAPATRIÉES. Le dossier des copies changé de disque, ce que l'ancien gardait
+  (copies de la base, écritures doublées, copies des fichiers, archives) est rapatrié dans le
+  nouveau, sous copies/ancien-dossier-<date> : recopié dans un .part, forcé, comparé fichier par
+  fichier (SHA-256), renommé ; alors seulement retiré de l'ancien dossier, puis compressé comme
+  les autres archives. Coupé n'importe où, repris au contrôle suivant (revérifié avant que rien ne
+  soit retiré) ; l'ancien dossier injoignable (clé retirée), c'est dit et réessayé. Le dossier en
+  service est retenu dans data/copies-dossier.json. Jamais mêlé aux copies en service : la reprise
+  ne prend pas ces archives d'elle-même.
+- CONTRÔLE AU CONTENU, EMPREINTES SCELLÉES. Chaque version finie d'un fichier gardé (un registre,
+  AVANT son écriture ; un segment de phonie fermé ; le journal d'un jour compressé) a son empreinte :
+  taille et SHA-256, scellées par la clé du poste (HMAC-SHA256) dans data/empreintes.jsonl, un
+  journal qui ne fait que s'allonger, doublé comme le reste. La clé (data/empreintes.cle, lisible
+  du seul compte du serveur) ne quitte jamais le poste : une empreinte modifiée, ici ou dans les
+  copies, ne se rescelle pas sans elle — écartée, comptée, dite en rouge. Au démarrage, chaque jour
+  et dès que le dossier des copies n'est plus le même (sa marque, copies/recopie-faite), chaque
+  fichier gardé est relu au poste ET dans sa copie, jamais jugé à la seule taille : copie absente,
+  ancienne (une vieille clé rebranchée), abîmée ou trafiquée → recopiée en entier, dans la file du
+  fichier (une ligne qui arrive passe avant ou après, jamais entre l'ancienne copie et la
+  nouvelle), puis relue ; fichier du poste abîmé, copie saine → le poste est RÉPARÉ depuis sa
+  copie, relu, et la Division le dit ; les deux abîmés, différemment → rien n'est écrasé, c'est dit
+  en rouge ; pareils des deux côtés mais pas ce que le poste avait scellé (modifiés hors du poste) →
+  rescellés, et dit. Coupé entre l'empreinte et l'écriture, un registre reste à sa version d'avant,
+  scellée elle aussi : pas de fausse alerte. Les journaux encore ouverts (trafic et relevé du jour) :
+  le poste y écrit, il fait foi. Les registres (1 Mio au plus) sont relus à chaque contrôle ; les
+  gros fichiers (phonie, journaux compressés, archives) le sont par un contrôle progressif, 2 Gio
+  de chaque côté au plus par jour, repris où il s'était arrêté — entre deux, à la taille. Les
+  fichiers gardés avant les empreintes sont scellés au premier contrôle, le poste faisant foi.
+  Essayé sur le serveur construit, avec le relevé Internet allumé (≈ 240 vrais aéronefs par image) :
+  le poste relancé sur un second disque, le trafic du jour (6 images) y est recopié en entier, et la
+  copie reste identique pendant que les images arrivent (9, 10, 11 images, 277 Ko) ; 3241 fichiers
+  de l'ancien dossier (169,6 Mo) rapatriés et comparés un à un, data/copies retiré du disque du
+  poste ; contrôle au contenu en 12 à 16 ms (7 fichiers). Une copie de registre trafiquée à taille
+  égale : recopiée ; le registre abîmé sur le disque du poste, à taille égale : réparé depuis sa
+  copie. Arrêt net (kill -9) avec 1291 entrées, base abîmée : reprise depuis l'autre disque, 1291
+  retrouvées, copie de remise en route en 0,5 s. Le programme des copies (toutes les 5 min)
+  s'arrête avec sa base : rien n'est tenté sur une base fermée. Mutants : 49 sur 49 attrapés.
 - UNE FUITE CORRIGÉE, trouvée par un mutant : chaque copie illisible essayée à la reprise laissait
   en mémoire tout le Postgres raté (≈ 180 Mo ; une minuterie de 10 s de Postgres le gardait en
   vie) — six essais montaient le serveur à 1,1 Go. Postgres est lancé sans ce suivi du démarrage.

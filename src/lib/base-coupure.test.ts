@@ -182,6 +182,7 @@ type Pg = {
   query<T>(sql: string, p?: unknown[]): Promise<{ rows: T[] }>;
   exec(sql: string): Promise<unknown>;
   close(): Promise<void>;
+  readonly closed: boolean;
 };
 type Ouvrir = (dossier: string) => Promise<Pg>;
 

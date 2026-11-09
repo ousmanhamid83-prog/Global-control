@@ -14,7 +14,7 @@ import {
 import { createServer, type AddressInfo, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { after, describe, it } from "node:test";
+import { after, afterEach, describe, it, mock } from "node:test";
 import { pathToFileURL } from "node:url";
 import fs from "node:fs";
 import type { FileHandle } from "node:fs/promises";
@@ -472,10 +472,15 @@ describe("base du poste : coupure de courant", () => {
 });
 
 describe("base du poste : écritures doublées, copies à chaud, reprise", () => {
+  /** Un poste neuf. Le serveur tourne dans le dossier de son poste (ses fichiers gardés, le registre
+   * du dossier des copies y sont) : l'essai aussi, puis il revient au sien. */
+  const depart = process.cwd();
+  afterEach(() => process.chdir(depart));
   const nouveauPoste = () => {
     const poste = path.join(racine, `poste${(n += 1)}`);
     const data = path.join(poste, "data");
     mkdirSync(data, { recursive: true });
+    process.chdir(poste);
     return { poste, dossier: path.join(data, "base"), copies: path.join(data, "copies"), registres: data };
   };
   /** Ouvre comme le serveur : vrai fsync, écritures doublées dans `copies`. */
@@ -1084,8 +1089,6 @@ describe("base du poste : écritures doublées, copies à chaud, reprise", () =>
 
   it("LE CONTRÔLE DES COPIES recopie ce qui leur manque (dossier changé), et compresse le trafic reçu et le relevé d'avant hier et plus vieux, au poste et dans les copies ; ceux d'hier restent", async () => {
     const { poste, dossier, copies, registres } = nouveauPoste();
-    const ici = process.cwd();
-    process.chdir(poste); // le serveur tourne dans le dossier du poste : data/ et ses copies
     const pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
     try {
       writeFileSync(path.join(registres, "drones.json"), "[1]"); // gardé avant que les copies changent
@@ -1107,14 +1110,11 @@ describe("base du poste : écritures doublées, copies à chaud, reprise", () =>
       }
     } finally {
       await pg.close();
-      process.chdir(ici);
     }
   });
   it("LE CONTRÔLE DES COPIES rapatrie l'ancien dossier (data/copies) sur le nouveau disque — comparé fichier par fichier, compressé en archive — et le retire du disque du poste", async () => {
     const { poste, dossier, registres } = nouveauPoste();
     const autre = path.join(poste, "autre-disque");
-    const ici = process.cwd();
-    process.chdir(poste);
     process.env.AFRICONTROL_COPIES = autre; // relancé sur le nouveau disque
     const vieux = path.join(registres, "copies", "jour-2026-11-01", "vieux");
     mkdirSync(path.dirname(vieux), { recursive: true });
@@ -1130,7 +1130,31 @@ describe("base du poste : écritures doublées, copies à chaud, reprise", () =>
     } finally {
       await pg.close();
       delete process.env.AFRICONTROL_COPIES;
-      process.chdir(ici);
+    }
+  });
+  it("LE CONTRÔLE DES 5 MIN refait la copie du jour qui manque ; sa base fermée, son programme s'arrête avec elle — rien n'est plus tenté sur elle", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    const pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    const jour = path.join(copies, `jour-${jourPoste(Date.now())}`);
+    const attendre = async (fait: () => boolean, ms: number) => {
+      for (let t = 0; t < ms && !fait(); t += 50) await new Promise((r) => setTimeout(r, 50));
+    };
+    const tentee = () => defautsCopies().some((d) => d.quoi === "copie du jour de la base");
+    mock.timers.enable({ apis: ["setInterval"] });
+    try {
+      await programmerCopies(pg, dossier, copies, registres); // la copie du jour, et sa minuterie
+      rmSync(jour, { recursive: true });
+      mock.timers.tick(300_000); // base ouverte : le contrôle des 5 min la refait
+      await attendre(() => existsSync(path.join(jour, "base", "backup_label")), 30_000);
+      assert.ok(existsSync(path.join(jour, "base", "backup_label")), "la copie du jour refaite");
+      await new Promise((r) => setTimeout(r, 1000)); // la fin de ce contrôle (son ménage)
+      await pg.close();
+      rmSync(jour, { recursive: true });
+      mock.timers.tick(300_000); // base fermée : la copie du jour manque encore
+      await attendre(tentee, 2000);
+      assert.equal(tentee(), false, "pas de copie tentée sur une base fermée");
+    } finally {
+      mock.timers.reset();
     }
   });
 });
