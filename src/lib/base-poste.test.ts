@@ -1110,4 +1110,27 @@ describe("base du poste : écritures doublées, copies à chaud, reprise", () =>
       process.chdir(ici);
     }
   });
+  it("LE CONTRÔLE DES COPIES rapatrie l'ancien dossier (data/copies) sur le nouveau disque — comparé fichier par fichier, compressé en archive — et le retire du disque du poste", async () => {
+    const { poste, dossier, registres } = nouveauPoste();
+    const autre = path.join(poste, "autre-disque");
+    const ici = process.cwd();
+    process.chdir(poste);
+    process.env.AFRICONTROL_COPIES = autre; // relancé sur le nouveau disque
+    const vieux = path.join(registres, "copies", "jour-2026-11-01", "vieux");
+    mkdirSync(path.dirname(vieux), { recursive: true });
+    writeFileSync(vieux, "une copie d'avant le changement de disque\n");
+    const pg = await ouvrirBase(ouvrirAvecCopies(autre), undefined, poste);
+    try {
+      await programmerCopies(pg, dossier, autre, registres);
+      const archive = readdirSync(autre).find((n) => n.startsWith("ancien-dossier-") && !n.endsWith(".part"));
+      assert.ok(archive, readdirSync(autre).join(" "));
+      const rapatrie = path.join(autre, archive, "jour-2026-11-01", "vieux.gz");
+      assert.equal(gunzipSync(readFileSync(rapatrie)).toString(), "une copie d'avant le changement de disque\n");
+      assert.ok(!existsSync(path.join(registres, "copies")), "plus sur le disque du poste");
+    } finally {
+      await pg.close();
+      delete process.env.AFRICONTROL_COPIES;
+      process.chdir(ici);
+    }
+  });
 });

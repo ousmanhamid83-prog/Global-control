@@ -566,7 +566,7 @@ if ($dossierCopies) {
   $anciennes = Join-Path $Racine "data\copies"
   if ((Test-Path $anciennes) -and @(Get-ChildItem $anciennes -Force).Count -gt 0 -and
     (Resolve-Path $anciennes).Path.TrimEnd("\") -ne $absolu.TrimEnd("\")) {
-    $AFaire.Add("Les copies déjà faites dans data\copies y restent (archives) ; le poste recopie dans $absolu tout ce qu'il garde, puis y double la suite.")
+    $AFaire.Add("Les copies déjà faites dans data\copies : le poste les rapatrie dans $absolu (comparées une à une, puis retirées du disque du poste), et y recopie tout ce qu'il garde.")
   }
   $dp = DisqueDe $Racine.Substring(0, 1)
   $dc = DisqueDe $absolu.Substring(0, 1)

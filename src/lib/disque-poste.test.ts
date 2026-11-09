@@ -10,7 +10,6 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import { gunzipSync, gzipSync } from "node:zlib";
 import {
   ajouterFichierPoste,
-  alignerCopies,
   choisirCopies,
   compresserArbre,
   compresserFichiers,
@@ -22,6 +21,7 @@ import {
   listeJson,
   placeDisques,
   restaurerArbre,
+  surLeMemeDisque,
 } from "./disque-poste.server.ts";
 
 let dossier = "";
@@ -190,16 +190,30 @@ describe("disque du poste : rien d'écrit à moitié, tout doublé aussitôt", (
       delete process.env.AFRICONTROL_COPIES;
     }
   });
-  it("PLACE LIBRE : celle du disque du poste et de celui des copies, le même disque reconnu ; copies injoignables, rien d'inventé", async () => {
+  it("PLACE LIBRE : celle du disque du poste et de celui des copies, le même disque PHYSIQUE reconnu ; copies injoignables, rien d'inventé", async () => {
     await ecrireFichierPoste(registre(), "[]");
     const p = await placeDisques();
     assert.ok(p.poste && p.poste.total > 0 && p.poste.libre > 0 && p.poste.libre <= p.poste.total);
     assert.ok(p.copies && p.copies.total > 0);
     assert.equal(p.memeDisque, true, "data/copies : sur le disque du poste");
+    if (process.platform === "linux") {
+      assert.ok(p.disques.poste?.length, "son disque physique reconnu");
+      assert.deepEqual(p.disques.copies, p.disques.poste);
+    }
     process.env.AFRICONTROL_COPIES = path.join(dossier, "cle-absente");
     const q = await placeDisques();
     assert.equal(q.copies, null);
+    assert.equal(q.disques.copies, null);
     assert.equal(q.memeDisque, false);
+  });
+
+  it("MÊME DISQUE : un disque physique en commun — deux partitions d'un disque, un RAID qui le contient ; pas reconnus, le même volume", () => {
+    assert.equal(surLeMemeDisque(["sda"], ["sda"], 2049, 2050), true, "deux partitions de sda");
+    assert.equal(surLeMemeDisque(["sda", "sdb"], ["sdb"], 1, 2), true, "un RAID qui contient sdb");
+    assert.equal(surLeMemeDisque(["sda"], ["sdb"], 7, 7), false, "deux disques");
+    assert.equal(surLeMemeDisque(null, ["sdb"], 7, 7), true, "pas reconnu : le même volume");
+    assert.equal(surLeMemeDisque(["sda"], null, 7, 8), false);
+    assert.equal(surLeMemeDisque(null, null, null, null), false, "copies injoignables");
   });
 });
 
@@ -345,115 +359,5 @@ describe("disque du poste : la place regagnée, sans jamais rien risquer", () =>
     );
     assert.equal(gunzipSync(lu(`${copieDe(vieux)}.gz`)).toString(), "a\nb\n", "entière");
     assert.ok(!fs.existsSync(copieDe(vieux)), "l'ancienne copie, incomplète, retirée");
-  });
-});
-
-describe("disque du poste : copies changées de dossier (un autre disque, une autre clé)", () => {
-  const quoi = "copie du trafic reçu";
-  const ici = (...p: string[]) => path.join(dossier, ...p);
-  const trafic = () => ici("data", "trafic", "1090ES-2026-11-09.jsonl");
-  const autre = () => ici("autre-disque");
-  const lu = (f: string) => readFileSync(f);
-  beforeEach(() => {
-    rmSync(ici("recordings"), { recursive: true, force: true });
-    rmSync(autre(), { recursive: true, force: true });
-  });
-  /** Ce que le poste garde déjà, doublé dans data/copies : registre, archive, trafic du jour, relevé
-   * d'un jour passé (compressé), phonie. Et ce qui n'est pas à doubler : un secret, un compressé
-   * inachevé (coupé en pleine compression). */
-  async function garder(): Promise<string[]> {
-    await ecrireFichierPoste(ici("data", "routes.json"), '[{"id":1}]');
-    await ecrireFichierPoste(ici("recordings", "index.json"), "[]");
-    for (const l of ["a", "b", "c"]) await ajouterFichierPoste(trafic(), `${l}\n`, quoi);
-    fs.mkdirSync(ici("data", "releve"), { recursive: true });
-    writeFileSync(ici("data", "releve", "releve-2026-11-01.jsonl.gz"), gzipSync("{}\n"));
-    writeFileSync(ici("data", "releve", "releve-2026-11-02.jsonl.gz.part"), "inachevé");
-    fs.mkdirSync(ici("recordings", "atc"), { recursive: true });
-    writeFileSync(ici("recordings", "atc", "atc-fini.mp3"), "phonie");
-    writeFileSync(ici("data", "base.secret"), "secret");
-    return [
-      ici("data", "routes.json"),
-      ici("recordings", "index.json"),
-      trafic(),
-      ici("data", "releve", "releve-2026-11-01.jsonl.gz"),
-      ici("recordings", "atc", "atc-fini.mp3"),
-    ];
-  }
-
-  it("TOUT CE QUI ÉTAIT DÉJÀ GARDÉ Y EST RECOPIÉ — le trafic du jour en entier, pas ses seules lignes nouvelles — puis plus rien jusqu'au lendemain ; un secret, jamais", async () => {
-    const gardes = await garder();
-    process.env.AFRICONTROL_COPIES = autre(); // le serveur relancé sur le nouveau dossier
-    await ajouterFichierPoste(trafic(), "d\n", quoi);
-    assert.equal(
-      readFileSync(copieDe(trafic(), autre()), "utf8"),
-      "d\n",
-      "sans recopie : la suite seule",
-    );
-    assert.equal(await alignerCopies("2026-11-09", autre()), 5);
-    for (const f of gardes) assert.ok(lu(copieDe(f, autre())).equals(lu(f)), f);
-    assert.ok(!fs.existsSync(copieDe(ici("data", "base.secret"), autre())), "pas le secret");
-    const inacheve = ici("data", "releve", "releve-2026-11-02.jsonl.gz.part");
-    assert.ok(!fs.existsSync(copieDe(inacheve, autre())), "pas un compressé inachevé");
-    assert.equal(await alignerCopies("2026-11-09", autre()), 0, "le même jour : rien à refaire");
-    await ajouterFichierPoste(trafic(), "e\n", quoi);
-    assert.equal(
-      await alignerCopies("2026-11-10", autre()),
-      0,
-      "le lendemain : parcouru, rien ne manque",
-    );
-    assert.equal(readFileSync(copieDe(trafic(), autre()), "utf8"), "a\nb\nc\nd\ne\n");
-  });
-
-  it("LE DOSSIER DES COPIES VIDÉ OU UNE AUTRE CLÉ, LE MÊME JOUR : reconnu à sa marque, tout recopié ; une copie effacée à la main, rattrapée le lendemain", async () => {
-    await garder();
-    assert.equal(await alignerCopies("2026-11-09", autre()), 5);
-    rmSync(autre(), { recursive: true });
-    assert.equal(await alignerCopies("2026-11-09", autre()), 5, "vidé : tout");
-    const cle = fs.readFileSync(path.join(autre(), "recopie-faite"), "utf8");
-    rmSync(copieDe(ici("data", "routes.json"), autre()));
-    writeFileSync(path.join(autre(), "recopie-faite"), `${cle}une autre clé\n`);
-    assert.equal(await alignerCopies("2026-11-09", autre()), 1, "une autre marque : tout parcouru");
-    rmSync(copieDe(ici("recordings", "index.json"), autre()));
-    assert.equal(
-      await alignerCopies("2026-11-09", autre()),
-      0,
-      "même jour, même marque : pas parcouru",
-    );
-    assert.equal(await alignerCopies("2026-11-10", autre()), 1, "le lendemain : rattrapée");
-  });
-
-  it("UNE LIGNE AJOUTÉE PENDANT LA RECOPIE de son fichier : après elle, jamais perdue entre l'ancienne copie et la nouvelle", async () => {
-    await garder();
-    process.env.AFRICONTROL_COPIES = autre();
-    await ajouterFichierPoste(trafic(), "d\n", quoi); // la copie n'a que « d » : à recopier
-    const vrai = fs.promises.copyFile;
-    let ajout: Promise<void> | null = null;
-    fs.promises.copyFile = async (de, vers, mode) => {
-      await vrai(de, vers, mode);
-      if (String(de) === trafic() && !ajout) {
-        // Copié, pas encore renommé sur l'ancienne copie : une ligne arrive.
-        ajout = ajouterFichierPoste(trafic(), "e\n", quoi);
-        await new Promise((r) => setTimeout(r, 100));
-      }
-    };
-    syncBuiltinESMExports();
-    try {
-      await alignerCopies("2026-11-09", autre());
-    } finally {
-      fs.promises.copyFile = vrai;
-      syncBuiltinESMExports();
-    }
-    await ajout;
-    assert.equal(readFileSync(trafic(), "utf8"), "a\nb\nc\nd\ne\n");
-    assert.equal(readFileSync(copieDe(trafic(), autre()), "utf8"), "a\nb\nc\nd\ne\n");
-  });
-
-  it("DOSSIER DES COPIES INJOIGNABLE (clé retirée) : rien de faux, une erreur — refaite en entier quand il répond", async () => {
-    await garder();
-    fs.mkdirSync(path.dirname(autre()), { recursive: true });
-    writeFileSync(autre(), ""); // un fichier à la place du dossier
-    await assert.rejects(alignerCopies("2026-11-09", autre()));
-    rmSync(autre());
-    assert.equal(await alignerCopies("2026-11-09", autre()), 5);
   });
 });

@@ -150,12 +150,13 @@ test("imagerie : les deux scripts confient tout au même script de mosaïque, zo
   assert.ok(!/regler AFRICONTROL_SENTINEL|Regler "AFRICONTROL_SENTINEL/.test(SH + PS1));
 });
 
-test("copies du poste : un autre disque que le sien — choisi seul sous Windows, dit sous Linux", () => {
+test("copies du poste : un autre disque interne que le sien, choisi seul sous Windows comme sous Linux", () => {
   assert.ok(/--copies\) COPIES=\$\{2:\?/.test(SH), "--copies côté Linux");
   assert.ok(PS1.includes('[string]$Copies = ""'), "-Copies côté Windows");
   // Windows : le plus de place libre sur un autre disque INTERNE — jamais une clé USB, qui part
   // avec celui qui l'emporte ; un autre volume du même disque ne compte pas.
   assert.ok(PS1.includes('BusType)" -eq "USB"') && PS1.includes("$d -eq $disque"));
+  assert.ok(SH.includes('"${transport:-}" = usb') && SH.includes('[ "$amovible" != 0 ]'));
   // Les deux le disent quand les copies restent sur le disque du poste.
   for (const texte of [SH, PS1]) assert.ok(texte.includes("sa panne emporterait les deux"));
 });
@@ -195,6 +196,16 @@ test("script Linux --copies : réglé dans poste.env, gardé ensuite, refusé s'
     r = lancer();
     assert.equal(r.status, 0, r.stdout + r.stderr);
     assert.match(r.stdout, /AFRICONTROL_COPIES déjà réglé dans poste\.env \(.+\), gardé/);
+    // Sans --copies ni réglage : un autre disque interne choisi seul s'il y en a un, sinon
+    // data/copies — et c'est dit.
+    rmSync(join(poste, "poste.env"));
+    r = lancer();
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(
+      r.stdout,
+      /✓ copies du poste sur un autre disque interne, choisi seul : .+\/AfriControl-copies \(\d+ Go libres\)|✓ copies du poste dans data\/copies \(défaut\)/,
+    );
+    r = lancer("--copies", copies);
     r = lancer("--copies", "/proc/impossible/copies");
     assert.equal(r.status, 1);
     assert.match(r.stderr, /✗ copies : \/proc\/impossible\/copies impossible à créer/);

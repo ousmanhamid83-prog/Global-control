@@ -25,8 +25,10 @@
 #                    la requête sort alors du poste ; /recherche reste désactivée tant que le chef
 #                    de division ne l'active pas (Capteurs › Outils › Commandes du poste)
 #   --copies DOSSIER dossier des copies du poste (AFRICONTROL_COPIES) : tout ce que le poste garde y
-#                    est doublé aussitôt. À mettre sur un AUTRE disque que le poste (défaut :
-#                    data/copies, sur le disque du poste — le bilan dit quand c'est le même disque)
+#                    est doublé aussitôt. Sans --copies, un autre disque INTERNE de la machine (ni
+#                    clé ni disque USB, ni autre partition du disque du poste ; le plus de place
+#                    libre, 10 Go au moins), s'il y en a un ; sinon data/copies, sur le disque du
+#                    poste — sa panne emporterait les deux, le bilan le dit.
 #   --sans-build  --sans-ia  --sans-relief    sauter une étape
 #
 # Relancer le script reprend là où il s'était arrêté : ce qui est déjà en place est gardé.
@@ -425,9 +427,57 @@ disques_de() {
   fi
 }
 
+# disque_interne DISQUES : chacun ni amovible ni sur USB (une clé, un disque USB s'en vont).
+disque_interne() {
+  local d amovible transport
+  for d in $1; do
+    read -r amovible transport < <(lsblk -dno RM,TRAN "/dev/$d" 2>/dev/null) || return 1
+    if [ "$amovible" != 0 ] || [ "${transport:-}" = usb ]; then return 1; fi
+  done
+}
+
+# autre_disque : un AUTRE disque interne que celui du poste pour ses copies — un système de
+# fichiers Linux monté en écriture, hors des points du système, 10 Go libres au moins ; le plus de
+# place. Écrit « Ko-libres point-de-montage », ou rien.
+autre_disque() {
+  local poste point fs options d libre meilleur="" max=0
+  poste=$(disques_de data)
+  [ -n "$poste" ] || return 0
+  while read -r point fs options; do
+    point=$(printf '%b' "$point") # findmnt -r écrit les espaces \x20
+    case "$fs" in ext2 | ext3 | ext4 | xfs | btrfs | f2fs) ;; *) continue ;; esac
+    case ",$options," in *,ro,*) continue ;; esac
+    case "$point" in
+      / | /boot | /boot/* | /efi | /usr | /usr/* | /var | /var/* | /tmp | /tmp/* | /snap/* | /media/* | /run/*) continue ;;
+    esac
+    d=$(disques_de "$point")
+    if [ -z "$d" ] || [ -n "$(comm -12 <(echo "$poste") <(echo "$d"))" ] || ! disque_interne "$d"; then
+      continue
+    fi
+    libre=$(df -Pk "$point" | awk 'NR == 2 { print $4 }')
+    if [ "${libre:-0}" -ge 10485760 ] && [ "$libre" -gt "$max" ]; then
+      meilleur=$point
+      max=$libre
+    fi
+  done < <(findmnt -rno TARGET,FSTYPE,OPTIONS 2>/dev/null)
+  if [ -n "$meilleur" ]; then echo "$max $meilleur"; fi
+}
+
 etape "Copies du poste (un autre disque que le sien)"
 REGLEES=""
 if [ -f "$POSTE_ENV" ]; then REGLEES=$(sed -n 's/^AFRICONTROL_COPIES=//p' "$POSTE_ENV" | tail -n 1); fi
+CHOISI=""
+if [ -z "$COPIES" ] && [ -z "$REGLEES" ]; then
+  read -r LIBRE POINT <<<"$(autre_disque)" || true
+  if [ -n "${POINT:-}" ]; then
+    COPIES="$POINT/AfriControl-copies"
+    CHOISI="$((LIBRE / 1048576)) Go libres"
+    # Un point de montage à root : le dossier est créé, puis rendu à l'opérateur qui lance le poste.
+    if ! mkdir -p "$COPIES" 2>/dev/null; then
+      sudo mkdir -p "$COPIES" && sudo chown "$(id -u):$(id -g)" "$COPIES" || COPIES=""
+    fi
+  fi
+fi
 DOSSIER_COPIES=${COPIES:-${REGLEES:-data/copies}}
 if ! mkdir -p "$DOSSIER_COPIES" data 2>/dev/null; then
   rate "copies : $DOSSIER_COPIES impossible à créer"
@@ -437,9 +487,13 @@ else
   DOSSIER_COPIES=$(cd "$DOSSIER_COPIES" && pwd -P)
   if [ -n "$COPIES" ]; then
     regler AFRICONTROL_COPIES "$DOSSIER_COPIES"
-    ok "copies du poste dans $DOSSIER_COPIES"
+    if [ -n "$CHOISI" ]; then
+      ok "copies du poste sur un autre disque interne, choisi seul : $DOSSIER_COPIES ($CHOISI)"
+    else
+      ok "copies du poste dans $DOSSIER_COPIES"
+    fi
     if [ -n "$(ls -A data/copies 2>/dev/null)" ] && [ "$DOSSIER_COPIES" != "$(cd data/copies && pwd -P)" ]; then
-      A_FAIRE+=("Les copies déjà faites dans data/copies y restent (archives) ; le poste recopie dans $DOSSIER_COPIES tout ce qu'il garde, puis y double la suite.")
+      A_FAIRE+=("Les copies déjà faites dans data/copies : le poste les rapatrie dans $DOSSIER_COPIES (comparées une à une, puis retirées du disque du poste), et y recopie tout ce qu'il garde.")
     fi
   elif [ -n "$REGLEES" ]; then
     ok "copies du poste : AFRICONTROL_COPIES déjà réglé dans poste.env ($DOSSIER_COPIES), gardé"

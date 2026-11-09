@@ -655,10 +655,14 @@ const enGo = (o: number) => `${(o / 1e9).toLocaleString("fr-FR", { maximumFracti
 /** Peu de place : moins de 5 % du disque, ou moins de 2 Go. */
 const placeBasse = (p: { libre: number; total: number }) => p.libre < Math.max(2e9, p.total * 0.05);
 
+/** Le nom d'un disque physique : sda, nvme0n1… ; sous Windows son numéro. */
+const nomDisque = (d: string[] | null) =>
+  d ? ` (${d.every((n) => /^\d+$/.test(n)) ? "n° " : ""}${d.join(" + ")})` : "";
+
 /** La place libre du poste et de ses copies : tout est gardé sans limite, le disque plein se voit
- * venir ; le même disque pour les deux est signalé. */
+ * venir ; le même disque physique pour les deux est signalé. */
 function PlaceLibre({ place }: { place: PlaceDuPoste }) {
-  const { poste, copies, memeDisque } = place;
+  const { poste, copies, memeDisque, disques } = place;
   if (!poste) return null;
   const basse = placeBasse(poste) || (copies !== null && placeBasse(copies));
   const couleur = basse ? "text-crit" : memeDisque ? "text-warn" : "text-muted-foreground";
@@ -669,14 +673,57 @@ function PlaceLibre({ place }: { place: PlaceDuPoste }) {
         Place libre :{" "}
         {memeDisque || !copies
           ? `${enGo(poste.libre)} sur ${enGo(poste.total)}`
-          : `disque du poste ${enGo(poste.libre)} sur ${enGo(poste.total)} ; disque des copies ${enGo(copies.libre)} sur ${enGo(copies.total)}`}
+          : `disque du poste${nomDisque(disques.poste)} ${enGo(poste.libre)} sur ${enGo(poste.total)} ; disque des copies${nomDisque(disques.copies)} ${enGo(copies.libre)} sur ${enGo(copies.total)}`}
         .
         {memeDisque
-          ? " Le poste et ses copies sont sur le même disque : sa panne emporterait les deux — brancher un autre disque, puis relancer scripts/poste/preparer-poste (-Copies sous Windows, --copies sous Linux)."
+          ? ` Le poste et ses copies sont sur le même disque physique${nomDisque(disques.poste)} : sa panne emporterait les deux — brancher un autre disque, puis relancer scripts/poste/preparer-poste (-Copies sous Windows, --copies sous Linux).`
+          : ""}
+        {!memeDisque && copies && (!disques.poste || !disques.copies)
+          ? " Disques physiques non reconnus ici : seuls les volumes sont comparés."
           : ""}
         {basse ? " Place basse : disque plein, plus rien ne pourrait être gardé." : ""}
       </span>
     </p>
+  );
+}
+
+type IntegriteDuPoste = NonNullable<JournalOps["copies"]>["integrite"];
+
+/** L'intégrité des fichiers gardés : relus au contenu, scellés ; ce qui a été réparé ou rescellé,
+ * ce qui est abîmé des deux côtés (aussi en défaut, plus haut), les anciennes copies rapatriées. */
+function IntegriteFichiers({ integrite: i }: { integrite: IntegriteDuPoste }) {
+  if (i.derniere === null) return null;
+  return (
+    <>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Intégrité des fichiers gardés : contrôlés au contenu le {formatDate(i.derniere)} —{" "}
+        {i.relus} relu{i.relus > 1 ? "s" : ""} au poste et dans leur copie (SHA-256 scellé par la
+        clé du poste), {i.recopies} recopié{i.recopies > 1 ? "s" : ""}.
+      </p>
+      {i.reparees.map((r) => (
+        <p key={`r${r.f}${r.at}`} className="mt-1 flex items-start gap-1.5 text-xs text-warn">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+          Réparé depuis sa copie le {formatDate(r.at)} (le disque du poste l'avait abîmé) :{" "}
+          <span className="font-mono">{r.f}</span>.
+        </p>
+      ))}
+      {i.rescellees.map((r) => (
+        <p key={`s${r.f}${r.at}`} className="mt-1 flex items-start gap-1.5 text-xs text-warn">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+          Modifié hors du poste, pareil des deux côtés, rescellé le {formatDate(r.at)} :{" "}
+          <span className="font-mono">{r.f}</span>.
+        </p>
+      ))}
+      {i.rapatriement ? (
+        <p className="mt-1 text-xs text-muted-foreground">
+          Anciennes copies rapatriées le {formatDate(i.rapatriement.at)} de{" "}
+          <span className="font-mono">{i.rapatriement.de}</span> : {i.rapatriement.fichiers}{" "}
+          fichier{i.rapatriement.fichiers > 1 ? "s" : ""} comparé
+          {i.rapatriement.fichiers > 1 ? "s" : ""} un à un, dans{" "}
+          <span className="font-mono">{i.rapatriement.vers}</span>.
+        </p>
+      ) : null}
+    </>
   );
 }
 
@@ -803,6 +850,7 @@ function OpsPanel() {
               </p>
             ))}
             <PlaceLibre place={copies.place} />
+            <IntegriteFichiers integrite={copies.integrite} />
           </>
         ) : null}
       </div>

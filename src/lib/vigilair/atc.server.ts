@@ -23,6 +23,7 @@ import {
   ecritureEnCours,
   forcer,
   noterDefautCopie,
+  noterEmpreinteFichier,
   rattraperCopies,
 } from "../disque-poste.server.ts";
 import { env } from "../env.server.ts";
@@ -103,8 +104,9 @@ async function forcerSegment(f: WriteStream): Promise<void> {
 }
 
 /**
- * Segment terminé : le fichier et sa copie fermés, puis forcés sur le disque. Les segments dont la
- * copie avait cassé (celui-ci compris) sont alors recopiés en entier — sauf celui qui s'enregistre.
+ * Segment terminé : le fichier et sa copie fermés, puis forcés sur le disque, et sa version finie
+ * scellée (ses empreintes : le contrôle des copies le relit au contenu). Les segments dont la copie
+ * avait cassé (celui-ci compris) sont alors recopiés en entier — sauf celui qui s'enregistre.
  */
 function closeSegment(s: AtcState): void {
   const { file, copie } = s;
@@ -121,6 +123,8 @@ function closeSegment(s: AtcState): void {
       await forcerSegment(copie);
     }
     ecritureEnCours(String(file.path), false);
+    // Pas scellé ici (disque plein) : le contrôle suivant le scelle, le poste faisant foi.
+    await noterEmpreinteFichier(String(file.path)).catch(() => undefined);
     await rattraperCopies(COPIE_ATC, s.file ? String(s.file.path) : null).catch((e: unknown) =>
       noterDefautCopie(COPIE_ATC, e),
     );

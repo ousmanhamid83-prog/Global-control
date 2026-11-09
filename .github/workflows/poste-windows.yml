@@ -81,6 +81,12 @@ jobs:
           if ($poste -eq $leur) { Write-Host "copies sur le disque du poste ($poste)"; exit 1 }
           if (-not (Test-Path $copies -PathType Container)) { Write-Host "$copies pas créé"; exit 1 }
           Write-Host "Copies dans $copies (disque $leur) ; poste sur le disque $poste."
+          # Le serveur, lui, reconnaît-il les mêmes disques physiques (CIM) ? C'est ce que montre la
+          # Division : le même disque y est signalé, deux partitions d'un disque comprises.
+          $vus = node --experimental-strip-types --no-warnings --input-type=module -e "const m = await import('./src/lib/disque-physique.server.ts'); console.log(JSON.stringify([await m.disquesPhysiques(process.cwd()), await m.disquesPhysiques(process.argv[1])]))" -- $copies
+          Write-Host "Disques vus par le serveur (poste, copies) : $vus"
+          $d = $vus | ConvertFrom-Json
+          if (-not ($d[0] -contains [string]$poste) -or -not ($d[1] -contains [string]$leur)) { Write-Host "le serveur ne voit pas les mêmes disques"; exit 1 }
 
       # fsync (Windows refuse de forcer un fichier ouvert en lecture seule), coupure de courant
       # simulée, écritures doublées, copies et reprise : les tests de la base et des registres,
@@ -88,7 +94,7 @@ jobs:
       - name: Base du poste, tests sous Windows (fsync, coupure simulée, copies, reprise)
         if: matrix.ps == 'powershell'
         shell: cmd
-        run: node --experimental-strip-types --test src/lib/base-poste.test.ts src/lib/base-coupure.test.ts src/lib/disque-poste.test.ts
+        run: node --experimental-strip-types --test src/lib/base-poste.test.ts src/lib/base-coupure.test.ts src/lib/disque-poste.test.ts src/lib/controle-copies.test.ts src/lib/disque-physique.test.ts
 
       - name: Le serveur construit démarre, lit poste.env et répond
         shell: pwsh

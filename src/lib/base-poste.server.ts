@@ -63,8 +63,8 @@ import { connect, createServer, type AddressInfo, type Server } from "node:net";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
+import { alignerCopies, ANCIEN_DOSSIER, rapatrierAnciennes } from "./controle-copies.server.ts";
 import {
-  alignerCopies,
   compresserArbre,
   compresserFichiers,
   compresserJournaliers,
@@ -570,14 +570,15 @@ export async function rangerAncienneSauvegarde(dossier: string, copies: string):
  * Ce qui ne sert plus qu'en archive, compressé (mesuré : ÷13 pour une copie, ÷10 à ÷1000 pour un
  * segment) : les copies de la base sauf la plus récente — celle qu'une reprise prend d'abord, sans
  * attendre —, les segments doublés d'avant son début (elle ne les rejoue pas ; une copie plus
- * ancienne, si, et la reprise les relit compressés), et la sauvegarde de la version précédente.
- * L'étiquette d'une copie reste lisible ; une copie finie est marquée (« compressee ») et n'est
- * plus parcourue. Rend les octets gagnés.
+ * ancienne, si, et la reprise les relit compressés), la sauvegarde de la version précédente, et ce
+ * qui a été rapatrié d'un ancien dossier des copies. L'étiquette d'une copie reste lisible ; une
+ * copie finie est marquée (« compressee ») et n'est plus parcourue. Rend les octets gagnés.
  */
 export async function compresserAnciennes(copies: string): Promise<number> {
   const liste = await copiesDeLaBase(copies);
   const archives = (await readdir(copies).catch(() => [] as string[])).filter(
-    (n) => n.startsWith(SAUVEGARDE_PRECEDENTE) && !n.endsWith(".part"),
+    (n) =>
+      (n.startsWith(SAUVEGARDE_PRECEDENTE) || n.startsWith(ANCIEN_DOSSIER)) && !n.endsWith(".part"),
   );
   let gagne = 0;
   for (const nom of [...liste.slice(1).map((c) => c.nom), ...archives]) {
@@ -600,22 +601,24 @@ export async function compresserAnciennes(copies: string): Promise<number> {
 
 /**
  * Le ménage des copies, à chaque contrôle (toutes les 5 min, rien à faire la plupart du temps) :
- * recopié ce qui manque au dossier des copies (changé de disque, une autre clé : voir
- * alignerCopies) ; la sauvegarde de la version précédente rangée ; puis compressé ce qui ne sert
- * plus qu'en archive — les anciennes copies de la base, et le trafic reçu et le relevé Internet
- * d'avant-hier et plus vieux, au poste et dans les copies (ceux d'hier peuvent encore recevoir une
- * dernière ligne). Une erreur est dite, jamais fatale.
+ * les copies contrôlées au contenu, recopiées ou réparées (alignerCopies) ; l'ancien dossier des
+ * copies rapatrié (rapatrierAnciennes) ; la sauvegarde de la version précédente rangée ; puis
+ * compressé ce qui ne sert plus qu'en archive — les anciennes copies de la base, et le trafic reçu
+ * et le relevé Internet d'avant-hier et plus vieux, au poste et dans les copies (ceux d'hier
+ * peuvent encore recevoir une dernière ligne). Une erreur est dite, jamais fatale.
  */
 async function entretenirCopies(dossier: string, copies: string, registres: string): Promise<void> {
   try {
-    const n = await alignerCopies(jourPoste(Date.now()), copies);
+    await alignerCopies(jourPoste(Date.now()), copies);
     noterDefautCopie("recopie de ce qui est gardé", null);
-    if (n > 0)
-      console.log(
-        `[copies] ${n} fichier(s) recopié(s) dans ${copies} : copie absente ou incomplète`,
-      );
   } catch (e) {
     noterDefautCopie("recopie de ce qui est gardé", e);
+  }
+  try {
+    await rapatrierAnciennes(copies);
+    noterDefautCopie("rapatriement des anciennes copies", null);
+  } catch (e) {
+    noterDefautCopie("rapatriement des anciennes copies", e);
   }
   try {
     await rangerAncienneSauvegarde(dossier, copies);

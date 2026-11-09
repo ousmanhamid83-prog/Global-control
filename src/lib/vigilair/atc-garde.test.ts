@@ -7,6 +7,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
+import { hacherTexte } from "../empreintes-poste.server.ts";
 
 // Un faux récepteur (flux audio HTTP) : chaque morceau poussé à la main.
 let dossier = "";
@@ -16,6 +17,7 @@ let pousser: ((b: Buffer) => void) | null = null;
 let connexions = 0;
 let atc: typeof import("./atc.server.ts");
 let disque: typeof import("../disque-poste.server.ts");
+let controle: typeof import("../controle-copies.server.ts");
 
 before(async () => {
   dossier = mkdtempSync(path.join(tmpdir(), "atc-garde-"));
@@ -33,6 +35,7 @@ before(async () => {
   process.env.AFRICONTROL_ATC = `http://127.0.0.1:${(serveur.address() as AddressInfo).port}/atc.mp3`;
   atc = await import("./atc.server.ts");
   disque = await import("../disque-poste.server.ts");
+  controle = await import("../controle-copies.server.ts");
 });
 after(async () => {
   atc.atcStop();
@@ -154,13 +157,26 @@ describe("phonie ATC : chaque morceau reçu gardé aussitôt, et doublé", () =>
     assert.equal(lu(a.copie), "sans copie", "le segment manqué, recopié en entier");
   });
 
+  it("SEGMENT FINI : sa version finie scellée (taille, SHA-256) dans les empreintes du poste — le contrôle des copies le relira au contenu", async () => {
+    const { principal } = await enregistrer(["scellé à sa fin"]);
+    const rel = path.relative(dossier, principal).split(path.sep).join("/");
+    const scellee = async () => (await disque.empreintes()).index.get(rel)?.[0];
+    assert.equal(await scellee(), undefined, "pas pendant qu'il s'écrit");
+    atc.atcStop();
+    for (let i = 0; !(await scellee()); i++) {
+      if (i > 250) assert.fail("jamais scellé");
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    assert.deepEqual(await scellee(), { f: rel, ...hacherTexte("scellé à sa fin") });
+  });
+
   it("COPIES CHANGÉES DE DOSSIER : le segment qui s'enregistre n'y est pas recopié en pleine écriture ; fini et forcé, il l'est", async () => {
     rmSync(path.join(dossier, "data"), { recursive: true, force: true });
     const autre = path.join(dossier, "autre-disque");
     const { principal } = await enregistrer(["en cours"]);
     const copieAutre = disque.copieDe(principal, autre);
     try {
-      await disque.alignerCopies("2026-11-09", autre);
+      await controle.alignerCopies("2026-11-09", autre);
       assert.equal(lu(copieAutre), null, "pas pendant qu'il s'écrit");
     } finally {
       atc.atcStop();
@@ -168,7 +184,7 @@ describe("phonie ATC : chaque morceau reçu gardé aussitôt, et doublé", () =>
     // Une recopie par « jour » : le segment se ferme (fichier et copie finis, forcés) en tâche de fond.
     for (let jour = 10; lu(copieAutre) !== "en cours"; jour++) {
       if (jour > 250) assert.fail("jamais recopié une fois fini");
-      await disque.alignerCopies(`jour ${jour}`, autre);
+      await controle.alignerCopies(`jour ${jour}`, autre);
       await new Promise((r) => setTimeout(r, 20));
     }
     assert.equal(lu(principal), "en cours");

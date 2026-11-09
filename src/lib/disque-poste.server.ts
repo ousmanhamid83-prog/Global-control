@@ -6,9 +6,11 @@
  *
  * Une copie qui échoue (disque plein, clé retirée) ne bloque jamais le poste : l'écriture principale
  * est faite, le défaut est retenu et affiché dans la Division. Quand la copie remarche, chaque
- * fichier manqué pendant le défaut est recopié en entier ; alors seulement le défaut s'efface. Un
- * dossier des copies changé (un autre disque, une autre clé) reçoit tout ce qui était déjà gardé
- * (alignerCopies).
+ * fichier manqué pendant le défaut est recopié en entier ; alors seulement le défaut s'efface.
+ *
+ * Chaque version finie d'un fichier gardé est scellée (taille, SHA-256, HMAC par la clé du poste :
+ * empreintes-poste.server.ts) ; le contrôle des copies s'en sert pour comparer au contenu, et
+ * réparer le côté abîmé (controle-copies.server.ts).
  *
  * Tout étant gardé sans limite, ce qui ne sert plus qu'en archive est compressé (gzip), sans
  * jamais rien risquer : le compressé est écrit à part, forcé, relu et comparé à l'original avant
@@ -16,7 +18,7 @@
  *
  * L'état vit sur globalThis, car le serveur construit a plusieurs copies de chaque module.
  */
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import {
   closeSync,
   createReadStream,
@@ -39,6 +41,15 @@ import {
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGunzip, createGzip } from "node:zlib";
+import { disquesPhysiques } from "./disque-physique.server.ts";
+import {
+  cleDuPoste,
+  type Empreinte,
+  hacherFichier,
+  hacherTexte,
+  ligneEmpreinte,
+  lireEmpreintes,
+} from "./empreintes-poste.server.ts";
 
 /** Où vont les copies : AFRICONTROL_COPIES (relatif au dossier du serveur), sinon data/copies. */
 export function choisirCopies(valeur: string | undefined, cwd: string): string {
@@ -60,8 +71,16 @@ export function dossierRegistres(): string {
 /** La place d'un disque, en octets. */
 export type Place = { libre: number; total: number };
 
-/** La place libre du disque du poste et de celui des copies, et s'ils ne font qu'un. */
-export type PlaceDisques = { poste: Place | null; copies: Place | null; memeDisque: boolean };
+/** La place libre du disque du poste et de celui des copies, leurs disques physiques, et s'ils ne
+ * font qu'un. */
+export type PlaceDisques = {
+  poste: Place | null;
+  copies: Place | null;
+  /** Les disques physiques de chacun (sda, nvme0n1 ; sous Windows leur numéro) ; null : pas
+   * reconnus, les volumes sont alors comparés. */
+  disques: { poste: string[] | null; copies: string[] | null };
+  memeDisque: boolean;
+};
 
 async function place(dossier: string): Promise<Place | null> {
   try {
@@ -74,36 +93,67 @@ async function place(dossier: string): Promise<Place | null> {
 
 /**
  * Tout est gardé sans limite : la place libre est donc montrée dans la Division, avant que le
- * disque plein n'empêche de rien garder. Le même disque pour le poste et ses copies est signalé :
- * sa panne emporterait les deux.
+ * disque plein n'empêche de rien garder. Le même disque PHYSIQUE pour le poste et ses copies est
+ * signalé — deux partitions d'un même disque comprises : sa panne emporterait les deux. Disques pas
+ * reconnus (dossier réseau, autre système) : les volumes sont comparés.
  */
 export async function placeDisques(): Promise<PlaceDisques> {
   const poste = dossierRegistres();
   const copies = dossierCopies();
-  const disque = (d: string) =>
+  const volume = (d: string) =>
     stat(d).then(
       (s) => s.dev,
       () => null,
     );
-  const [p, c, dp, dc] = await Promise.all([
+  const [p, c, vp, vc, dp, dc] = await Promise.all([
     place(poste),
     place(copies),
-    disque(poste),
-    disque(copies),
+    volume(poste),
+    volume(copies),
+    disquesPhysiques(poste),
+    disquesPhysiques(copies),
   ]);
-  return { poste: p, copies: c, memeDisque: dp !== null && dp === dc };
+  return {
+    poste: p,
+    copies: c,
+    disques: { poste: dp, copies: dc },
+    memeDisque: surLeMemeDisque(dp, dc, vp, vc),
+  };
+}
+
+/** Le poste et ses copies sur un même disque : un disque physique en commun (deux partitions d'un
+ * disque, un RAID qui le contient) ; leurs disques pas reconnus, le même volume. */
+export function surLeMemeDisque(
+  disquesPoste: string[] | null,
+  disquesCopies: string[] | null,
+  volumePoste: number | null,
+  volumeCopies: number | null,
+): boolean {
+  if (disquesPoste !== null && disquesCopies !== null) {
+    return disquesPoste.some((d) => disquesCopies.includes(d));
+  }
+  return volumePoste !== null && volumePoste === volumeCopies;
 }
 
 /** Ce qui n'a pas pu être doublé dans les copies, et depuis quand (ms). */
 export type DefautCopie = { quoi: string; raison: string; depuis: number };
+
+/** Les empreintes scellées du poste, relues de son journal (voir empreintes-poste.server.ts). */
+export type EtatEmpreintes = {
+  /** Clé illisible : null, rien ne se scelle. */
+  cle: Buffer | null;
+  index: Map<string, Empreinte[]>;
+  fausses: number;
+  coupees: number;
+};
 
 const g = globalThis as typeof globalThis & {
   __afriDefautsCopies?: Map<string, DefautCopie>;
   __afriManquees?: Map<string, Set<string>>;
   __afriFiles?: Map<string, Promise<void>>;
   __afriEnEcriture?: Set<string>;
-  /** La dernière recopie complète : la marque laissée dans le dossier des copies, et le jour. */
-  __afriAligne?: { marque: string; jour: string };
+  /** Par dossier du serveur (les essais en changent) : ses empreintes, relues une fois. */
+  __afriEmpreintes?: { racine: string; etat: Promise<EtatEmpreintes> };
 };
 const defauts = () => (g.__afriDefautsCopies ??= new Map());
 
@@ -141,7 +191,7 @@ export function copieRatee(quoi: string, fichier: string, erreur: unknown): void
 
 /** Les écritures d'un même fichier, l'une après l'autre dans l'ordre des appels : deux registres
  * écrits en même temps ne se mêlent pas, et le dernier appel est le dernier écrit. */
-function enFile(fichier: string, travail: () => Promise<void>): Promise<void> {
+export function enFile(fichier: string, travail: () => Promise<void>): Promise<void> {
   const files = (g.__afriFiles ??= new Map());
   const p = (files.get(fichier) ?? Promise.resolve()).then(travail);
   const fin = p.catch(() => undefined);
@@ -223,7 +273,7 @@ export function copieDe(fichier: string, copies = dossierCopies()): string {
 }
 
 /** Recopie `source` en entier sur `cible`, jamais à moitié (un .part forcé, renommé). */
-async function recopierDurable(source: string, cible: string): Promise<void> {
+export async function recopierDurable(source: string, cible: string): Promise<void> {
   await mkdir(path.dirname(cible), { recursive: true });
   const part = `${cible}.part`;
   await copyFile(source, part);
@@ -257,10 +307,12 @@ export async function rattraperCopies(quoi: string, enCours: string | null = nul
   if (liste.size === 0) noterDefautCopie(quoi, null);
 }
 
-/** Écrit un fichier du poste (registre, index) et sa copie, aussitôt. */
+/** Écrit un fichier du poste (registre, index) et sa copie, aussitôt. Son empreinte est scellée
+ * d'abord : coupé entre les deux, le fichier reste à sa version d'avant, scellée elle aussi. */
 export function ecrireFichierPoste(fichier: string, contenu: string): Promise<void> {
   const quoi = "copie des registres";
   return enFile(fichier, async () => {
+    await noterEmpreinte(fichier, hacherTexte(contenu));
     await ecrireDurable(fichier, contenu);
     try {
       await ecrireDurable(copieDe(fichier), contenu);
@@ -288,10 +340,11 @@ export function ajouterFichierPoste(fichier: string, ligne: string, quoi: string
   });
 }
 
-/** Ce que le poste garde et double, relatif au dossier du serveur : les registres (data/*.json),
- * l'archive des bandes (recordings/*.json), le trafic reçu, le relevé Internet, la phonie. */
+/** Ce que le poste garde et double, relatif au dossier du serveur : les registres (data/*.json) et
+ * le journal des empreintes, l'archive des bandes (recordings/*.json), le trafic reçu, le relevé
+ * Internet, la phonie. Ni poste.env ni les clés (data/base.secret, data/empreintes.cle). */
 const GARDES: [string, RegExp][] = [
-  ["data", /\.json$/],
+  ["data", /\.json$|^empreintes\.jsonl$/],
   ["recordings", /\.json$/],
   [path.join("data", "trafic"), /^/],
   [path.join("data", "releve"), /^/],
@@ -306,42 +359,82 @@ export function ecritureEnCours(fichier: string, oui: boolean): void {
   else enEcriture().delete(fichier);
 }
 
-/**
- * Un dossier des copies changé (un autre disque, une autre clé, vidé) n'a rien de ce qui était déjà
- * gardé, et les fichiers du jour n'y recevraient que leurs lignes nouvelles. Au démarrage, chaque
- * jour, et dès que la marque laissée dans ce dossier n'est plus la bonne : chaque fichier gardé
- * dont la copie manque ou n'a pas sa taille y est recopié en entier, dans la file du fichier — une
- * ligne qui arrive passe avant ou après, jamais entre l'ancienne copie et la nouvelle. Le fichier
- * qu'un flux écrit encore (segment de phonie) attend sa fin. Rend le nombre de fichiers recopiés ;
- * jette si une recopie échoue (tout est refait au contrôle suivant).
- */
-export async function alignerCopies(jour: string, copies = dossierCopies()): Promise<number> {
-  const marque = path.join(copies, "recopie-faite");
-  const lue = await readFile(marque, "utf8").catch(() => null);
-  if (lue !== null && lue === g.__afriAligne?.marque && jour === g.__afriAligne.jour) return 0;
-  let recopies = 0;
+/** Les fichiers gardés, tels qu'ils sont sur le disque du poste : ni les .part (écritures et
+ * compressions inachevées), ni le fichier qu'un flux écrit encore (segment de phonie). */
+export async function fichiersGardes(): Promise<string[]> {
+  const liste: string[] = [];
   for (const [dossier, nom] of GARDES) {
     const d = path.join(process.cwd(), dossier);
     for (const e of await readdir(d, { withFileTypes: true }).catch(() => [])) {
       const f = path.join(d, e.name);
-      if (!e.isFile() || !nom.test(e.name) || e.name.endsWith(".part") || enEcriture().has(f)) {
-        continue;
+      if (e.isFile() && nom.test(e.name) && !e.name.endsWith(".part") && !enEcriture().has(f)) {
+        liste.push(f);
       }
-      await enFile(f, async () => {
-        const [original, copie] = await Promise.all([
-          stat(f).catch(() => null),
-          stat(copieDe(f, copies)).catch(() => null),
-        ]);
-        if (original === null || copie?.size === original.size) return;
-        await recopierDurable(f, copieDe(f, copies));
-        recopies++;
-      });
     }
   }
-  const nouvelle = `${new Date().toISOString()} ${randomUUID()}\n`;
-  await ecrireDurable(marque, nouvelle);
-  g.__afriAligne = { marque: nouvelle, jour };
-  return recopies;
+  return liste;
+}
+
+/** `fichier` est-il l'un de ceux que le poste garde (et non une copie) ? */
+function estGarde(fichier: string): boolean {
+  const dossier = path.dirname(path.resolve(fichier));
+  const nom = path.basename(fichier);
+  return GARDES.some(([d, n]) => dossier === path.join(process.cwd(), d) && n.test(nom));
+}
+
+/** Le chemin d'un fichier du poste relatif au dossier du serveur, séparé par « / » partout. */
+export function relatif(fichier: string): string {
+  return path.relative(process.cwd(), path.resolve(fichier)).split(path.sep).join("/");
+}
+
+/** Le journal des empreintes scellées (data/empreintes.jsonl) : doublé et contrôlé comme le reste.
+ * Sa clé, data/empreintes.cle, ne quitte pas le poste. */
+export function journalEmpreintes(): string {
+  return path.join(dossierRegistres(), "empreintes.jsonl");
+}
+
+async function chargerEmpreintes(): Promise<EtatEmpreintes> {
+  const cle = cleDuPoste(path.join(dossierRegistres(), "empreintes.cle"));
+  let texte = "";
+  for (const f of [journalEmpreintes(), copieDe(journalEmpreintes())]) {
+    try {
+      texte = await readFile(f, "utf8");
+      break;
+    } catch {
+      // Absent ou illisible : sa copie, sinon aucune empreinte encore.
+    }
+  }
+  if (!cle) return { cle, index: new Map(), fausses: 0, coupees: 0 };
+  return { cle, ...lireEmpreintes(cle, texte) };
+}
+
+/** Les empreintes scellées du poste, relues une fois (sur son journal, sinon sa copie). */
+export function empreintes(): Promise<EtatEmpreintes> {
+  const racine = process.cwd();
+  if (g.__afriEmpreintes?.racine !== racine) {
+    g.__afriEmpreintes = { racine, etat: chargerEmpreintes() };
+  }
+  return g.__afriEmpreintes.etat;
+}
+
+/** Scelle une version finie d'un fichier gardé : dans le journal des empreintes, forcée et doublée.
+ * Clé illisible : rien n'est scellé (le contrôle le dit). */
+export async function noterEmpreinte(fichier: string, v: { t: number; h: string }): Promise<void> {
+  const etat = await empreintes();
+  if (!etat.cle) return;
+  const e = { f: relatif(fichier), ...v };
+  await ajouterFichierPoste(
+    journalEmpreintes(),
+    ligneEmpreinte(etat.cle, e),
+    "copie des empreintes",
+  );
+  const avant = etat.index.get(e.f)?.[0];
+  etat.index.set(e.f, avant ? [e, avant] : [e]);
+}
+
+/** Scelle un fichier fini tel qu'il est sur le disque (un segment de phonie fermé). */
+export async function noterEmpreinteFichier(fichier: string): Promise<void> {
+  await noterEmpreinte(fichier, await hacherFichier(fichier));
 }
 
 /** Le contenu d'un registre-liste : une liste JSON, sinon une erreur (la copie est alors lue). */
@@ -386,6 +479,7 @@ async function empreinte(flux: AsyncIterable<Buffer>): Promise<string> {
 export async function compresserFichiers(dossier: string, noms: string[]): Promise<number> {
   let gagne = 0;
   const faits: string[] = [];
+  const scelles: [string, { t: number; h: string }][] = [];
   for (const nom of noms) {
     const fichier = path.join(dossier, nom);
     const part = `${fichier}.gz.part`;
@@ -398,6 +492,8 @@ export async function compresserFichiers(dossier: string, noms: string[]): Promi
       ]);
       if (avant !== apres) throw new Error(`${fichier} : le compressé relu diffère de l'original`);
       gagne += (await stat(fichier)).size - (await stat(part)).size;
+      // Un fichier gardé (trafic, relevé d'un jour passé) : son compressé est sa version finie.
+      if (estGarde(`${fichier}.gz`)) scelles.push([`${fichier}.gz`, await hacherFichier(part)]);
       await rename(part, `${fichier}.gz`);
       faits.push(fichier);
     } catch (e) {
@@ -407,6 +503,7 @@ export async function compresserFichiers(dossier: string, noms: string[]): Promi
   }
   if (faits.length === 0) return 0;
   await forcer(dossier, true);
+  for (const [f, v] of scelles) await noterEmpreinte(f, v);
   for (const f of faits) await unlink(f);
   await forcer(dossier, true);
   return gagne;
