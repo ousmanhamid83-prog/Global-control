@@ -19,6 +19,7 @@ import { pathToFileURL } from "node:url";
 import fs from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
+import { gunzipSync } from "node:zlib";
 import {
   choisirBase,
   etatBase,
@@ -28,6 +29,7 @@ import {
   parametresDurables,
   prendreBase,
   programmerCopies,
+  compresserAnciennes,
   copierBase,
   etatCopies,
   secretDuPoste,
@@ -1018,6 +1020,87 @@ describe("base du poste : écritures doublées, copies à chaud, reprise", () =>
       assert.ok(defautsCopies().some((d) => d.quoi === "écritures doublées de la base"));
     } finally {
       await pg.close();
+    }
+  });
+  it("ANCIENNES COPIES COMPRESSÉES (÷13), la plus récente telle quelle, les étiquettes lisibles, et les segments qu'elle ne rejoue plus ; la reprise relit une ancienne copie compressée — rien de perdu", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    let pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    await pg.exec("create table t (i int primary key)");
+    await inserer(pg, 1, 10);
+    await copierBase(pg, dossier, copies, "jour-1", registres);
+    await pg.query("select pg_switch_wal()");
+    await inserer(pg, 11, 20);
+    await copierBase(pg, dossier, copies, "jour-2", registres);
+    await inserer(pg, 21, 30);
+    const gagne = await compresserAnciennes(copies);
+    assert.ok(gagne > 20_000_000, `${gagne} octets gagnés`);
+    assert.ok(existsSync(path.join(copies, "jour-1", "base", "PG_VERSION.gz")));
+    assert.ok(existsSync(path.join(copies, "jour-1", "base", "backup_label")), "l'étiquette lisible");
+    assert.ok(existsSync(path.join(copies, "jour-2", "base", "PG_VERSION")), "la plus récente telle quelle");
+    assert.ok(existsSync(path.join(copies, "jour-1", "compressee")), "marquée : plus parcourue");
+    assert.equal((await etatCopies(copies)).nombre, 2);
+    const segments = readdirSync(path.join(copies, "ecritures"));
+    assert.ok(segments.filter((n) => n.endsWith(".gz")).length >= 2, segments.join(" "));
+    assert.equal(await compresserAnciennes(copies), 0, "rien à refaire");
+    await pg.close();
+    // La plus récente illisible, la base aussi : l'ancienne copie compressée et les écritures doublées.
+    rmSync(path.join(copies, "jour-2", "base", "global", "pg_control"));
+    abimer(dossier);
+    pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      assert.match((etatBase() as { reprise?: string }).reprise ?? "", REPRISE);
+      assert.deepEqual((await pg.query<{ i: number }>("select i from t order by i")).rows.map((x) => x.i), de(1, 30));
+      const plats = readdirSync(path.join(copies, "ecritures")).filter((n) => /^[0-9A-F]{24}$/.test(n));
+      assert.ok(plats.every((n) => !existsSync(path.join(copies, "ecritures", `${n}.gz`))), "pas refaits en clair");
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("LA SAUVEGARDE DE LA VERSION PRÉCÉDENTE (data/base.sauvegarde) : rangée dans les copies, compressée, jamais effacée ; pas prise pour une copie", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    const pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      await pg.exec("create table t (i int)");
+      fs.cpSync(dossier, `${dossier}.sauvegarde`, { recursive: true });
+      const version = readFileSync(path.join(dossier, "PG_VERSION"), "utf8");
+      await programmerCopies(pg, dossier, copies, registres);
+      assert.ok(!existsSync(`${dossier}.sauvegarde`), "plus à côté de la base");
+      const rangee = path.join(copies, "sauvegarde-version-precedente");
+      assert.ok(existsSync(path.join(rangee, "compressee")));
+      assert.equal(gunzipSync(readFileSync(path.join(rangee, "PG_VERSION.gz"))).toString(), version);
+      assert.equal((await etatCopies(copies)).nombre, 1, "seule la copie du jour compte");
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("LE CONTRÔLE DES COPIES recopie ce qui leur manque (dossier changé), et compresse le trafic reçu et le relevé d'avant hier et plus vieux, au poste et dans les copies ; ceux d'hier restent", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    const ici = process.cwd();
+    process.chdir(poste); // le serveur tourne dans le dossier du poste : data/ et ses copies
+    const pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      writeFileSync(path.join(registres, "drones.json"), "[1]"); // gardé avant que les copies changent
+      const vieux = jourPoste(Date.now() - 3 * 86_400_000);
+      const hier = jourPoste(Date.now() - 86_400_000);
+      const fichiers = [`trafic/1090ES-${vieux}.jsonl`, `trafic/1090ES-${hier}.jsonl`, `releve/releve-${vieux}.jsonl`];
+      for (const racine of [registres, path.join(copies, "fichiers", "data")]) {
+        for (const f of fichiers) {
+          mkdirSync(path.dirname(path.join(racine, f)), { recursive: true });
+          writeFileSync(path.join(racine, f), "{}\n");
+        }
+      }
+      await programmerCopies(pg, dossier, copies, registres);
+      assert.equal(readFileSync(path.join(copies, "fichiers", "data", "drones.json"), "utf8"), "[1]");
+      for (const racine of [registres, path.join(copies, "fichiers", "data")]) {
+        assert.ok(existsSync(path.join(racine, `${fichiers[0]}.gz`)) && !existsSync(path.join(racine, fichiers[0]!)));
+        assert.ok(existsSync(path.join(racine, `${fichiers[2]}.gz`)));
+        assert.ok(existsSync(path.join(racine, fichiers[1]!)), "hier reste en clair");
+      }
+    } finally {
+      await pg.close();
+      process.chdir(ici);
     }
   });
 });

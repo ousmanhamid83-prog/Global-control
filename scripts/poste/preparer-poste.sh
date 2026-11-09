@@ -24,6 +24,9 @@
 #   --recherche      moteur de recherche SearXNG du poste (Docker), pour la commande /recherche :
 #                    la requête sort alors du poste ; /recherche reste désactivée tant que le chef
 #                    de division ne l'active pas (Capteurs › Outils › Commandes du poste)
+#   --copies DOSSIER dossier des copies du poste (AFRICONTROL_COPIES) : tout ce que le poste garde y
+#                    est doublé aussitôt. À mettre sur un AUTRE disque que le poste (défaut :
+#                    data/copies, sur le disque du poste — le bilan dit quand c'est le même disque)
 #   --sans-build  --sans-ia  --sans-relief    sauter une étape
 #
 # Relancer le script reprend là où il s'était arrêté : ce qui est déjà en place est gardé.
@@ -37,6 +40,7 @@ SIGNAL_IMAGE=bbernhard/signal-cli-rest-api:0.101
 SEARXNG_IMAGE=searxng/searxng:2026.11.2-cccbc9e15
 
 MODELE=""
+COPIES=""
 ZONES=()
 ZONES_IMAGERIE=()
 BUILD=1 IA=1 RELIEF=1 IMAGERIE=0 ITINERAIRE=0 SIGNAL=0 RECHERCHE=0
@@ -49,6 +53,7 @@ while [ $# -gt 0 ]; do
     --itineraire) ITINERAIRE=1 ;;
     --signal) SIGNAL=1 ;;
     --recherche) RECHERCHE=1 ;;
+    --copies) COPIES=${2:?--copies attend un dossier}; shift ;;
     --sans-build) BUILD=0 ;;
     --sans-ia) IA=0 ;;
     --sans-relief) RELIEF=0 ;;
@@ -407,6 +412,48 @@ FIN
     else
       rate "recherche : le moteur ne répond pas en JSON sur 127.0.0.1:8888 (docker logs africontrol-recherche)"
     fi
+  fi
+fi
+
+# disques_de CHEMIN : les disques physiques (sda, nvme0n1…) qui portent CHEMIN, un par ligne ;
+# rien quand ils ne se lisent pas (dossier réseau, ZFS, conteneur…).
+disques_de() {
+  local volume
+  volume=$(df -P "$1" 2>/dev/null | awk 'NR == 2 { print $1 }')
+  if [ -b "$volume" ]; then
+    lsblk -rsno NAME,TYPE "$volume" 2>/dev/null | awk '$2 == "disk" { print $1 }' | sort -u
+  fi
+}
+
+etape "Copies du poste (un autre disque que le sien)"
+REGLEES=""
+if [ -f "$POSTE_ENV" ]; then REGLEES=$(sed -n 's/^AFRICONTROL_COPIES=//p' "$POSTE_ENV" | tail -n 1); fi
+DOSSIER_COPIES=${COPIES:-${REGLEES:-data/copies}}
+if ! mkdir -p "$DOSSIER_COPIES" data 2>/dev/null; then
+  rate "copies : $DOSSIER_COPIES impossible à créer"
+elif [ ! -w "$DOSSIER_COPIES" ]; then
+  rate "copies : $DOSSIER_COPIES en lecture seule — le poste ne pourrait rien y doubler"
+else
+  DOSSIER_COPIES=$(cd "$DOSSIER_COPIES" && pwd -P)
+  if [ -n "$COPIES" ]; then
+    regler AFRICONTROL_COPIES "$DOSSIER_COPIES"
+    ok "copies du poste dans $DOSSIER_COPIES"
+    if [ -n "$(ls -A data/copies 2>/dev/null)" ] && [ "$DOSSIER_COPIES" != "$(cd data/copies && pwd -P)" ]; then
+      A_FAIRE+=("Les copies déjà faites dans data/copies y restent (archives) ; le poste recopie dans $DOSSIER_COPIES tout ce qu'il garde, puis y double la suite.")
+    fi
+  elif [ -n "$REGLEES" ]; then
+    ok "copies du poste : AFRICONTROL_COPIES déjà réglé dans poste.env ($DOSSIER_COPIES), gardé"
+  else
+    ok "copies du poste dans data/copies (défaut)"
+  fi
+  DISQUES_POSTE=$(disques_de data)
+  DISQUES_COPIES=$(disques_de "$DOSSIER_COPIES")
+  if [ -z "$DISQUES_POSTE" ] || [ -z "$DISQUES_COPIES" ]; then
+    A_FAIRE+=("Copies du poste : le disque de $DOSSIER_COPIES n'a pas pu être comparé à celui du poste — s'assurer qu'il est autre.")
+  elif [ -n "$(comm -12 <(echo "$DISQUES_POSTE") <(echo "$DISQUES_COPIES"))" ]; then
+    A_FAIRE+=("Copies du poste sur le même disque que lui (${DISQUES_POSTE//$'\n'/ }) : sa panne emporterait les deux. Brancher un autre disque, puis relancer avec --copies /chemin/sur/ce/disque.")
+  else
+    ok "copies sur un autre disque (${DISQUES_COPIES//$'\n'/ }) que le poste (${DISQUES_POSTE//$'\n'/ })"
   fi
 fi
 

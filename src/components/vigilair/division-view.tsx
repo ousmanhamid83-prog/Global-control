@@ -672,7 +672,7 @@ function PlaceLibre({ place }: { place: PlaceDuPoste }) {
           : `disque du poste ${enGo(poste.libre)} sur ${enGo(poste.total)} ; disque des copies ${enGo(copies.libre)} sur ${enGo(copies.total)}`}
         .
         {memeDisque
-          ? " Le poste et ses copies sont sur le même disque : sa panne emporterait les deux — AFRICONTROL_COPIES vers un autre disque ou une clé."
+          ? " Le poste et ses copies sont sur le même disque : sa panne emporterait les deux — brancher un autre disque, puis relancer scripts/poste/preparer-poste (-Copies sous Windows, --copies sous Linux)."
           : ""}
         {basse ? " Place basse : disque plein, plus rien ne pourrait être gardé." : ""}
       </span>

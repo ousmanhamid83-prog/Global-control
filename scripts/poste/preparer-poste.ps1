@@ -24,6 +24,10 @@ serveur lit seul au démarrage (src/lib/config-poste.ts).
   -Recherche      moteur de recherche SearXNG du poste (Docker Desktop), pour la commande
                   /recherche : la requête sort alors du poste ; /recherche reste désactivée tant
                   que le chef de division ne l'active pas (Capteurs › Outils › Commandes du poste)
+  -Copies DOSSIER dossier des copies du poste (AFRICONTROL_COPIES) : tout ce que le poste garde y
+                  est doublé aussitôt. Sans -Copies, un autre disque INTERNE de la machine (pas une
+                  clé USB ; le plus de place libre, 10 Go au moins), s'il y en a un ; sinon
+                  data\copies, sur le disque du poste — sa panne emporterait les deux, le bilan le dit.
   -SansBuild  -SansIA  -SansRelief    sauter une étape
 
 Relancer le script reprend là où il s'était arrêté : ce qui est déjà en place est gardé.
@@ -36,6 +40,7 @@ param(
   [switch]$Itineraire,
   [switch]$Signal,
   [switch]$Recherche,
+  [string]$Copies = "",
   [switch]$SansBuild,
   [switch]$SansIA,
   [switch]$SansRelief
@@ -489,6 +494,88 @@ if ($Recherche) {
     } else {
       Rate "recherche : le moteur ne répond pas en JSON sur 127.0.0.1:8888 (docker logs africontrol-recherche)"
     }
+  }
+}
+
+# Le disque physique (son numéro) qui porte une lettre de lecteur ; $null si on ne sait pas le dire.
+function DisqueDe([string]$Lettre) {
+  try {
+    return [int](Get-Partition -DriveLetter $Lettre -ErrorAction Stop | Select-Object -First 1).DiskNumber
+  } catch {
+    return $null
+  }
+}
+
+# Un autre disque que celui du poste, pour ses copies : un volume NTFS ou ReFS d'un AUTRE disque
+# physique (deux partitions d'un même disque mourraient ensemble), branché en interne (une clé ou
+# un disque USB s'enlève), avec 10 Go libres au moins ; le plus de place. $null s'il n'y en a pas.
+function AutreDisque {
+  $lettre = $Racine.Substring(0, 1)
+  $disque = DisqueDe $lettre
+  if ($null -eq $disque) { return $null }
+  try {
+    $volumes = @(Get-Volume -ErrorAction Stop | Where-Object {
+        $_.DriveLetter -and [string]$_.DriveLetter -ne $lettre -and "$($_.DriveType)" -eq "Fixed" -and
+        @("NTFS", "ReFS") -contains $_.FileSystem -and $_.SizeRemaining -ge 10GB
+      } | Sort-Object SizeRemaining -Descending)
+  } catch {
+    return $null
+  }
+  foreach ($v in $volumes) {
+    $d = DisqueDe ([string]$v.DriveLetter)
+    if ($null -eq $d -or $d -eq $disque) { continue }
+    if ("$((Get-Disk -Number $d -ErrorAction SilentlyContinue).BusType)" -eq "USB") { continue }
+    return $v
+  }
+  return $null
+}
+
+Etape "Copies du poste (un autre disque que le sien)"
+$reglee = $null
+if (Test-Path $PosteEnv) {
+  $reglee = Select-String -Path $PosteEnv -Pattern "^AFRICONTROL_COPIES=(.+)$" | Select-Object -Last 1
+}
+$dossierCopies = $null
+if ($Copies) {
+  try {
+    New-Item -ItemType Directory -Force -Path $Copies -ErrorAction Stop | Out-Null
+    $dossierCopies = (Resolve-Path $Copies).Path
+    Regler "AFRICONTROL_COPIES" $dossierCopies
+    Ok "copies du poste dans $dossierCopies"
+  } catch {
+    Rate "copies : $Copies impossible à créer ($($_.Exception.Message))"
+  }
+} elseif ($reglee) {
+  $dossierCopies = $reglee.Matches[0].Groups[1].Value
+  Ok "copies du poste : AFRICONTROL_COPIES déjà réglé dans poste.env ($dossierCopies), gardé"
+} else {
+  $autre = AutreDisque
+  if ($autre) {
+    $dossierCopies = "$($autre.DriveLetter):\AfriControl-copies"
+    New-Item -ItemType Directory -Force -Path $dossierCopies | Out-Null
+    Regler "AFRICONTROL_COPIES" $dossierCopies
+    Ok "copies du poste sur un autre disque : $dossierCopies ($([math]::Round($autre.SizeRemaining / 1GB)) Go libres)"
+  } else {
+    $dossierCopies = "data\copies"
+    Ok "copies du poste dans data\copies (pas d'autre disque interne avec 10 Go libres)"
+  }
+}
+if ($dossierCopies) {
+  # Relatif : au dossier du serveur, comme le lit le poste.
+  $absolu = if ([System.IO.Path]::IsPathRooted($dossierCopies)) { $dossierCopies } else { Join-Path $Racine $dossierCopies }
+  $anciennes = Join-Path $Racine "data\copies"
+  if ((Test-Path $anciennes) -and @(Get-ChildItem $anciennes -Force).Count -gt 0 -and
+    (Resolve-Path $anciennes).Path.TrimEnd("\") -ne $absolu.TrimEnd("\")) {
+    $AFaire.Add("Les copies déjà faites dans data\copies y restent (archives) ; le poste recopie dans $absolu tout ce qu'il garde, puis y double la suite.")
+  }
+  $dp = DisqueDe $Racine.Substring(0, 1)
+  $dc = DisqueDe $absolu.Substring(0, 1)
+  if ($null -eq $dp -or $null -eq $dc) {
+    $AFaire.Add("Copies du poste : le disque de $absolu n'a pas pu être comparé à celui du poste — s'assurer qu'il est autre.")
+  } elseif ($dp -eq $dc) {
+    $AFaire.Add("Copies du poste sur le même disque que lui (disque $dp) : sa panne emporterait les deux. Brancher un autre disque (ou une clé), puis relancer avec -Copies E:\AfriControl-copies.")
+  } else {
+    Ok "copies sur un autre disque (disque $dc) que le poste (disque $dp)"
   }
 }
 

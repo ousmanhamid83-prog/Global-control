@@ -20,6 +20,7 @@ import { finished } from "node:stream/promises";
 import {
   copieDe,
   copieRatee,
+  ecritureEnCours,
   forcer,
   noterDefautCopie,
   rattraperCopies,
@@ -119,6 +120,7 @@ function closeSegment(s: AtcState): void {
       await finished(copie).catch(() => undefined);
       await forcerSegment(copie);
     }
+    ecritureEnCours(String(file.path), false);
     await rattraperCopies(COPIE_ATC, s.file ? String(s.file.path) : null).catch((e: unknown) =>
       noterDefautCopie(COPIE_ATC, e),
     );
@@ -132,6 +134,7 @@ async function openSegment(s: AtcState): Promise<void> {
   const ext = endpoint().match(/\.(\w{2,4})(\?|$)/)?.[1] ?? "aud";
   const chemin = path.join(DIR, `${id}.${ext}`);
   const file = createWriteStream(chemin);
+  ecritureEnCours(chemin, true);
   file.on("error", (e) => {
     s.lastError = `enregistrement impossible : ${e.message}`;
   });

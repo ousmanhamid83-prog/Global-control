@@ -154,6 +154,26 @@ describe("phonie ATC : chaque morceau reçu gardé aussitôt, et doublé", () =>
     assert.equal(lu(a.copie), "sans copie", "le segment manqué, recopié en entier");
   });
 
+  it("COPIES CHANGÉES DE DOSSIER : le segment qui s'enregistre n'y est pas recopié en pleine écriture ; fini et forcé, il l'est", async () => {
+    rmSync(path.join(dossier, "data"), { recursive: true, force: true });
+    const autre = path.join(dossier, "autre-disque");
+    const { principal } = await enregistrer(["en cours"]);
+    const copieAutre = disque.copieDe(principal, autre);
+    try {
+      await disque.alignerCopies("2026-11-09", autre);
+      assert.equal(lu(copieAutre), null, "pas pendant qu'il s'écrit");
+    } finally {
+      atc.atcStop();
+    }
+    // Une recopie par « jour » : le segment se ferme (fichier et copie finis, forcés) en tâche de fond.
+    for (let jour = 10; lu(copieAutre) !== "en cours"; jour++) {
+      if (jour > 250) assert.fail("jamais recopié une fois fini");
+      await disque.alignerCopies(`jour ${jour}`, autre);
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    assert.equal(lu(principal), "en cours");
+  });
+
   it("COPIE QUI CASSE EN ROUTE (son fichier inouvrable, disque plein) : rattrapée — l'enregistrement continue, le défaut est dit", async (t) => {
     const T = Date.UTC(2026, 10, 9, 12, 0, 0, 123);
     t.mock.timers.enable({ apis: ["Date"], now: T });

@@ -66,6 +66,22 @@ jobs:
         shell: cmd
         run: type poste.env
 
+      # Le script choisit seul un autre disque INTERNE pour les copies : ici, le poste est sur D:
+      # (le disque temporaire du runner) et C: (le disque du système) est un autre disque.
+      - name: Copies du poste sur un autre disque que le sien
+        shell: pwsh
+        run: |
+          Get-Volume | Where-Object DriveLetter | Format-Table DriveLetter, FileSystem, DriveType, SizeRemaining, Size
+          Get-Disk | Format-Table Number, FriendlyName, BusType, Size
+          $reglage = Select-String -Path poste.env -Pattern "^AFRICONTROL_COPIES=(.+)$" | Select-Object -First 1
+          if (-not $reglage) { Write-Host "AFRICONTROL_COPIES absent de poste.env : pas d'autre disque trouvé"; exit 1 }
+          $copies = $reglage.Matches[0].Groups[1].Value
+          $poste = (Get-Partition -DriveLetter (Get-Location).Path.Substring(0, 1)).DiskNumber
+          $leur = (Get-Partition -DriveLetter $copies.Substring(0, 1)).DiskNumber
+          if ($poste -eq $leur) { Write-Host "copies sur le disque du poste ($poste)"; exit 1 }
+          if (-not (Test-Path $copies -PathType Container)) { Write-Host "$copies pas créé"; exit 1 }
+          Write-Host "Copies dans $copies (disque $leur) ; poste sur le disque $poste."
+
       # fsync (Windows refuse de forcer un fichier ouvert en lecture seule), coupure de courant
       # simulée, écritures doublées, copies et reprise : les tests de la base et des registres,
       # sous Windows.
@@ -142,10 +158,14 @@ jobs:
             if (-not $s) { Start-Sleep -Seconds 1 }
           }
           if (-not $s) { Get-Content serveur.log, a.out, a.err; Write-Host "pas de copie du jour"; exit 1 }
-          $jour = @(Get-ChildItem data\copies -Directory -Filter "jour-*" |
+          # Les copies sont là où le script les a mises : un autre disque que le poste s'il en a
+          # trouvé un (ici, le poste est sur D: et C: est un autre disque), sinon data\copies.
+          $reglage = Select-String -Path poste.env -Pattern "^AFRICONTROL_COPIES=(.+)$" | Select-Object -First 1
+          $copies = if ($reglage) { $reglage.Matches[0].Groups[1].Value } else { "data\copies" }
+          $jour = @(Get-ChildItem $copies -Directory -Filter "jour-*" |
             Where-Object { $_.Name -notlike "*.part" -and (Test-Path (Join-Path $_.FullName "base\backup_label")) })
-          if ($jour.Count -ne 1) { Get-ChildItem data\copies; Write-Host "copie du jour introuvable"; exit 1 }
-          if (-not (Test-Path data\copies\ecritures\*)) { Get-ChildItem -Recurse data\copies; Write-Host "pas d'écritures doublées"; exit 1 }
+          if ($jour.Count -ne 1) { Get-ChildItem $copies; Write-Host "copie du jour introuvable dans $copies"; exit 1 }
+          if (-not (Test-Path (Join-Path $copies "ecritures\*"))) { Get-ChildItem -Recurse $copies; Write-Host "pas d'écritures doublées"; exit 1 }
           Write-Host "   copie du jour : $($s.Line)"
           $b = Lancer 8082 "b"
           if (-not (Pret 8082)) { Get-Content b.err; exit 1 }

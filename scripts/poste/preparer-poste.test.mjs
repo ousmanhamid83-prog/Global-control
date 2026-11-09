@@ -22,11 +22,13 @@ function sources(dossier) {
 }
 const SERVEUR = sources(join(RACINE, "src")).join("\n");
 
-const clesSh = [...SH.matchAll(/^\s*regler (AFRICONTROL_[A-Z_]+) /gm)].map((m) => m[1]).sort();
-const clesPs1 = [...PS1.matchAll(/^\s*Regler "(AFRICONTROL_[A-Z_]+)" /gm)].map((m) => m[1]).sort();
+const cles = (texte, motif) => [...new Set([...texte.matchAll(motif)].map((m) => m[1]))].sort();
+const clesSh = cles(SH, /^\s*regler (AFRICONTROL_[A-Z_]+) /gm);
+const clesPs1 = cles(PS1, /^\s*Regler "(AFRICONTROL_[A-Z_]+)" /gm);
 
 test("poste.env : les deux scripts écrivent les mêmes clés, et le serveur les lit toutes", () => {
   assert.deepEqual(clesSh, [
+    "AFRICONTROL_COPIES",
     "AFRICONTROL_IA",
     "AFRICONTROL_IA_MODELE",
     "AFRICONTROL_ITINERAIRE",
@@ -107,7 +109,10 @@ test("recherche : JSON activé, clé du moteur gardée, /recherche laissée dés
     assert.ok(texte.includes("use_default_settings: true"), "réglages par défaut de SearXNG");
     assert.ok(/- json/.test(texte), "format JSON activé (sinon 403)");
     assert.ok(texte.includes("limiter: false"), "pas de limiteur : seul le poste l'interroge");
-    assert.ok(texte.includes("search?q=test&format=json"), "essai en JSON, pas seulement « en vie »");
+    assert.ok(
+      texte.includes("search?q=test&format=json"),
+      "essai en JSON, pas seulement « en vie »",
+    );
     assert.ok(texte.includes("/recherche reste désactivée"), "le bilan le dit");
     assert.ok(texte.includes("-e GRANIAN_HOST=0.0.0.0"), "IPv4 : l'image plante sans IPv6");
   }
@@ -143,6 +148,60 @@ test("imagerie : les deux scripts confient tout au même script de mosaïque, zo
   // Les identifiants restent à l'opérateur : aucun script ne les écrit dans poste.env (voir aussi
   // le test des clés écrites, plus haut).
   assert.ok(!/regler AFRICONTROL_SENTINEL|Regler "AFRICONTROL_SENTINEL/.test(SH + PS1));
+});
+
+test("copies du poste : un autre disque que le sien — choisi seul sous Windows, dit sous Linux", () => {
+  assert.ok(/--copies\) COPIES=\$\{2:\?/.test(SH), "--copies côté Linux");
+  assert.ok(PS1.includes('[string]$Copies = ""'), "-Copies côté Windows");
+  // Windows : le plus de place libre sur un autre disque INTERNE — jamais une clé USB, qui part
+  // avec celui qui l'emporte ; un autre volume du même disque ne compte pas.
+  assert.ok(PS1.includes('BusType)" -eq "USB"') && PS1.includes("$d -eq $disque"));
+  // Les deux le disent quand les copies restent sur le disque du poste.
+  for (const texte of [SH, PS1]) assert.ok(texte.includes("sa panne emporterait les deux"));
+});
+
+test("script Linux --copies : réglé dans poste.env, gardé ensuite, refusé s'il est impossible", async () => {
+  const { mkdtempSync, mkdirSync, copyFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  // Un poste à part : le script écrit poste.env à sa racine, pas dans ce dépôt.
+  const poste = mkdtempSync(join(tmpdir(), "poste-copies-"));
+  mkdirSync(join(poste, "scripts", "poste"), { recursive: true });
+  copyFileSync(
+    join(ICI, "preparer-poste.sh"),
+    join(poste, "scripts", "poste", "preparer-poste.sh"),
+  );
+  const lancer = (...options) =>
+    spawnSync(
+      "bash",
+      [
+        join(poste, "scripts", "poste", "preparer-poste.sh"),
+        "--sans-build",
+        "--sans-ia",
+        "--sans-relief",
+        ...options,
+      ],
+      { encoding: "utf8", env: { PATH: process.env.PATH } },
+    );
+  const reglage = () =>
+    readFileSync(join(poste, "poste.env"), "utf8").match(/^AFRICONTROL_COPIES=(.*)$/m)?.[1];
+  try {
+    const copies = join(poste, "autre-disque", "copies");
+    let r = lancer("--copies", copies);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(reglage(), copies);
+    assert.match(r.stdout, /✓ copies du poste dans /);
+    // Ici, le même disque (ou un disque qui ne se lit pas : conteneur) — c'est dit, sans échouer.
+    assert.match(r.stdout, /sur le même disque que lui|n'a pas pu être comparé/);
+    r = lancer();
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /AFRICONTROL_COPIES déjà réglé dans poste\.env \(.+\), gardé/);
+    r = lancer("--copies", "/proc/impossible/copies");
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /✗ copies : \/proc\/impossible\/copies impossible à créer/);
+    assert.equal(reglage(), copies, "le réglage d'avant reste");
+  } finally {
+    rmSync(poste, { recursive: true, force: true });
+  }
 });
 
 // PowerShell 7 si la machine l'a (pwsh, ou PWSH=chemin) ; sinon ces tests sont sautés.

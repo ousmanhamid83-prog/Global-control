@@ -34,6 +34,8 @@ import {
   closeSync,
   constants,
   copyFileSync,
+  createReadStream,
+  createWriteStream,
   existsSync,
   fsyncSync,
   mkdirSync,
@@ -46,22 +48,39 @@ import {
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { copyFile, cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  cp,
+  mkdir,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { connect, createServer, type AddressInfo, type Server } from "node:net";
 import path from "node:path";
+import { pipeline } from "node:stream/promises";
+import { createGunzip } from "node:zlib";
 import {
-  choisirCopies,
+  alignerCopies,
+  compresserArbre,
+  compresserFichiers,
+  compresserJournaliers,
+  copieDe,
+  dossierCopies,
   forcer,
   forcerArbre,
   fsyncDossier,
   noterDefautCopie,
+  restaurerArbre,
 } from "./disque-poste.server.ts";
 import { formatDate, jourPoste } from "./vigilair/format.ts";
 
 /** `reprise` : la base était illisible au démarrage, et ce que le poste en a fait. */
 export type EtatBase =
-  | { mode: "disque"; dossier: string; reprise?: string }
-  | { mode: "memoire"; raison: string };
+  { mode: "disque"; dossier: string; reprise?: string } | { mode: "memoire"; raison: string };
 
 const g = globalThis as typeof globalThis & {
   __afriBase?: EtatBase;
@@ -269,7 +288,12 @@ function crochets(ecritures: Ecritures | null) {
     nodefs.stream_ops.write = (flux, tampon, debut, longueur, position, ...reste) => {
       const n = ecrire(flux, tampon, debut, longueur, position, ...reste);
       const nom = segment(flux);
-      if (nom) ecritures.ecrire(nom, new Uint8Array(tampon.buffer, tampon.byteOffset + debut, n), position);
+      if (nom)
+        ecritures.ecrire(
+          nom,
+          new Uint8Array(tampon.buffer, tampon.byteOffset + debut, n),
+          position,
+        );
       return n;
     };
     const fermer = nodefs.stream_ops.close;
@@ -377,7 +401,9 @@ function rangerAncienneGeneration(copies: string): string | null {
   try {
     noms = readdirSync(copies).filter(
       (n) =>
-        n === "ecritures" || n.endsWith(".part") || existsSync(path.join(copies, n, "base", "backup_label")),
+        n === "ecritures" ||
+        n.endsWith(".part") ||
+        existsSync(path.join(copies, n, "base", "backup_label")),
     );
   } catch {
     return null; // pas encore de dossier des copies
@@ -456,7 +482,8 @@ export async function copierBase(
   if (ecritures && !ecritures.actif) ecritures.realigner(pgWal, etiquette.premier);
   await mkdir(path.join(part, "fichiers"), { recursive: true });
   for (const f of await readdir(registres).catch(() => [])) {
-    if (f.endsWith(".json")) await copyFile(path.join(registres, f), path.join(part, "fichiers", f));
+    if (f.endsWith(".json"))
+      await copyFile(path.join(registres, f), path.join(part, "fichiers", f));
   }
   await forcerArbre(part);
   await rename(part, dest);
@@ -480,30 +507,129 @@ export function programmerCopies(
   let enCours = false;
   const tenter = async () => {
     if (enCours) return;
-    // Écritures doublées en panne : elles repartent dès que leur dossier répond (le journal de la
-    // base y est recopié), puis une copie de remise en route. Leur dossier muet : pas de copie de
-    // plus — jamais une copie entière toutes les 5 min.
-    const ecritures = g.__afriEcritures;
-    if (ecritures && !ecritures.actif) ecritures.realigner(path.join(dossier, "pg_wal"), null);
-    const remise = ecritures?.actif === true && ecritures.remettre;
-    const jour = `jour-${jourPoste(Date.now())}`;
-    const faite = existsSync(path.join(copies, jour, "base", "backup_label"));
-    if (faite && !remise) return;
-    const nom = faite ? `remise-${new Date().toISOString().replace(/[:.]/g, "-")}` : jour;
     enCours = true;
     try {
-      const ms = await copierBase(pg, dossier, copies, nom, registres);
-      noterDefautCopie("copie du jour de la base", null);
-      const quoi = faite ? "de remise en route" : "du jour";
-      console.log(`[base] copie ${quoi} faite en ${ms} ms : ${path.join(copies, nom)}`);
-    } catch (e) {
-      noterDefautCopie("copie du jour de la base", e);
+      // Écritures doublées en panne : elles repartent dès que leur dossier répond (le journal de
+      // la base y est recopié), puis une copie de remise en route. Leur dossier muet : pas de
+      // copie de plus — jamais une copie entière toutes les 5 min.
+      const ecritures = g.__afriEcritures;
+      if (ecritures && !ecritures.actif) ecritures.realigner(path.join(dossier, "pg_wal"), null);
+      const remise = ecritures?.actif === true && ecritures.remettre;
+      const jour = `jour-${jourPoste(Date.now())}`;
+      const faite = existsSync(path.join(copies, jour, "base", "backup_label"));
+      if (!faite || remise) {
+        const nom = faite ? `remise-${new Date().toISOString().replace(/[:.]/g, "-")}` : jour;
+        try {
+          const ms = await copierBase(pg, dossier, copies, nom, registres);
+          noterDefautCopie("copie du jour de la base", null);
+          const quoi = faite ? "de remise en route" : "du jour";
+          console.log(`[base] copie ${quoi} faite en ${ms} ms : ${path.join(copies, nom)}`);
+        } catch (e) {
+          noterDefautCopie("copie du jour de la base", e);
+        }
+      }
+      await entretenirCopies(dossier, copies, registres);
     } finally {
       enCours = false;
     }
   };
   setInterval(() => void tenter(), 300_000).unref();
   return tenter();
+}
+
+const SAUVEGARDE_PRECEDENTE = "sauvegarde-version-precedente";
+
+/**
+ * La version précédente gardait une sauvegarde à côté de la base (data/base.sauvegarde), qui ne
+ * sert plus. Rangée dans le dossier des copies (copies/sauvegarde-version-precedente) : gardée,
+ * compressée comme les autres archives, jamais effacée. Les copies sur un autre disque : recopiée,
+ * forcée, et alors seulement retirée du disque du poste.
+ */
+export async function rangerAncienneSauvegarde(dossier: string, copies: string): Promise<void> {
+  const ancienne = `${dossier}.sauvegarde`;
+  if (!existsSync(path.join(ancienne, "PG_VERSION"))) return;
+  let cible = path.join(copies, SAUVEGARDE_PRECEDENTE);
+  if (existsSync(cible)) cible = `${cible}-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  await mkdir(copies, { recursive: true });
+  try {
+    await rename(ancienne, cible);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "EXDEV") throw e;
+    await rm(`${cible}.part`, { recursive: true, force: true });
+    await cp(ancienne, `${cible}.part`, { recursive: true });
+    await forcerArbre(`${cible}.part`);
+    await rename(`${cible}.part`, cible);
+    await rm(ancienne, { recursive: true, force: true });
+  }
+  await forcer(copies, true);
+  console.log(`[base] la sauvegarde de la version précédente est rangée dans ${cible}`);
+}
+
+/**
+ * Ce qui ne sert plus qu'en archive, compressé (mesuré : ÷13 pour une copie, ÷10 à ÷1000 pour un
+ * segment) : les copies de la base sauf la plus récente — celle qu'une reprise prend d'abord, sans
+ * attendre —, les segments doublés d'avant son début (elle ne les rejoue pas ; une copie plus
+ * ancienne, si, et la reprise les relit compressés), et la sauvegarde de la version précédente.
+ * L'étiquette d'une copie reste lisible ; une copie finie est marquée (« compressee ») et n'est
+ * plus parcourue. Rend les octets gagnés.
+ */
+export async function compresserAnciennes(copies: string): Promise<number> {
+  const liste = await copiesDeLaBase(copies);
+  const archives = (await readdir(copies).catch(() => [] as string[])).filter(
+    (n) => n.startsWith(SAUVEGARDE_PRECEDENTE) && !n.endsWith(".part"),
+  );
+  let gagne = 0;
+  for (const nom of [...liste.slice(1).map((c) => c.nom), ...archives]) {
+    const marque = path.join(copies, nom, "compressee");
+    if (existsSync(marque)) continue;
+    gagne += await compresserArbre(path.join(copies, nom), (n) => n === "backup_label");
+    await writeFile(marque, `${new Date().toISOString()}\n`);
+    await forcer(path.join(copies, nom), true);
+  }
+  const plusRecente = liste[0];
+  if (plusRecente) {
+    const doublees = path.join(copies, "ecritures");
+    const noms = (await readdir(doublees).catch(() => [] as string[])).filter(
+      (n) => SEGMENT_WAL.test(n) && n < plusRecente.premier,
+    );
+    gagne += await compresserFichiers(doublees, noms);
+  }
+  return gagne;
+}
+
+/**
+ * Le ménage des copies, à chaque contrôle (toutes les 5 min, rien à faire la plupart du temps) :
+ * recopié ce qui manque au dossier des copies (changé de disque, une autre clé : voir
+ * alignerCopies) ; la sauvegarde de la version précédente rangée ; puis compressé ce qui ne sert
+ * plus qu'en archive — les anciennes copies de la base, et le trafic reçu et le relevé Internet
+ * d'avant-hier et plus vieux, au poste et dans les copies (ceux d'hier peuvent encore recevoir une
+ * dernière ligne). Une erreur est dite, jamais fatale.
+ */
+async function entretenirCopies(dossier: string, copies: string, registres: string): Promise<void> {
+  try {
+    const n = await alignerCopies(jourPoste(Date.now()), copies);
+    noterDefautCopie("recopie de ce qui est gardé", null);
+    if (n > 0)
+      console.log(
+        `[copies] ${n} fichier(s) recopié(s) dans ${copies} : copie absente ou incomplète`,
+      );
+  } catch (e) {
+    noterDefautCopie("recopie de ce qui est gardé", e);
+  }
+  try {
+    await rangerAncienneSauvegarde(dossier, copies);
+    const journaliers = ["trafic", "releve"].map((n) => path.join(registres, n));
+    const gagne =
+      (await compresserAnciennes(copies)) +
+      (await compresserJournaliers(
+        [...journaliers, ...journaliers.map((d) => copieDe(d, copies))],
+        jourPoste(Date.now() - 86_400_000),
+      ));
+    noterDefautCopie("compression des copies", null);
+    if (gagne > 0) console.log(`[base] place regagnée : ${(gagne / 1e6).toFixed(1)} Mo compressés`);
+  } catch (e) {
+    noterDefautCopie("compression des copies", e);
+  }
 }
 
 type CopieDeBase = { nom: string; base: string; premier: string; debut: number };
@@ -559,7 +685,9 @@ async function reprendre<T>(
   // de côté.
   const existait = existsSync(dossier);
   const vide = !existait || readdirSync(dossier).length === 0;
-  const cote = vide ? null : `${dossier}.illisible-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  const cote = vide
+    ? null
+    : `${dossier}.illisible-${new Date().toISOString().replace(/[:.]/g, "-")}`;
   if (cote) {
     try {
       await rename(dossier, cote);
@@ -576,10 +704,20 @@ async function reprendre<T>(
   for (const c of candidates) {
     await rm(dossier, { recursive: true, force: true });
     try {
-      await cp(c.base, dossier, { recursive: true });
-      for (const seg of await readdir(doublees).catch(() => [])) {
-        if (SEGMENT_WAL.test(seg) && seg >= c.premier) {
+      // La copie, et les segments doublés depuis son début, peut-être compressés (les anciens).
+      await restaurerArbre(c.base, dossier);
+      const segments = new Set(await readdir(doublees).catch(() => [] as string[]));
+      for (const nom of segments) {
+        const seg = nom.endsWith(".gz") ? nom.slice(0, -3) : nom;
+        if (!SEGMENT_WAL.test(seg) || seg < c.premier) continue;
+        if (nom === seg)
           await copyFile(path.join(doublees, seg), path.join(dossier, "pg_wal", seg));
+        else if (!segments.has(seg)) {
+          await pipeline(
+            createReadStream(path.join(doublees, nom)),
+            createGunzip(),
+            createWriteStream(path.join(dossier, "pg_wal", seg)),
+          );
         }
       }
       await forcerArbre(dossier);
@@ -603,7 +741,9 @@ async function reprendre<T>(
       : "";
     return {
       pg,
-      reprise: dire(`base neuve, ${candidates.length ? "aucune copie lisible" : "sans copie"}${rangee}`),
+      reprise: dire(
+        `base neuve, ${candidates.length ? "aucune copie lisible" : "sans copie"}${rangee}`,
+      ),
     };
   } catch {
     // Pas même une base neuve.
@@ -824,7 +964,7 @@ export async function ouvrirBase<T>(
       prise = await prendreBase(choix.dossier);
     }
     if (prise.ok) {
-      const copies = choisirCopies(process.env.AFRICONTROL_COPIES, cwd);
+      const copies = dossierCopies(cwd);
       try {
         // Absente alors que ses copies sont là : reprise, pas une base vierge par-dessus.
         if (
