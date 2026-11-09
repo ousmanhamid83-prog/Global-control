@@ -701,23 +701,30 @@ describe("base du poste : écritures doublées, copies à chaud, reprise", () =>
     }
   });
 
-  it("LA COPIE LA PLUS RÉCENTE ILLISIBLE elle aussi : la précédente, puis les écritures doublées — rien de perdu", async () => {
+  it("LA COPIE LA PLUS RÉCENTE ILLISIBLE elle aussi : la précédente, puis les écritures doublées — rien de perdu ; une copie neuve aussitôt, sans attendre le lendemain", async () => {
     const { poste, dossier, copies, registres } = nouveauPoste();
+    const duJour = `jour-${jourPoste(Date.now())}`;
     let pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
     await pg.exec("create table t (i int primary key)");
     await inserer(pg, 1, 10);
     await copierBase(pg, dossier, copies, "jour-1", registres);
     await inserer(pg, 11, 20);
-    await copierBase(pg, dossier, copies, "jour-2", registres);
+    await copierBase(pg, dossier, copies, duJour, registres);
     await inserer(pg, 21, 30);
     await pg.close();
-    rmSync(path.join(copies, "jour-2", "base", "global", "pg_control"));
+    rmSync(path.join(copies, duJour, "base", "global", "pg_control"));
     abimer(dossier);
 
     pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
     try {
       assert.match((etatBase() as { reprise?: string }).reprise ?? "", REPRISE);
       assert.deepEqual((await pg.query<{ i: number }>("select i from t order by i")).rows.map((x) => x.i), de(1, 30));
+      // Celle du jour existe, illisible : sans copie neuve, la prochaine reprise repartirait de la
+      // plus ancienne et de tout le miroir.
+      await programmerCopies(pg, dossier, copies, registres);
+      const remise = readdirSync(copies).filter((n) => n.startsWith("remise-"));
+      assert.equal(remise.length, 1, readdirSync(copies).join(" "));
+      assert.ok(existsSync(path.join(copies, remise[0]!, "base", "backup_label")));
     } finally {
       await pg.close();
     }

@@ -137,8 +137,9 @@ function segmentWal(chemin: string): string | null {
 class Ecritures {
   private fds = new Map<string, number>();
   actif = true;
-  /** Une panne réparée en recopiant le journal de la base : une copie neuve doit suivre (des
-   * segments écrits pendant la panne ont pu quitter son journal depuis). */
+  /** Une copie neuve doit suivre, au premier contrôle : après une panne réparée en recopiant le
+   * journal de la base (des segments écrits pendant la panne ont pu quitter son journal depuis),
+   * ou après une reprise (partie peut-être d'une copie plus ancienne, les récentes illisibles). */
   remettre = false;
   readonly dossier: string;
   readonly marqueur: string;
@@ -982,6 +983,7 @@ export async function ouvrirBase<T>(
         const r = await reprendre(ouvrir, choix.dossier, motif, copies);
         if (r) {
           g.__afriBase = { ...choix, reprise: r.reprise };
+          if (g.__afriEcritures) g.__afriEcritures.remettre = true;
           console.error(`[base] ${r.reprise}`);
           return r.pg;
         }
