@@ -11,7 +11,7 @@
  * L'état survit au redémarrage (data/releve-internet.json) ; il vit sur globalThis, car le serveur
  * construit a plusieurs copies de chaque module.
  */
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { ecrireFichierPoste, lireFichierPoste } from "../disque-poste.server.ts";
 import path from "node:path";
 
 type Interne = {
@@ -29,13 +29,10 @@ function fichier(): string {
 }
 
 async function charger(e: Interne): Promise<void> {
-  try {
-    const lu = JSON.parse(await readFile(fichier(), "utf8")) as { actif?: unknown };
-    // Seul un « true » écrit active : un fichier abîmé laisse le relevé coupé, rien ne sort.
-    e.actif = lu.actif === true;
-  } catch {
-    // Pas de fichier : coupé, comme à la livraison.
-  }
+  // Illisible : sa copie, qui garde la dernière décision du chef. Seul un « true » écrit active :
+  // un fichier abîmé, sans copie lisible, laisse le relevé coupé, rien ne sort.
+  const lu = await lireFichierPoste(fichier(), (t) => JSON.parse(t) as { actif?: unknown } | null);
+  e.actif = lu?.actif === true;
 }
 
 async function etat(): Promise<Interne> {
@@ -73,10 +70,7 @@ export async function basculerReleve(actif: boolean): Promise<EtatReleveInternet
   const e = await etat();
   e.actif = actif;
   try {
-    const f = fichier();
-    await mkdir(path.dirname(f), { recursive: true });
-    await writeFile(`${f}.part`, `${JSON.stringify({ actif }, null, 2)}\n`);
-    await rename(`${f}.part`, f);
+    await ecrireFichierPoste(fichier(), `${JSON.stringify({ actif }, null, 2)}\n`);
     e.enregistrement = "fichier";
   } catch {
     e.enregistrement = "memoire";

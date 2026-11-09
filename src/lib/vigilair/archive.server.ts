@@ -8,7 +8,7 @@
  * sur le disque ; en conteneur cloud, ils vivent le temps de la session (d'où le téléchargement).
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { ecrireFichierPoste, lireFichierPoste, listeJson } from "../disque-poste.server.ts";
 import path from "node:path";
 import { tapeUsable, type RejeuTape } from "./rejeu";
 
@@ -52,12 +52,9 @@ async function ensureLoaded(): Promise<void> {
   const s = st();
   if (s.loaded) return;
   s.loaded = true;
-  try {
-    const idx = JSON.parse(await readFile(INDEX, "utf8")) as ArchiveMeta[];
-    if (Array.isArray(idx)) s.metas = idx.slice(0, MAX);
-  } catch {
-    /* pas encore d'archive sur ce poste */
-  }
+  // Illisible : sa copie ; ni l'un ni l'autre : pas encore d'archive sur ce poste.
+  const idx = await lireFichierPoste(INDEX, listeJson<ArchiveMeta>);
+  if (idx) s.metas = idx.slice(0, MAX);
 }
 
 function tapeId(now: number): string {
@@ -90,9 +87,8 @@ export async function saveBand(tape: RejeuTape, trigger: ArchiveMeta["trigger"])
   s.lastAt = now;
   // Disque : meilleur effort. Un conteneur en lecture seule n'empêche pas l'archive en mémoire.
   try {
-    await mkdir(DIR, { recursive: true });
-    await writeFile(path.join(DIR, `${id}.json`), json);
-    await writeFile(INDEX, JSON.stringify(s.metas));
+    await ecrireFichierPoste(path.join(DIR, `${id}.json`), json);
+    await ecrireFichierPoste(INDEX, JSON.stringify(s.metas));
   } catch {
     /* pas de disque : l'archive reste en mémoire, téléchargeable cette session */
   }
@@ -120,9 +116,5 @@ export async function getArchiveJson(id: string): Promise<string | null> {
   const hit = s.json.get(id);
   if (hit) return hit;
   if (!s.metas.some((m) => m.id === id)) return null;
-  try {
-    return await readFile(path.join(DIR, `${id}.json`), "utf8");
-  } catch {
-    return null;
-  }
+  return lireFichierPoste(path.join(DIR, `${id}.json`), (t) => t);
 }

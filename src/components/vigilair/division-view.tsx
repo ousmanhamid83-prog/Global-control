@@ -648,12 +648,45 @@ function fusionner(a: OpsLogRow[], b: OpsLogRow[]): OpsLogRow[] {
   );
 }
 
+type PlaceDuPoste = NonNullable<JournalOps["copies"]>["place"];
+
+const enGo = (o: number) => `${(o / 1e9).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} Go`;
+
+/** Peu de place : moins de 5 % du disque, ou moins de 2 Go. */
+const placeBasse = (p: { libre: number; total: number }) => p.libre < Math.max(2e9, p.total * 0.05);
+
+/** La place libre du poste et de ses copies : tout est gardé sans limite, le disque plein se voit
+ * venir ; le même disque pour les deux est signalé. */
+function PlaceLibre({ place }: { place: PlaceDuPoste }) {
+  const { poste, copies, memeDisque } = place;
+  if (!poste) return null;
+  const basse = placeBasse(poste) || (copies !== null && placeBasse(copies));
+  const couleur = basse ? "text-crit" : memeDisque ? "text-warn" : "text-muted-foreground";
+  return (
+    <p className={`mt-1 flex items-start gap-1.5 text-xs ${couleur}`}>
+      {basse || memeDisque ? <AlertTriangle className="mt-0.5 size-3.5 shrink-0" /> : null}
+      <span>
+        Place libre :{" "}
+        {memeDisque || !copies
+          ? `${enGo(poste.libre)} sur ${enGo(poste.total)}`
+          : `disque du poste ${enGo(poste.libre)} sur ${enGo(poste.total)} ; disque des copies ${enGo(copies.libre)} sur ${enGo(copies.total)}`}
+        .
+        {memeDisque
+          ? " Le poste et ses copies sont sur le même disque : sa panne emporterait les deux — AFRICONTROL_COPIES vers un autre disque ou une clé."
+          : ""}
+        {basse ? " Place basse : disque plein, plus rien ne pourrait être gardé." : ""}
+      </span>
+    </p>
+  );
+}
+
 function OpsPanel() {
   const [genre, setGenre] = useState("");
   const [entrees, setEntrees] = useState<OpsLogRow[]>([]);
   const [plus, setPlus] = useState(false);
   const [genres, setGenres] = useState<JournalOps["genres"]>([]);
   const [base, setBase] = useState<JournalOps["base"]>(null);
+  const [copies, setCopies] = useState<JournalOps["copies"]>(null);
   const [confirmer, setConfirmer] = useState<CibleEffacement | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [occupe, setOccupe] = useState(false);
@@ -676,6 +709,7 @@ function OpsPanel() {
           neuve = false;
           setGenres(p.genres);
           setBase(p.base);
+          setCopies(p.copies);
           setEntrees((avant) => (remplacer ? p.entrees : fusionner(p.entrees, avant)));
           if (remplacer) setPlus(p.suite !== null);
         })
@@ -745,6 +779,31 @@ function OpsPanel() {
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
             Base en mémoire, perdue à l'arrêt du serveur : {base.raison}.
           </p>
+        ) : null}
+        {copies ? (
+          <>
+            {copies.joignable ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Copies du poste : <span className="font-mono">{copies.dossier}</span> —{" "}
+                {copies.nombre === 0
+                  ? "pas encore de copie de la base."
+                  : `${copies.nombre} copie${copies.nombre > 1 ? "s" : ""} de la base, toutes gardées ; la dernière du ${copies.derniere}.`}
+              </p>
+            ) : (
+              <p className="mt-1 flex items-start gap-1.5 text-xs text-crit">
+                <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                Dossier des copies injoignable (clé retirée, disque absent ?) :{" "}
+                {copies.dossier} — rien n'y est doublé tant qu'il ne répond pas.
+              </p>
+            )}
+            {copies.defauts.map((d) => (
+              <p key={d.quoi} className="mt-1 flex items-start gap-1.5 text-xs text-crit">
+                <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                En défaut depuis le {formatDate(d.depuis)} — {d.quoi} : {d.raison}.
+              </p>
+            ))}
+            <PlaceLibre place={copies.place} />
+          </>
         ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-2">

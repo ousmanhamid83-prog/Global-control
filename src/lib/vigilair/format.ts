@@ -19,6 +19,11 @@ export function formatDate(ms: number): string {
   });
 }
 
+/** Le jour du poste (AAAA-MM-JJ, heure de N'Djamena) : nom des copies et des fichiers du jour. */
+export function jourPoste(ms: number): string {
+  return new Date(ms).toLocaleDateString("en-CA", { timeZone: "Africa/Ndjamena" });
+}
+
 export function formatWatHm(ms: number): string {
   return new Date(ms).toLocaleTimeString("fr-FR", {
     hour: "2-digit",

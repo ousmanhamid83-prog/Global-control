@@ -4,7 +4,7 @@
  * garde et se repartage. Réception / lecture seule.
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { ecrireFichierPoste, lireFichierPoste, listeJson } from "../disque-poste.server.ts";
 import path from "node:path";
 import type { NamedPoint } from "./nav";
 
@@ -33,20 +33,14 @@ function cleanPoints(raw: unknown): NamedPoint[] {
 
 async function load(): Promise<SavedRoute[]> {
   if (g.__afriRoutes) return g.__afriRoutes;
-  try {
-    const raw = await readFile(FILE, "utf8");
-    const arr: unknown = JSON.parse(raw);
-    g.__afriRoutes = Array.isArray(arr) ? (arr as SavedRoute[]) : [];
-  } catch {
-    g.__afriRoutes = [];
-  }
+  // Abîmé ou absent : sa copie (dossier des copies) ; rien de lisible : vide.
+  g.__afriRoutes = (await lireFichierPoste(FILE, listeJson<SavedRoute>)) ?? [];
   return g.__afriRoutes;
 }
 
 async function persist(list: SavedRoute[]): Promise<void> {
   g.__afriRoutes = list;
-  await mkdir(DIR, { recursive: true });
-  await writeFile(FILE, JSON.stringify(list));
+  await ecrireFichierPoste(FILE, JSON.stringify(list));
 }
 
 export async function listRoutesServer(): Promise<SavedRoute[]> {

@@ -116,6 +116,7 @@ async function createPgliteSql(): Promise<Sql> {
     const { PGlite } = await import("@electric-sql/pglite");
     const { NodeFS } = await import("@electric-sql/pglite/nodefs");
     const { ouvrirBase, ouvrirPgliteDurable } = await import("./base-poste.server");
+    const { dossierCopies } = await import("./disque-poste.server");
     const parsers = {
       [OID_INT8]: Number,
       [OID_DATE]: identity,
@@ -123,8 +124,11 @@ async function createPgliteSql(): Promise<Sql> {
     };
     const pg = await ouvrirBase(
       async (dataDir) => {
-        // On disk: a real fsync, so a power cut keeps every confirmed write.
-        if (dataDir) return ouvrirPgliteDurable(PGlite, NodeFS, dataDir, { parsers });
+        // On disk: a real fsync, so a power cut keeps every confirmed write, and every write of
+        // Postgres's journal doubled at once in the copies folder.
+        if (dataDir) {
+          return ouvrirPgliteDurable(PGlite, NodeFS, dataDir, { parsers }, dossierCopies());
+        }
         const instance = new PGlite({ parsers });
         await instance.waitReady;
         return instance;
@@ -161,7 +165,25 @@ async function createPgliteSql(): Promise<Sql> {
       "select name from _migrations",
     );
     const done = doneRows.rows.map((r) => r.name);
-    for (const { name, path } of pendingMigrations(Object.keys(migrations), done)) {
+    const pending = pendingMigrations(Object.keys(migrations), done);
+    // An update brings new migrations to an existing base on disk: a copy first, so even a
+    // migration that succeeds but loses data can be undone. Copies folder unreachable: the
+    // update still runs (each migration in its transaction), and the fault is shown.
+    const etat = (await import("./base-poste.server")).etatBase();
+    if (pending.length > 0 && done.length > 0 && etat?.mode === "disque") {
+      const { copierBase } = await import("./base-poste.server");
+      const { dossierCopies, dossierRegistres, noterDefautCopie } = await import(
+        "./disque-poste.server"
+      );
+      const nom = `avant-mise-a-jour-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+      try {
+        const ms = await copierBase(pg, etat.dossier, dossierCopies(), nom, dossierRegistres());
+        console.log(`[base] copie avant mise à jour faite en ${ms} ms : ${nom}`);
+      } catch (e) {
+        noterDefautCopie("copie avant mise à jour", e);
+      }
+    }
+    for (const { name, path } of pending) {
       // Apply + record atomically (parity with scripts/migrate.mjs) so a failed
       // statement can't leave a file half-applied but untracked.
       await pg.transaction(async (tx) => {
@@ -177,13 +199,14 @@ async function createPgliteSql(): Promise<Sql> {
   await pass;
 
   // Once per process, schema in place: a base recovered at startup goes to the journal, and
-  // the daily backup (data/base.sauvegarde) is scheduled.
-  const { etatBase, noterReprise, programmerSauvegardes } = await import("./base-poste.server");
+  // the daily hot copy (copies/jour-AAAA-MM-JJ, all kept) is scheduled.
+  const { etatBase, noterReprise, programmerCopies } = await import("./base-poste.server");
   await noterReprise(pg);
   const etat = etatBase();
   if (etat?.mode === "disque" && !globalRef.__pgliteSauvegardes__) {
     globalRef.__pgliteSauvegardes__ = true;
-    void programmerSauvegardes(pg, etat.dossier);
+    const { dossierCopies, dossierRegistres } = await import("./disque-poste.server");
+    void programmerCopies(pg, etat.dossier, dossierCopies(), dossierRegistres());
   }
 
   return toSql(async <T>(text: string, params: unknown[]) => {

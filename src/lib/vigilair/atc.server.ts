@@ -7,16 +7,29 @@
  *   AFRICONTROL_ATC=http://127.0.0.1:8000/atc.mp3   flux audio du récepteur (vide = non configuré)
  *
  * L'enregistrement est activable / désactivable et sans limite de durée (segments de 10 min).
+ * Chaque morceau reçu est écrit et DOUBLÉ aussitôt dans le dossier des copies, les deux forcés sur
+ * le disque toutes les 10 s et à la fin du segment. Une erreur d'écriture (disque plein, clé des
+ * copies retirée) est dite, jamais fatale au serveur ; un segment dont la copie a cassé est recopié
+ * en entier à sa fin, dès que la copie remarche.
  */
 
 import { createWriteStream, type WriteStream } from "node:fs";
 import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { env } from "@/lib/env.server";
+import { finished } from "node:stream/promises";
+import {
+  copieDe,
+  copieRatee,
+  forcer,
+  noterDefautCopie,
+  rattraperCopies,
+} from "../disque-poste.server.ts";
+import { env } from "../env.server.ts";
 
 const DIR = path.join(process.cwd(), "recordings", "atc");
 const SEG_MS = 10 * 60_000;
 const MAX_SEGMENTS = 96;
+const COPIE_ATC = "copie de la phonie ATC";
 
 export type AtcSegment = { id: string; at: number; bytes: number };
 
@@ -41,8 +54,12 @@ type AtcState = {
   lastError: string | null;
   abort: AbortController | null;
   file: WriteStream | null;
+  /** Le même segment, doublé au fil de l'eau dans le dossier des copies (null : copie en défaut). */
+  copie: WriteStream | null;
   segStartedAt: number;
   segList: AtcSegment[];
+  /** Dernier forçage sur le disque du segment en cours (ms). */
+  forceA: number;
   retryMs: number;
   timer: ReturnType<typeof setTimeout> | null;
 };
@@ -59,8 +76,10 @@ function state(): AtcState {
     lastError: null,
     abort: null,
     file: null,
+    copie: null,
     segStartedAt: 0,
     segList: [],
+    forceA: 0,
     retryMs: 2000,
     timer: null,
   };
@@ -71,15 +90,39 @@ function endpoint(): string {
   return (env("AFRICONTROL_ATC") ?? "").trim();
 }
 
+/** Le nom d'un segment, à la milliseconde : deux segments ouverts dans la même seconde (arrêt puis
+ * reprise aussitôt) ne s'écrasent plus. */
 function segId(now: number): string {
-  return `atc-${new Date(now).toISOString().replace(/[:.]/g, "-").slice(0, 19)}Z`;
+  return `atc-${new Date(now).toISOString().replace(/[:.]/g, "-").slice(0, 23)}Z`;
 }
 
+/** Forcé sur le disque ; le fichier pas encore ouvert par son flux, rien à forcer. */
+async function forcerSegment(f: WriteStream): Promise<void> {
+  await forcer(String(f.path), false).catch(() => undefined);
+}
+
+/**
+ * Segment terminé : le fichier et sa copie fermés, puis forcés sur le disque. Les segments dont la
+ * copie avait cassé (celui-ci compris) sont alors recopiés en entier — sauf celui qui s'enregistre.
+ */
 function closeSegment(s: AtcState): void {
-  if (s.file) {
-    s.file.end();
-    s.file = null;
-  }
+  const { file, copie } = s;
+  s.file = null;
+  s.copie = null;
+  file?.end();
+  copie?.end();
+  if (!file) return;
+  void (async () => {
+    await finished(file).catch(() => undefined);
+    await forcerSegment(file);
+    if (copie) {
+      await finished(copie).catch(() => undefined);
+      await forcerSegment(copie);
+    }
+    await rattraperCopies(COPIE_ATC, s.file ? String(s.file.path) : null).catch((e: unknown) =>
+      noterDefautCopie(COPIE_ATC, e),
+    );
+  })();
 }
 
 async function openSegment(s: AtcState): Promise<void> {
@@ -87,8 +130,25 @@ async function openSegment(s: AtcState): Promise<void> {
   await mkdir(DIR, { recursive: true });
   const id = segId(now);
   const ext = endpoint().match(/\.(\w{2,4})(\?|$)/)?.[1] ?? "aud";
-  const file = createWriteStream(path.join(DIR, `${id}.${ext}`));
+  const chemin = path.join(DIR, `${id}.${ext}`);
+  const file = createWriteStream(chemin);
+  file.on("error", (e) => {
+    s.lastError = `enregistrement impossible : ${e.message}`;
+  });
   s.file = file;
+  s.copie = null;
+  try {
+    const vers = copieDe(chemin);
+    await mkdir(path.dirname(vers), { recursive: true });
+    const copie = createWriteStream(vers);
+    copie.on("error", (e) => {
+      if (s.copie === copie) s.copie = null;
+      copieRatee(COPIE_ATC, chemin, e);
+    });
+    s.copie = copie;
+  } catch (e) {
+    copieRatee(COPIE_ATC, chemin, e);
+  }
   s.segStartedAt = now;
   s.segList.unshift({ id: `${id}.${ext}`, at: now, bytes: 0 });
   s.segList = s.segList.slice(0, MAX_SEGMENTS);
@@ -116,7 +176,14 @@ async function pump(s: AtcState): Promise<void> {
         closeSegment(s);
         await openSegment(s);
       }
-      s.file?.write(Buffer.from(chunk));
+      const octets = Buffer.from(chunk);
+      s.file?.write(octets);
+      s.copie?.write(octets);
+      // En cours d'enregistrement, forcés sur le disque toutes les 10 s : une coupure n'en perd pas plus.
+      if (Date.now() - s.forceA >= 10_000) {
+        s.forceA = Date.now();
+        for (const f of [s.file, s.copie]) if (f) void forcerSegment(f);
+      }
       s.bytes += chunk.byteLength;
       s.lastChunkAt = Date.now();
       const seg = s.segList[0];

@@ -6,7 +6,7 @@
  * Réception / lecture seule côté air : le poste n'émet rien.
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { ecrireFichierPoste, lireFichierPoste, listeJson } from "../disque-poste.server.ts";
 import path from "node:path";
 
 export type SensorType = "camera" | "barriere" | "radar" | "autre";
@@ -23,20 +23,14 @@ const g = globalThis as unknown as { __afriSensors?: GroundSensor[] };
 
 async function load(): Promise<GroundSensor[]> {
   if (g.__afriSensors) return g.__afriSensors;
-  try {
-    const raw = await readFile(FILE, "utf8");
-    const arr: unknown = JSON.parse(raw);
-    g.__afriSensors = Array.isArray(arr) ? (arr as GroundSensor[]) : [];
-  } catch {
-    g.__afriSensors = [];
-  }
+  // Abîmé ou absent : sa copie (dossier des copies) ; rien de lisible : vide.
+  g.__afriSensors = (await lireFichierPoste(FILE, listeJson<GroundSensor>)) ?? [];
   return g.__afriSensors;
 }
 
 async function persist(list: GroundSensor[]): Promise<void> {
   g.__afriSensors = list;
-  await mkdir(DIR, { recursive: true });
-  await writeFile(FILE, JSON.stringify(list));
+  await ecrireFichierPoste(FILE, JSON.stringify(list));
 }
 
 export async function listSensorsServer(): Promise<GroundSensor[]> {

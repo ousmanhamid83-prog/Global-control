@@ -19,33 +19,57 @@
  * ouvre donc PGLite avec un vrai fsync (ouvrirPgliteDurable) : chaque validation confirmée est
  * sur le disque.
  *
+ * Copies (dossier des copies, voir disque-poste.server.ts) : chaque écriture du journal de Postgres
+ * (pg_wal) est refaite aussitôt dans copies/ecritures et forcée avec lui, avant que la validation
+ * soit confirmée ; une copie complète de la base est prise chaque jour à chaud, les requêtes
+ * continuant pendant (copies/jour-AAAA-MM-JJ, toutes gardées). Base illisible au démarrage, ou
+ * absente (dossier effacé, disque du poste remplacé) alors que ses copies sont là : la copie la plus
+ * récente, puis les écritures doublées depuis — rien de perdu. Une base neuve (plus aucune copie
+ * lisible) range d'abord l'ancienne génération dans copies/avant-<date> : gardée, jamais réécrite.
+ *
  * L'état vit sur globalThis, car le serveur construit a plusieurs copies de chaque module.
  */
 import { randomBytes } from "node:crypto";
 import {
   closeSync,
+  constants,
+  copyFileSync,
   existsSync,
   fsyncSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
-  statSync,
   unlinkSync,
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { cp, open, readdir, rename, rm } from "node:fs/promises";
+import { copyFile, cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { connect, createServer, type AddressInfo, type Server } from "node:net";
 import path from "node:path";
-import { formatDate } from "./vigilair/format.ts";
+import {
+  choisirCopies,
+  forcer,
+  forcerArbre,
+  fsyncDossier,
+  noterDefautCopie,
+} from "./disque-poste.server.ts";
+import { formatDate, jourPoste } from "./vigilair/format.ts";
 
 /** `reprise` : la base était illisible au démarrage, et ce que le poste en a fait. */
 export type EtatBase =
   | { mode: "disque"; dossier: string; reprise?: string }
   | { mode: "memoire"; raison: string };
 
-const g = globalThis as typeof globalThis & { __afriBase?: EtatBase; __afriRepriseNotee?: boolean };
+const g = globalThis as typeof globalThis & {
+  __afriBase?: EtatBase;
+  __afriRepriseNotee?: boolean;
+  __afriEcritures?: Ecritures;
+  /** Où une base neuve a rangé l'ancienne génération (copies, écritures doublées). */
+  __afriRangee?: string;
+};
 
 /** Où se trouve la base, ou null hors PGLite (DATABASE_URL : la base du déploiement). */
 export function etatBase(): EtatBase | null {
@@ -65,17 +89,147 @@ export function choisirBase(valeur: string | undefined, cwd: string): EtatBase {
 }
 
 /** Les paramètres de lancement de PGLite, sans « -F » : fsync rétabli, le WAL forcé par fsync
- * (fdatasync, la méthode par défaut, ne fait rien dans PGLite). */
+ * (fdatasync, la méthode par défaut, ne fait rien dans PGLite). Sans le suivi du démarrage : sa
+ * minuterie de 10 s survivait à une ouverture ratée (une copie illisible essayée à la reprise) et
+ * gardait en mémoire tout le Postgres raté, ~180 Mo chaque fois. */
 export function parametresDurables(defauts: readonly string[]): string[] {
-  return [...defauts.filter((p) => p !== "-F"), "-c", "fsync=on", "-c", "wal_sync_method=fsync"];
+  return [
+    ...defauts.filter((p) => p !== "-F"),
+    ...["-c", "fsync=on", "-c", "wal_sync_method=fsync", "-c", "log_startup_progress_interval=0"],
+  ];
 }
 
-type FluxNodefs = { nfd?: number; node: unknown };
+const SEGMENT_WAL = /^[0-9A-F]{24}$/;
+
+/** Le nom du segment du journal d'écritures (pg_wal/<24 chiffres>) qu'est ce chemin, ou null. */
+function segmentWal(chemin: string): string | null {
+  const nom = path.basename(chemin);
+  return path.basename(path.dirname(chemin)) === "pg_wal" && SEGMENT_WAL.test(nom) ? nom : null;
+}
+
+/**
+ * Les écritures doublées : chaque écriture de Postgres dans un segment de son journal est refaite
+ * au même endroit dans copies/ecritures, et forcée sur le disque avec la sienne, avant que la
+ * validation soit confirmée. Une copie qui échoue (disque plein, clé retirée) ne fait jamais
+ * échouer la base : le doublement s'arrête, le défaut est dit, un marqueur posé à côté de la base
+ * (`marqueur`, il survit à un arrêt), et la prochaine copie du jour ou la prochaine ouverture le
+ * remet en route en recopiant le journal de la base.
+ */
+class Ecritures {
+  private fds = new Map<string, number>();
+  actif = true;
+  /** Une panne réparée en recopiant le journal de la base : une copie neuve doit suivre (des
+   * segments écrits pendant la panne ont pu quitter son journal depuis). */
+  remettre = false;
+  readonly dossier: string;
+  readonly marqueur: string;
+
+  /** Le dossier est créé d'avance : une base neuve écrit son journal dès sa création. */
+  constructor(dossier: string, marqueur: string) {
+    this.dossier = dossier;
+    this.marqueur = marqueur;
+    this.essayer(() => mkdirSync(dossier, { recursive: true }));
+  }
+
+  private essayer(faire: () => void): void {
+    if (!this.actif) return;
+    try {
+      faire();
+    } catch (e) {
+      this.actif = false;
+      for (const nom of [...this.fds.keys()]) this.fermer(nom);
+      noterDefautCopie("écritures doublées de la base", e);
+      try {
+        writeFileSync(this.marqueur, `${new Date().toISOString()}\n`);
+      } catch {
+        // Le disque du poste refuse aussi : le défaut reste dit tant que le serveur tourne.
+      }
+    }
+  }
+
+  ecrire(nom: string, octets: Uint8Array, position: number): void {
+    this.essayer(() => {
+      let fd = this.fds.get(nom);
+      if (fd === undefined) {
+        fd = openSync(path.join(this.dossier, nom), constants.O_RDWR | constants.O_CREAT);
+        this.fds.set(nom, fd);
+      }
+      writeSync(fd, octets, 0, octets.length, position);
+    });
+  }
+
+  forcer(nom: string): void {
+    this.essayer(() => {
+      const fd = this.fds.get(nom);
+      if (fd !== undefined) fsyncSync(fd);
+    });
+  }
+
+  fermer(nom: string): void {
+    const fd = this.fds.get(nom);
+    if (fd === undefined) return;
+    this.fds.delete(nom);
+    try {
+      closeSync(fd);
+    } catch {
+      // Déjà fermé.
+    }
+  }
+
+  /**
+   * Recopie les segments du journal de la base (`pgWal`, à partir de `depuis`, tous si null) et
+   * reprend le doublement. Sans panne notée, seuls les segments absents sont recopiés : le miroir,
+   * écrit en même temps que le journal, n'en sait jamais moins que lui, et un journal abîmé
+   * n'écrase pas des écritures saines. Synchrone : Postgres tourne dans le même fil, aucune
+   * écriture ne peut s'y glisser.
+   */
+  realigner(pgWal: string, depuis: string | null): void {
+    try {
+      const panne = !this.actif || existsSync(this.marqueur);
+      mkdirSync(this.dossier, { recursive: true });
+      for (const nom of readdirSync(pgWal)) {
+        if (!SEGMENT_WAL.test(nom) || (depuis !== null && nom < depuis)) continue;
+        const cible = path.join(this.dossier, nom);
+        if (!panne && existsSync(cible)) continue;
+        this.fermer(nom);
+        copyFileSync(path.join(pgWal, nom), cible);
+        const fd = openSync(cible, "r+");
+        try {
+          fsyncSync(fd);
+        } finally {
+          closeSync(fd);
+        }
+      }
+      fsyncDossier(this.dossier);
+      rmSync(this.marqueur, { force: true });
+      if (panne) this.remettre = true;
+      this.actif = true;
+      noterDefautCopie("écritures doublées de la base", null);
+    } catch (e) {
+      this.actif = false;
+      noterDefautCopie("écritures doublées de la base", e);
+    }
+  }
+}
+
+type FluxNodefs = { nfd?: number; node: unknown; shared?: { refcount: number } };
+type OpsNodefs = {
+  fsync?: (flux: FluxNodefs) => number;
+  write(
+    flux: FluxNodefs,
+    tampon: Uint8Array,
+    debut: number,
+    longueur: number,
+    position: number,
+    ...reste: unknown[]
+  ): number;
+  close(flux: FluxNodefs): void;
+};
 type ModulePglite = {
   FS: {
     filesystems: {
       NODEFS: {
-        stream_ops: { fsync?: (flux: FluxNodefs) => number };
+        stream_ops: OpsNodefs;
         realPath(node: unknown): string;
         tryFSOperation(f: () => number): number;
       };
@@ -83,52 +237,48 @@ type ModulePglite = {
   };
 };
 
-/** Forcer un dossier sur le disque (création, renommage) ; Windows ne le permet pas, NTFS
- * journalise ses noms lui-même. Synchrone : pour le fsync de NODEFS, appelé par Postgres. */
-function fsyncDossier(dossier: string): void {
-  if (process.platform === "win32") return;
-  const fd = openSync(dossier, "r");
-  try {
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
-}
-
-/** Le fsync que NODEFS n'a pas : celui de Node, sur le vrai fichier, ou le vrai dossier. */
-function brancherFsync(mod: unknown): void {
-  const nodefs = (mod as ModulePglite).FS.filesystems.NODEFS;
-  nodefs.stream_ops.fsync = (flux) =>
-    nodefs.tryFSOperation(() => {
-      if (typeof flux.nfd === "number") fsyncSync(flux.nfd);
-      else fsyncDossier(nodefs.realPath(flux.node));
-      return 0;
-    });
-}
-
 /**
- * Forcer un fichier ou un dossier sur le disque, sans figer le serveur. Le fichier est ouvert en
- * lecture-écriture : Windows refuse de forcer un fichier ouvert en lecture seule (EPERM).
+ * Les crochets du poste sur NODEFS : le fsync qu'il n'a pas (celui de Node, sur le vrai fichier ou
+ * le vrai dossier) et, avec `ecritures`, les écritures du journal doublées et forcées avec lui.
  */
-async function forcer(chemin: string, dossier: boolean): Promise<void> {
-  if (dossier && process.platform === "win32") return;
-  const f = await open(chemin, dossier ? "r" : "r+");
-  try {
-    await f.sync();
-  } finally {
-    await f.close();
-  }
-}
-
-/** Tout un dossier forcé sur le disque : une base neuve (l'outil de création de PGLite l'écrit
- * sans un seul fsync), une sauvegarde, une sauvegarde reprise. */
-async function forcerArbre(dossier: string): Promise<void> {
-  for (const e of await readdir(dossier, { withFileTypes: true })) {
-    const p = path.join(dossier, e.name);
-    if (e.isDirectory()) await forcerArbre(p);
-    else if (e.isFile()) await forcer(p, false);
-  }
-  await forcer(dossier, true);
+function crochets(ecritures: Ecritures | null) {
+  return (mod: unknown): void => {
+    const nodefs = (mod as ModulePglite).FS.filesystems.NODEFS;
+    const segments = new WeakMap<FluxNodefs, string | null>();
+    const segment = (flux: FluxNodefs) => {
+      let nom = segments.get(flux);
+      if (nom === undefined) {
+        nom = segmentWal(nodefs.realPath(flux.node));
+        segments.set(flux, nom);
+      }
+      return nom;
+    };
+    nodefs.stream_ops.fsync = (flux) =>
+      nodefs.tryFSOperation(() => {
+        if (typeof flux.nfd === "number") {
+          fsyncSync(flux.nfd);
+          const nom = ecritures && segment(flux);
+          if (nom) ecritures.forcer(nom);
+        } else {
+          fsyncDossier(nodefs.realPath(flux.node));
+        }
+        return 0;
+      });
+    if (!ecritures) return;
+    const ecrire = nodefs.stream_ops.write;
+    nodefs.stream_ops.write = (flux, tampon, debut, longueur, position, ...reste) => {
+      const n = ecrire(flux, tampon, debut, longueur, position, ...reste);
+      const nom = segment(flux);
+      if (nom) ecritures.ecrire(nom, new Uint8Array(tampon.buffer, tampon.byteOffset + debut, n), position);
+      return n;
+    };
+    const fermer = nodefs.stream_ops.close;
+    nodefs.stream_ops.close = (flux) => {
+      fermer(flux);
+      const nom = segment(flux);
+      if (nom && !(flux.shared && flux.shared.refcount > 0)) ecritures.fermer(nom);
+    };
+  };
 }
 
 /** Ce dont on se sert du NodeFS de PGLite : son init, qui prépare le module Emscripten. */
@@ -145,8 +295,9 @@ type DisqueNode = {
  * qu'aucun autre serveur ne tient la base, et vide (coupure pendant son écriture) il empêche
  * Postgres de démarrer (« lock file "postmaster.pid" is empty »). Une base neuve est forcée sur le
  * disque en entier. Base qui refuse de démarrer : l'erreur porte la raison que Postgres a écrite
- * (PGLite la tait et ne dit que « Aborted() »). `PGlite` et `NodeFS` : les classes de
- * @electric-sql/pglite.
+ * (PGLite la tait et ne dit que « Aborted() »). Avec `copies`, chaque écriture du journal est
+ * doublée dans copies/ecritures ; une fois la base ouverte, ce miroir est réaligné sur son journal.
+ * `PGlite` et `NodeFS` : les classes de @electric-sql/pglite.
  */
 export async function ouvrirPgliteDurable<
   T extends { waitReady: Promise<void>; close(): Promise<void> },
@@ -155,9 +306,25 @@ export async function ouvrirPgliteDurable<
   NodeFS: new (dossier: string) => DisqueNode,
   dossier: string,
   options: Record<string, unknown>,
+  copies?: string,
 ): Promise<T> {
   const neuve = !existsSync(path.join(dossier, "PG_VERSION"));
   rmSync(path.join(dossier, "postmaster.pid"), { force: true });
+  if (neuve && copies) {
+    g.__afriRangee = undefined;
+    try {
+      const avant = rangerAncienneGeneration(copies);
+      if (avant) {
+        g.__afriRangee = avant;
+        console.error(`[base] base neuve : l'ancienne génération est rangée dans ${avant}`);
+      }
+    } catch (e) {
+      noterDefautCopie("écritures doublées de la base", e);
+    }
+  }
+  const ecritures = copies
+    ? new Ecritures(path.join(copies, "ecritures"), `${dossier}.ecritures-en-panne`)
+    : null;
   const disque = new NodeFS(dossier);
   const init = disque.init.bind(disque);
   let raison = "";
@@ -172,7 +339,7 @@ export async function ouvrirPgliteDurable<
     };
     return {
       ...r,
-      emscriptenOpts: { ...r.emscriptenOpts, preRun: [...preRun, brancherFsync], printErr },
+      emscriptenOpts: { ...r.emscriptenOpts, preRun: [...preRun, crochets(ecritures)], printErr },
     };
   };
   const pg = new PGlite({
@@ -188,121 +355,262 @@ export async function ouvrirPgliteDurable<
     await pg.close().catch(() => undefined);
     throw raison ? new Error(raison, { cause: e }) : e;
   }
+  if (ecritures) {
+    // PGLite ne fait de point de contrôle qu'aux copies : son journal garde tout depuis la dernière,
+    // et le miroir avec lui ce qu'il faut pour la rejouer.
+    ecritures.realigner(path.join(dossier, "pg_wal"), null);
+    g.__afriEcritures = ecritures;
+  }
   return pg;
 }
 
-/** Une sauvegarde par jour, à côté de la base (data/base.sauvegarde). */
-export const SAUVEGARDE_MS = 24 * 3_600_000;
-const sauvegardeDe = (dossier: string) => `${dossier}.sauvegarde`;
+/**
+ * Une base neuve (première ouverture, ou plus aucune copie lisible) commence une nouvelle
+ * génération, et les segments de son journal reprennent les mêmes noms que ceux de l'ancienne :
+ * doublés au même endroit, ils écraseraient les siens. Les écritures doublées et les copies de
+ * l'ancienne génération sont donc d'abord rangées dans copies/avant-<date> — gardées, jamais
+ * effacées ni réécrites, plus jamais mêlées à la nouvelle. Rend ce dossier, ou null s'il n'y avait
+ * rien à ranger. Les copies des fichiers du poste (copies/fichiers) restent où elles sont.
+ */
+function rangerAncienneGeneration(copies: string): string | null {
+  let noms: string[];
+  try {
+    noms = readdirSync(copies).filter(
+      (n) =>
+        n === "ecritures" || n.endsWith(".part") || existsSync(path.join(copies, n, "base", "backup_label")),
+    );
+  } catch {
+    return null; // pas encore de dossier des copies
+  }
+  if (noms.length === 0) return null;
+  const avant = path.join(copies, `avant-${new Date().toISOString().replace(/[:.]/g, "-")}`);
+  mkdirSync(avant);
+  for (const n of noms) renameSync(path.join(copies, n), path.join(avant, n));
+  fsyncDossier(avant);
+  fsyncDossier(copies);
+  return avant;
+}
 
-/** `runExclusive` : le verrou de PGLite que prend chaque requête. */
-type BaseOuverte = {
-  exec(sql: string): Promise<unknown>;
-  runExclusive<R>(fn: () => Promise<R>): Promise<R>;
+/** Ce qu'il faut d'une base ouverte pour la copier à chaud. */
+type BaseInterrogeable = {
+  query<R>(sql: string, params?: unknown[]): Promise<{ rows: R[] }>;
 };
 
+/** Le premier segment du journal qu'une copie rejoue, et l'heure de la copie, lus dans son
+ * backup_label. */
+function lireEtiquette(etiquette: string): { premier: string; debut: number } | null {
+  const premier = /^START WAL LOCATION: .*\(file ([0-9A-F]{24})\)$/m.exec(etiquette)?.[1];
+  const quand = /^START TIME: (\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d) GMT$/m.exec(etiquette);
+  if (!premier || !quand) return null;
+  return { premier, debut: Date.parse(`${quand[1]}T${quand[2]}Z`) };
+}
+
 /**
- * Sauvegarde la base sans figer le serveur (copie et fsync synchrones : 0,4 à 1,2 s de serveur figé
- * pour une base de 40 Mo, mesuré). D'abord un CHECKPOINT : PGLite n'en fait pas de lui-même avant
- * 1 Go de WAL (max_wal_size), que chaque sauvegarde copierait et qu'une reprise rejouerait depuis
- * la création de la base. Puis la copie, sous le verrou des requêtes : aucune
- * requête, donc aucune écriture, pendant la copie (le serveur ne ferme jamais la base, il s'arrête)
- * — l'image d'un instant, cohérente comme après un arrêt net ; les requêtes attendent (0,5 à 0,75 s
- * pour 40 Mo), le reste du serveur tourne (figé 11 ms au plus). La copie est ensuite forcée sur le
- * disque, hors du verrou (rien d'autre n'y écrit), et mise à la place de la précédente. Rend sa
- * durée et l'attente imposée aux requêtes (ms).
+ * Copie à chaud de la base dans `copies/<nom>/base`. Postgres est prévenu (pg_backup_start), les
+ * fichiers sont copiés pendant que les requêtes continuent ; la copie, faite d'instants
+ * différents, se recolle à l'ouverture grâce à son backup_label et aux segments du journal de la
+ * même période, copiés avec elle. Les registres du poste (`registres/*.json`) sont copiés à côté.
+ * Mesuré : 300 validations pendant une copie, la plus longue en 2 ms (la copie sous le verrou des
+ * requêtes les faisait attendre 0,5 à 2 s). Rend sa durée (ms).
  */
-export async function sauvegarder(
-  pg: BaseOuverte,
+export async function copierBase(
+  pg: BaseInterrogeable,
   dossier: string,
-): Promise<{ ms: number; attenteMs: number }> {
+  copies: string,
+  nom: string,
+  registres: string,
+): Promise<number> {
   const t0 = Date.now();
-  const sauvegarde = sauvegardeDe(dossier);
-  const part = `${sauvegarde}.part`;
+  const dest = path.join(copies, nom);
+  const part = `${dest}.part`;
   await rm(part, { recursive: true, force: true });
-  await pg.exec("checkpoint");
-  const t1 = Date.now();
-  await pg.runExclusive(() =>
-    cp(dossier, part, {
-      recursive: true,
-      filter: (source) => path.basename(source) !== "postmaster.pid",
-    }),
-  );
-  const attenteMs = Date.now() - t1;
-  await forcerArbre(part);
-  await rm(sauvegarde, { recursive: true, force: true });
-  await rename(part, sauvegarde);
-  await forcer(path.dirname(dossier), true);
-  return { ms: Date.now() - t0, attenteMs };
-}
-
-/** L'âge de la sauvegarde (ms), ou l'infini s'il n'y en a pas. */
-function ageSauvegarde(dossier: string): number {
+  await pg.query("select pg_backup_start($1, true)", [nom]);
+  let fin: { lsn: string; labelfile: string } | undefined;
   try {
-    return Date.now() - statSync(sauvegardeDe(dossier)).mtimeMs;
-  } catch {
-    return Number.POSITIVE_INFINITY;
+    await cp(dossier, path.join(part, "base"), {
+      recursive: true,
+      filter: (source) => !segmentWal(source) && path.basename(source) !== "postmaster.pid",
+    });
+  } finally {
+    fin = (
+      await pg.query<{ lsn: string; labelfile: string }>(
+        "select lsn::text as lsn, labelfile from pg_backup_stop(false)",
+      )
+    ).rows[0];
   }
+  const etiquette = fin && lireEtiquette(fin.labelfile);
+  if (!fin || !etiquette) throw new Error("copie sans étiquette de Postgres");
+  await writeFile(path.join(part, "base", "backup_label"), fin.labelfile);
+  // pg_backup_stop a changé de segment : du premier à celui de la fin, plus rien ne s'y écrit.
+  const dernier = (
+    await pg.query<{ nom: string }>("select pg_walfile_name($1::pg_lsn) as nom", [fin.lsn])
+  ).rows[0]!.nom;
+  const pgWal = path.join(dossier, "pg_wal");
+  for (const seg of await readdir(pgWal)) {
+    if (SEGMENT_WAL.test(seg) && seg >= etiquette.premier && seg <= dernier) {
+      await copyFile(path.join(pgWal, seg), path.join(part, "base", "pg_wal", seg));
+    }
+  }
+  // Des écritures doublées en défaut repartent d'ici : avec cette copie, rien ne manque plus.
+  const ecritures = g.__afriEcritures;
+  if (ecritures && !ecritures.actif) ecritures.realigner(pgWal, etiquette.premier);
+  await mkdir(path.join(part, "fichiers"), { recursive: true });
+  for (const f of await readdir(registres).catch(() => [])) {
+    if (f.endsWith(".json")) await copyFile(path.join(registres, f), path.join(part, "fichiers", f));
+  }
+  await forcerArbre(part);
+  await rename(part, dest);
+  await forcer(copies, true);
+  if (ecritures) ecritures.remettre = false;
+  return Date.now() - t0;
 }
 
-/** Sauvegarde tout de suite si la dernière a plus d'un jour (ou manque), puis chaque jour. */
-export function programmerSauvegardes(pg: BaseOuverte, dossier: string): Promise<void> {
+/**
+ * Une copie par jour (copies/jour-AAAA-MM-JJ, jour du poste) : tout de suite si celle du jour
+ * manque, puis à chaque nouveau jour (vu toutes les 5 min). Toutes sont gardées. Des écritures
+ * doublées en panne (clé des copies retirée) ou tout juste réparées : une copie de remise en route
+ * (copies/remise-<date>) dès que le dossier des copies répond, sans attendre le lendemain.
+ */
+export function programmerCopies(
+  pg: BaseInterrogeable,
+  dossier: string,
+  copies: string,
+  registres: string,
+): Promise<void> {
+  let enCours = false;
   const tenter = async () => {
-    if (ageSauvegarde(dossier) < SAUVEGARDE_MS) return;
+    if (enCours) return;
+    // Écritures doublées en panne : elles repartent dès que leur dossier répond (le journal de la
+    // base y est recopié), puis une copie de remise en route. Leur dossier muet : pas de copie de
+    // plus — jamais une copie entière toutes les 5 min.
+    const ecritures = g.__afriEcritures;
+    if (ecritures && !ecritures.actif) ecritures.realigner(path.join(dossier, "pg_wal"), null);
+    const remise = ecritures?.actif === true && ecritures.remettre;
+    const jour = `jour-${jourPoste(Date.now())}`;
+    const faite = existsSync(path.join(copies, jour, "base", "backup_label"));
+    if (faite && !remise) return;
+    const nom = faite ? `remise-${new Date().toISOString().replace(/[:.]/g, "-")}` : jour;
+    enCours = true;
     try {
-      const { ms, attenteMs } = await sauvegarder(pg, dossier);
-      console.log(
-        `[base] sauvegarde faite en ${ms} ms (requêtes en attente ${attenteMs} ms) : ${sauvegardeDe(dossier)}`,
-      );
+      const ms = await copierBase(pg, dossier, copies, nom, registres);
+      noterDefautCopie("copie du jour de la base", null);
+      const quoi = faite ? "de remise en route" : "du jour";
+      console.log(`[base] copie ${quoi} faite en ${ms} ms : ${path.join(copies, nom)}`);
     } catch (e) {
-      console.error(`[base] sauvegarde impossible : ${e instanceof Error ? e.message : String(e)}`);
+      noterDefautCopie("copie du jour de la base", e);
+    } finally {
+      enCours = false;
     }
   };
-  setInterval(() => void tenter(), 3_600_000).unref();
+  setInterval(() => void tenter(), 300_000).unref();
   return tenter();
 }
 
+type CopieDeBase = { nom: string; base: string; premier: string; debut: number };
+
+/** Les copies de la base, de la plus récente à la plus ancienne. */
+async function copiesDeLaBase(copies: string): Promise<CopieDeBase[]> {
+  const trouvees: CopieDeBase[] = [];
+  for (const nom of await readdir(copies).catch(() => [])) {
+    if (nom.endsWith(".part")) continue; // inachevée : arrêtée en pleine copie
+    const base = path.join(copies, nom, "base");
+    try {
+      const e = lireEtiquette(await readFile(path.join(base, "backup_label"), "utf8"));
+      if (e) trouvees.push({ nom, base, ...e });
+    } catch {
+      // Pas une copie de la base (écritures, fichiers, relevé…), ou une copie inachevée.
+    }
+  }
+  return trouvees.sort((a, b) => b.premier.localeCompare(a.premier) || b.debut - a.debut);
+}
+
+/** Les copies de la base pour la Division : où, si le dossier répond, combien, la plus récente. */
+export async function etatCopies(copies: string): Promise<{
+  dossier: string;
+  joignable: boolean;
+  nombre: number;
+  derniere: string | null;
+}> {
+  const liste = await copiesDeLaBase(copies);
+  return {
+    dossier: copies,
+    joignable: await stat(copies).then(
+      (s) => s.isDirectory(),
+      () => false,
+    ),
+    nombre: liste.length,
+    derniere: liste[0] ? formatDate(liste[0].debut) : null,
+  };
+}
+
 /**
- * La base est illisible au démarrage : mise de côté (jamais effacée), remplacée par sa sauvegarde,
- * ou à défaut par une base neuve. Si rien ne s'ouvre, pas même une base neuve, le problème n'est
+ * La base est illisible au démarrage : mise de côté (jamais effacée), puis la copie la plus
+ * récente, avec les écritures doublées qui l'ont suivie — rien de perdu ; à défaut les copies plus
+ * anciennes, puis une base neuve. Si rien ne s'ouvre, pas même une base neuve, le problème n'est
  * pas la base : elle est remise en place, et null.
  */
 async function reprendre<T>(
   ouvrir: (dossier?: string) => Promise<T>,
   dossier: string,
   motif: string,
+  copies: string,
 ): Promise<{ pg: T; reprise: string } | null> {
-  const cote = `${dossier}.illisible-${new Date().toISOString().replace(/[:.]/g, "-")}`;
-  try {
-    await rename(dossier, cote);
-  } catch {
-    return null;
-  }
-  const sauvegarde = sauvegardeDe(dossier);
-  const date = existsSync(path.join(sauvegarde, "PG_VERSION"))
-    ? formatDate(statSync(sauvegarde).mtimeMs)
-    : null;
-  for (const depuis of date ? [date, null] : [null]) {
-    await rm(dossier, { recursive: true, force: true });
-    if (depuis) {
-      await cp(sauvegarde, dossier, { recursive: true });
-      await forcerArbre(dossier);
-    }
+  // Absente (dossier effacé, disque du poste remplacé ; le verrou l'a recréé vide) : rien à mettre
+  // de côté.
+  const existait = existsSync(dossier);
+  const vide = !existait || readdirSync(dossier).length === 0;
+  const cote = vide ? null : `${dossier}.illisible-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  if (cote) {
     try {
+      await rename(dossier, cote);
+    } catch {
+      return null;
+    }
+  }
+  const dire = (quoi: string) =>
+    cote
+      ? `Base illisible au démarrage (${motif}) : ${quoi} ; la base illisible est gardée dans ${cote}`
+      : `Base absente au démarrage : ${quoi}`;
+  const candidates = await copiesDeLaBase(copies);
+  const doublees = path.join(copies, "ecritures");
+  for (const c of candidates) {
+    await rm(dossier, { recursive: true, force: true });
+    try {
+      await cp(c.base, dossier, { recursive: true });
+      for (const seg of await readdir(doublees).catch(() => [])) {
+        if (SEGMENT_WAL.test(seg) && seg >= c.premier) {
+          await copyFile(path.join(doublees, seg), path.join(dossier, "pg_wal", seg));
+        }
+      }
+      await forcerArbre(dossier);
       const pg = await ouvrir(dossier);
-      const quoi = depuis
-        ? `reprise de la sauvegarde du ${depuis} (heure du poste)`
-        : `base neuve, ${date ? "la sauvegarde illisible elle aussi" : "sans sauvegarde"}`;
+      const quand = formatDate(c.debut);
       return {
         pg,
-        reprise: `Base illisible au démarrage (${motif}) : ${quoi} ; la base illisible est gardée dans ${cote}`,
+        reprise: dire(
+          `reprise de la copie du ${quand} (heure du poste), puis des écritures doublées qui l'ont suivie`,
+        ),
       };
     } catch {
-      // Tentative suivante.
+      // Copie suivante, plus ancienne.
     }
   }
   await rm(dossier, { recursive: true, force: true });
-  await rename(cote, dossier);
+  try {
+    const pg = await ouvrir(dossier);
+    const rangee = g.__afriRangee
+      ? ` ; l'ancienne génération (copies, écritures doublées) est rangée dans ${g.__afriRangee}`
+      : "";
+    return {
+      pg,
+      reprise: dire(`base neuve, ${candidates.length ? "aucune copie lisible" : "sans copie"}${rangee}`),
+    };
+  } catch {
+    // Pas même une base neuve.
+  }
+  await rm(dossier, { recursive: true, force: true });
+  if (cote) await rename(cote, dossier);
+  else if (existait) await mkdir(dossier, { recursive: true });
   return null;
 }
 
@@ -316,7 +624,11 @@ export async function noterReprise(pg: {
   await pg.query(
     `insert into ops_log (id, user_id, actor, role, team, kind, title, detail, severity)
      values ($1, 'poste', 'Base du poste', 'poste', 'poste', 'base', $2, $3, 'crit')`,
-    [randomBytes(12).toString("hex"), "Base illisible au démarrage : le poste l'a reprise", e.reprise],
+    [
+      randomBytes(12).toString("hex"),
+      `${e.reprise.startsWith("Base absente") ? "Base absente" : "Base illisible"} au démarrage : le poste l'a reprise`,
+      e.reprise,
+    ],
   );
 }
 
@@ -512,14 +824,22 @@ export async function ouvrirBase<T>(
       prise = await prendreBase(choix.dossier);
     }
     if (prise.ok) {
+      const copies = choisirCopies(process.env.AFRICONTROL_COPIES, cwd);
       try {
+        // Absente alors que ses copies sont là : reprise, pas une base vierge par-dessus.
+        if (
+          !existsSync(path.join(choix.dossier, "PG_VERSION")) &&
+          (await copiesDeLaBase(copies)).length > 0
+        ) {
+          throw new Error("fichiers de la base absents (PG_VERSION manque)");
+        }
         const pg = await ouvrir(choix.dossier);
         g.__afriBase = choix;
         console.log(`[base] sur disque : ${choix.dossier}`);
         return pg;
       } catch (e) {
         const motif = e instanceof Error ? e.message : String(e);
-        const r = await reprendre(ouvrir, choix.dossier, motif);
+        const r = await reprendre(ouvrir, choix.dossier, motif, copies);
         if (r) {
           g.__afriBase = { ...choix, reprise: r.reprise };
           console.error(`[base] ${r.reprise}`);

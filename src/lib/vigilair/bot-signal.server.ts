@@ -17,7 +17,7 @@
  * Chaque commande exécutée va au journal des opérations, avec le numéro masqué.
  */
 import { randomInt, timingSafeEqual } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { ecrireFichierPoste, lireFichierPoste } from "../disque-poste.server.ts";
 import path from "node:path";
 import { env } from "../env.server.ts";
 import {
@@ -215,14 +215,15 @@ function fichier(): string {
 }
 
 async function charger(e: Interne): Promise<void> {
-  try {
-    const lu = JSON.parse(await readFile(fichier(), "utf8")) as { actif?: unknown; numeros?: unknown };
-    e.actif = lu.actif === true;
-    e.numeros = numerosValides(lu.numeros);
-    e.numeroBot = numeroE164(String((lu as { numeroBot?: unknown }).numeroBot ?? ""));
-  } catch {
-    // Pas de fichier, ou illisible : coupé, sans numéro de console, comme à la livraison.
-  }
+  // Illisible : sa copie ; ni l'un ni l'autre : coupé, sans numéro de console, comme à la livraison.
+  const lu = await lireFichierPoste(
+    fichier(),
+    (t) => JSON.parse(t) as { actif?: unknown; numeros?: unknown; numeroBot?: unknown } | null,
+  );
+  if (!lu) return;
+  e.actif = lu.actif === true;
+  e.numeros = numerosValides(lu.numeros);
+  e.numeroBot = numeroE164(String(lu.numeroBot ?? ""));
 }
 
 async function etat(): Promise<Interne> {
@@ -255,13 +256,10 @@ async function etat(): Promise<Interne> {
 
 async function enregistrer(e: Interne): Promise<void> {
   try {
-    const f = fichier();
-    await mkdir(path.dirname(f), { recursive: true });
-    await writeFile(
-      `${f}.part`,
+    await ecrireFichierPoste(
+      fichier(),
       `${JSON.stringify({ actif: e.actif, numeros: e.numeros, numeroBot: e.numeroBot }, null, 2)}\n`,
     );
-    await rename(`${f}.part`, f);
     e.enregistrement = "fichier";
   } catch {
     e.enregistrement = "memoire";

@@ -6,7 +6,7 @@
  * redémarrage même sans Postgres (la base embarquée, elle, repart vide). Sur un disque en lecture
  * seule, une bascule vaut jusqu'au redémarrage, et la console le dit.
  */
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { ecrireFichierPoste, lireFichierPoste } from "../disque-poste.server.ts";
 import path from "node:path";
 import {
   COMMANDES,
@@ -56,11 +56,9 @@ async function etat(): Promise<Etat> {
   const e = (g.__afriCommandes ??= { bascules: {}, enregistrement: "fichier", charge: false });
   if (!e.charge) {
     e.charge = true;
-    try {
-      e.bascules = basculesValides(JSON.parse(await readFile(fichier(), "utf8")));
-    } catch {
-      // Pas encore de fichier (ou illisible) : les réglages de livraison.
-    }
+    // Illisible : sa copie ; ni l'un ni l'autre : les réglages de livraison.
+    const lues = await lireFichierPoste(fichier(), (t) => basculesValides(JSON.parse(t)));
+    if (lues) e.bascules = lues;
   }
   return e;
 }
@@ -78,10 +76,7 @@ export async function basculer(nom: string, canal: Canal, actif: boolean): Promi
   const e = await etat();
   e.bascules = { ...e.bascules, [nom]: { ...e.bascules[nom], [canal]: actif } };
   try {
-    const f = fichier();
-    await mkdir(path.dirname(f), { recursive: true });
-    await writeFile(`${f}.part`, `${JSON.stringify(e.bascules, null, 2)}\n`);
-    await rename(`${f}.part`, f);
+    await ecrireFichierPoste(fichier(), `${JSON.stringify(e.bascules, null, 2)}\n`);
     e.enregistrement = "fichier";
   } catch {
     e.enregistrement = "memoire";

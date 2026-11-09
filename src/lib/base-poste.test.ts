@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -26,10 +27,13 @@ import {
   ouvrirPgliteDurable,
   parametresDurables,
   prendreBase,
-  programmerSauvegardes,
-  sauvegarder,
+  programmerCopies,
+  copierBase,
+  etatCopies,
   secretDuPoste,
 } from "./base-poste.server.ts";
+import { defautsCopies } from "./disque-poste.server.ts";
+import { jourPoste } from "./vigilair/format.ts";
 
 const racine = mkdtempSync(path.join(tmpdir(), "base-poste-"));
 after(() => rmSync(racine, { recursive: true, force: true }));
@@ -382,14 +386,21 @@ describe("base du poste : secret des sessions", () => {
 });
 
 describe("base du poste : coupure de courant", () => {
-  it("PARAMÈTRES : « -F » (fsync coupé) retiré, fsync rétabli, le WAL forcé par fsync", async () => {
+  it("PARAMÈTRES : « -F » (fsync coupé) retiré, fsync rétabli, le WAL forcé par fsync, sans suivi du démarrage", async () => {
     const { PGlite } = await import("@electric-sql/pglite");
     assert.ok(PGlite.defaultStartParams.includes("-F"), "PGLite coupe fsync par défaut");
     const p = parametresDurables(PGlite.defaultStartParams);
     assert.ok(!p.includes("-F"));
-    assert.deepEqual(p.slice(-4), ["-c", "fsync=on", "-c", "wal_sync_method=fsync"]);
+    assert.deepEqual(p.slice(-6), [
+      "-c",
+      "fsync=on",
+      "-c",
+      "wal_sync_method=fsync",
+      "-c",
+      "log_startup_progress_interval=0",
+    ]);
     assert.deepEqual(
-      p.slice(0, -4),
+      p.slice(0, -6),
       PGlite.defaultStartParams.filter((x) => x !== "-F"),
     );
   });
@@ -458,122 +469,162 @@ describe("base du poste : coupure de courant", () => {
   });
 });
 
-describe("base du poste : sauvegarde et reprise", () => {
-  const ouvrirDurable = async (dossier?: string) => {
+describe("base du poste : écritures doublées, copies à chaud, reprise", () => {
+  const nouveauPoste = () => {
+    const poste = path.join(racine, `poste${(n += 1)}`);
+    const data = path.join(poste, "data");
+    mkdirSync(data, { recursive: true });
+    return { poste, dossier: path.join(data, "base"), copies: path.join(data, "copies"), registres: data };
+  };
+  /** Ouvre comme le serveur : vrai fsync, écritures doublées dans `copies`. */
+  const ouvrirAvecCopies = (copies?: string) => async (dossier?: string) => {
     const { PGlite } = await import("@electric-sql/pglite");
     const { NodeFS } = await import("@electric-sql/pglite/nodefs");
     if (!dossier) throw new Error("base sur disque attendue");
-    return ouvrirPgliteDurable(PGlite, NodeFS, dossier, {});
+    return ouvrirPgliteDurable(PGlite, NodeFS, dossier, {}, copies);
   };
+  /** Les lignes de t, lues sur une copie des fichiers (jamais sur l'original). */
   const lignes = async (dossier: string) => {
-    const copie = `${dossier}-lue`;
-    rmSync(copie, { recursive: true, force: true });
-    (await import("node:fs")).cpSync(dossier, copie, { recursive: true });
-    const pg = await ouvrirDurable(copie);
-    const r = (await pg.query<{ v: string }>("select v from t order by v")).rows.map((x) => x.v);
+    const lue = `${dossier}-lue`;
+    rmSync(lue, { recursive: true, force: true });
+    fs.cpSync(dossier, lue, { recursive: true });
+    const pg = await ouvrirAvecCopies()(lue);
+    const r = (await pg.query<{ i: number }>("select i from t order by i")).rows.map((x) => x.i);
     await pg.close();
     return r;
   };
+  const de = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, k) => a + k);
+  const inserer = async (pg: { query(s: string, p: unknown[]): Promise<unknown> }, a: number, b: number) => {
+    for (let i = a; i <= b; i++) await pg.query("insert into t values ($1)", [i]);
+  };
+  const abimer = (dossier: string) => {
+    rmSync(`${dossier}.verrou`, { force: true }); // le serveur s'est arrêté
+    rmSync(path.join(dossier, "global", "pg_control"));
+  };
+  const REPRISE =
+    /^Base illisible au démarrage \(could not open file "global\/pg_control": No such file or directory\) : reprise de la copie du \d\d\/\d\d\/\d{4} \d\d:\d\d:\d\d \(heure du poste\), puis des écritures doublées qui l'ont suivie ; la base illisible est gardée dans /;
 
-  it("SAUVEGARDE : copie lisible, sans postmaster.pid, remplacée à la suivante ; programmée seulement si vieille d'un jour", async () => {
-    const dossier = path.join(racine, `poste${(n += 1)}`, "data", "base");
-    mkdirSync(path.dirname(dossier), { recursive: true });
-    const pg = await ouvrirDurable(dossier);
+  it("ÉCRITURES DOUBLÉES : chaque validation refaite octet pour octet dans copies/ecritures, et forcée avant d'être confirmée", async () => {
+    const { dossier, copies } = nouveauPoste();
+    const pg = await ouvrirAvecCopies(copies)(dossier);
     try {
-      await pg.exec("create table t (v text); insert into t values ('un')");
-      await programmerSauvegardes(pg, dossier);
-      const sauvegarde = `${dossier}.sauvegarde`;
-      assert.ok(!existsSync(path.join(sauvegarde, "postmaster.pid")));
-      assert.deepEqual(await lignes(sauvegarde), ["un"]);
-      const avant = statSync(sauvegarde).mtimeMs;
-      await pg.exec("insert into t values ('deux')");
-      await programmerSauvegardes(pg, dossier);
-      assert.equal(statSync(sauvegarde).mtimeMs, avant, "moins d'un jour : pas refaite");
-      const lsn = (await pg.query<{ l: string }>("select pg_current_wal_lsn()::text as l")).rows[0]!.l;
-      const forces = await compterFsync(async () => {
-        const r = await sauvegarder(pg, dossier);
-        assert.ok(r.ms >= r.attenteMs && r.attenteMs >= 0, JSON.stringify(r));
-      });
-      assert.ok(forces.fichiers >= 500, `sauvegarde forcée sur le disque : ${forces.fichiers} fichiers`);
-      // Sur un disque dur (5 à 10 ms par fsync), 1 000 fsync synchrones figeraient le serveur 5 à
-      // 10 s ; sur ce disque-ci, trop peu pour le voir au minuteur : on vérifie la façon.
-      assert.ok(forces.asynchrones >= 500, `${forces.asynchrones} fsync sans figer le serveur`);
-      const point = await pg.query<{ ok: boolean }>(
-        "select redo_lsn >= $1::pg_lsn as ok from pg_control_checkpoint()",
-        [lsn],
-      );
-      assert.deepEqual(point.rows, [{ ok: true }], "un CHECKPOINT avant la copie : rien d'avant à rejouer");
-      assert.deepEqual(await lignes(sauvegarde), ["deux", "un"]);
-      assert.ok(!existsSync(`${sauvegarde}.part`));
-    } finally {
-      await pg.close();
-    }
-  });
-
-  it("SANS FIGER LE SERVEUR : la copie se fait sous le verrou des requêtes — une requête lancée pendant la copie l'attend — et le serveur tourne", async () => {
-    const dossier = path.join(racine, `poste${(n += 1)}`, "data", "base");
-    mkdirSync(path.dirname(dossier), { recursive: true });
-    const pg = await ouvrirDurable(dossier);
-    await pg.exec("create table t (v text); insert into t values ('un')");
-    const promesses = fs.promises as unknown as { cp: (...a: unknown[]) => Promise<void> };
-    const vraiCp = promesses.cp;
-    let requete: Promise<boolean> | null = null;
-    let copieFaite = false;
-    promesses.cp = async (...a) => {
-      // Sans le verrou, la requête finirait pendant ces 100 ms.
-      requete = pg.query("select 1").then(() => copieFaite);
-      await new Promise((r) => setTimeout(r, 100));
-      await vraiCp(...a);
-      copieFaite = true;
-    };
-    syncBuiltinESMExports();
-    // Le plus grand retard d'un minuteur de 5 ms : le plus long gel de tout le serveur.
-    let prevu = performance.now() + 5;
-    let gel = 0;
-    const minuteur = setInterval(() => {
-      const t = performance.now();
-      gel = Math.max(gel, t - prevu);
-      prevu = t + 5;
-    }, 5);
-    try {
-      const r = await sauvegarder(pg, dossier);
-      assert.equal(await requete, true, "la requête lancée pendant la copie a attendu sa fin");
-      assert.ok(r.attenteMs >= 100, JSON.stringify(r));
-      assert.ok(gel < r.ms / 4, `serveur figé ${gel.toFixed(0)} ms pendant une sauvegarde de ${r.ms} ms`);
-    } finally {
-      clearInterval(minuteur);
-      promesses.cp = vraiCp;
+      await pg.exec("create table t (i int)");
+      const { nom } = (await pg.query<{ nom: string }>("select pg_walfile_name(pg_current_wal_lsn()) as nom")).rows[0]!;
+      const doublee = path.join(copies, "ecritures", nom);
+      const ino = statSync(doublee).ino;
+      const vrai = fs.fsyncSync;
+      let forcees = 0;
+      fs.fsyncSync = (fd) => {
+        if (fs.fstatSync(fd).ino === ino) forcees += 1;
+        vrai(fd);
+      };
       syncBuiltinESMExports();
+      try {
+        await inserer(pg, 1, 5);
+      } finally {
+        fs.fsyncSync = vrai;
+        syncBuiltinESMExports();
+      }
+      assert.ok(forcees >= 5, `${forcees} fsync de la copie pour 5 validations`);
+      const { fin } = (
+        await pg.query<{ fin: number }>(
+          "select file_offset as fin from pg_walfile_name_offset(pg_current_wal_flush_lsn())",
+        )
+      ).rows[0]!;
+      const original = readFileSync(path.join(dossier, "pg_wal", nom)).subarray(0, fin);
+      assert.ok(fin > 0 && original.equals(readFileSync(doublee).subarray(0, fin)), "mêmes octets");
+    } finally {
       await pg.close();
     }
-    assert.deepEqual(await lignes(`${dossier}.sauvegarde`), ["un"]);
   });
 
-  it("REPRISE : base illisible → sa sauvegarde reprise, l'illisible gardée à côté, une entrée au journal ; sans sauvegarde, base neuve", async () => {
-    const poste = path.join(racine, `poste${(n += 1)}`);
-    const dossier = path.join(poste, "data", "base");
-    let pg = await ouvrirBase(ouvrirDurable, undefined, poste);
-    await pg.exec("create table t (v text); insert into t values ('avant la sauvegarde')");
-    await sauvegarder(pg, dossier);
-    await pg.exec("insert into t values ('après la sauvegarde')");
-    await pg.close();
-    rmSync(`${dossier}.verrou`); // le serveur s'arrête
-    rmSync(path.join(dossier, "global", "pg_control")); // base abîmée
+  it("COPIE À CHAUD : une validation pendant la copie n'attend pas ; la copie s'ouvre seule, registres joints, sans postmaster.pid", async () => {
+    const { dossier, copies, registres } = nouveauPoste();
+    writeFileSync(path.join(registres, "drones.json"), "[]");
+    const pg = await ouvrirAvecCopies(copies)(dossier);
+    try {
+      await pg.exec("create table t (i int primary key)");
+      await inserer(pg, 1, 10);
+      const promesses = fs.promises as unknown as { cp: (...a: unknown[]) => Promise<void> };
+      const vraiCp = promesses.cp;
+      let sansAttendre: boolean | null = null;
+      promesses.cp = async (...a) => {
+        // Sous un verrou, cette validation attendrait la fin de la copie : 2 s au plus.
+        sansAttendre = await Promise.race([
+          pg.query("insert into t values (11)").then(() => true),
+          new Promise<boolean>((r) => setTimeout(() => r(false), 2000)),
+        ]);
+        await vraiCp(...a);
+      };
+      syncBuiltinESMExports();
+      try {
+        assert.ok((await copierBase(pg, dossier, copies, "jour-essai", registres)) >= 0);
+      } finally {
+        promesses.cp = vraiCp;
+        syncBuiltinESMExports();
+      }
+      assert.equal(sansAttendre, true, "une validation pendant la copie n'attend pas");
+      const copie = path.join(copies, "jour-essai");
+      assert.ok(existsSync(path.join(copie, "base", "backup_label")));
+      assert.ok(!existsSync(path.join(copie, "base", "postmaster.pid")));
+      assert.equal(readFileSync(path.join(copie, "fichiers", "drones.json"), "utf8"), "[]");
+      assert.deepEqual(await lignes(path.join(copie, "base")), de(1, 11));
+    } finally {
+      await pg.close();
+    }
+  });
 
-    pg = await ouvrirBase(ouvrirDurable, undefined, poste);
+  it("UNE COPIE PAR JOUR, toutes gardées : faite si celle du jour manque, pas refaite ensuite", async () => {
+    const { dossier, copies, registres } = nouveauPoste();
+    const pg = await ouvrirAvecCopies(copies)(dossier);
+    try {
+      await pg.exec("create table t (i int)");
+      await copierBase(pg, dossier, copies, "jour-2000-01-01", registres);
+      await programmerCopies(pg, dossier, copies, registres);
+      const jour = path.join(copies, `jour-${jourPoste(Date.now())}`, "base", "backup_label");
+      const avant = statSync(jour).mtimeMs;
+      await programmerCopies(pg, dossier, copies, registres);
+      assert.equal(statSync(jour).mtimeMs, avant, "pas refaite le même jour");
+      assert.ok(existsSync(path.join(copies, "jour-2000-01-01", "base", "backup_label")), "l'ancienne gardée");
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("COPIE INACHEVÉE (serveur arrêté en pleine copie) : ni comptée dans la Division, ni essayée à la reprise", async () => {
+    const { dossier, copies, registres } = nouveauPoste();
+    const pg = await ouvrirAvecCopies(copies)(dossier);
+    try {
+      await pg.exec("create table t (i int)");
+      await copierBase(pg, dossier, copies, "jour-1", registres);
+      fs.cpSync(path.join(copies, "jour-1"), path.join(copies, "jour-2.part"), { recursive: true });
+      const e = await etatCopies(copies);
+      assert.equal(e.nombre, 1);
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("REPRISE SANS PERTE : base illisible mise de côté, la copie la plus récente puis les écritures doublées — tout revient ; une entrée au journal", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    let pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    await pg.exec("create table t (i int primary key)");
+    await inserer(pg, 1, 20);
+    await copierBase(pg, dossier, copies, "jour-1", registres);
+    await inserer(pg, 21, 40);
+    await pg.close();
+    abimer(dossier);
+
+    pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
     try {
       const e = etatBase();
       assert.ok(e?.mode === "disque" && e.reprise, JSON.stringify(e));
-      // La raison écrite par Postgres, que PGLite taisait (« Aborted() »).
-      assert.match(
-        e.reprise,
-        /^Base illisible au démarrage \(could not open file "global\/pg_control": No such file or directory\) : reprise de la sauvegarde du \d\d\/\d\d\/\d{4} /,
-      );
+      assert.match(e.reprise, REPRISE);
+      assert.deepEqual((await pg.query<{ i: number }>("select i from t order by i")).rows.map((x) => x.i), de(1, 40), "rien de perdu");
       const cote = readdirSync(path.join(poste, "data")).filter((x) => x.startsWith("base.illisible-"));
       assert.equal(cote.length, 1);
       assert.ok(e.reprise.endsWith(path.join(poste, "data", cote[0]!)));
       assert.ok(existsSync(path.join(poste, "data", cote[0]!, "PG_VERSION")), "l'illisible gardée telle quelle");
-      assert.deepEqual((await pg.query<{ v: string }>("select v from t")).rows, [{ v: "avant la sauvegarde" }]);
       await pg.exec(`create table ops_log (id text primary key, user_id text not null, actor text not null,
         role text not null, team text not null, kind text not null, title text not null,
         detail text not null, track_id text, severity text not null default 'info',
@@ -589,16 +640,332 @@ describe("base du poste : sauvegarde et reprise", () => {
     } finally {
       await pg.close();
     }
+  });
 
+  it("LA COPIE LA PLUS RÉCENTE ILLISIBLE elle aussi : la précédente, puis les écritures doublées — rien de perdu", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    let pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    await pg.exec("create table t (i int primary key)");
+    await inserer(pg, 1, 10);
+    await copierBase(pg, dossier, copies, "jour-1", registres);
+    await inserer(pg, 11, 20);
+    await copierBase(pg, dossier, copies, "jour-2", registres);
+    await inserer(pg, 21, 30);
+    await pg.close();
+    rmSync(path.join(copies, "jour-2", "base", "global", "pg_control"));
+    abimer(dossier);
+
+    pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      assert.match((etatBase() as { reprise?: string }).reprise ?? "", REPRISE);
+      assert.deepEqual((await pg.query<{ i: number }>("select i from t order by i")).rows.map((x) => x.i), de(1, 30));
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("UNE COPIE ILLISIBLE ESSAYÉE (son journal perdu) : refusée, sans rien laisser derrière — ni minuterie de Postgres, ni ~180 Mo gardés", async () => {
+    const { dossier, copies, registres } = nouveauPoste();
+    const pg = await ouvrirAvecCopies(copies)(dossier);
+    try {
+      await pg.exec("create table t (i int)");
+      await copierBase(pg, dossier, copies, "jour-1", registres);
+    } finally {
+      await pg.close();
+    }
+    const wal = path.join(copies, "jour-1", "base", "pg_wal");
+    for (const f of readdirSync(wal)) if (/^[0-9A-F]{24}$/.test(f)) rmSync(path.join(wal, f));
+    const minuteries = () => process.getActiveResourcesInfo().filter((x) => x === "Timeout").length;
+    const avant = minuteries();
+    await assert.rejects(ouvrirAvecCopies()(path.dirname(wal)), /could not locate required checkpoint record/);
+    assert.equal(minuteries(), avant, "rien ne garde le Postgres raté en vie");
+  });
+
+  it("BASE ABSENTE (dossier effacé, disque du poste remplacé), SES COPIES LÀ : reprise de la copie et des écritures doublées — pas une base vierge par-dessus, rien de perdu", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    let pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    await pg.exec("create table t (i int primary key)");
+    await inserer(pg, 1, 10);
+    await copierBase(pg, dossier, copies, "jour-1", registres);
+    await inserer(pg, 11, 20);
+    await pg.close();
     rmSync(`${dossier}.verrou`);
-    rmSync(`${dossier}.sauvegarde`, { recursive: true });
-    rmSync(path.join(dossier, "global", "pg_control"));
-    pg = await ouvrirBase(ouvrirDurable, undefined, poste);
+    rmSync(dossier, { recursive: true });
+    pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      assert.match(
+        (etatBase() as { reprise?: string }).reprise ?? "",
+        /^Base absente au démarrage : reprise de la copie du .+ \(heure du poste\), puis des écritures doublées qui l'ont suivie$/,
+      );
+      assert.deepEqual((await pg.query<{ i: number }>("select i from t order by i")).rows.map((x) => x.i), de(1, 20));
+      assert.equal(readdirSync(path.join(poste, "data")).filter((x) => x.startsWith("base.illisible-")).length, 0);
+      await pg.exec(`create table ops_log (id text primary key, user_id text not null, actor text not null,
+        role text not null, team text not null, kind text not null, title text not null,
+        detail text not null, track_id text, severity text not null default 'info',
+        created_at timestamptz not null default now())`);
+      (globalThis as { __afriRepriseNotee?: boolean }).__afriRepriseNotee = undefined;
+      await noterReprise(pg);
+      assert.deepEqual((await pg.query<{ title: string }>("select title from ops_log")).rows, [
+        { title: "Base absente au démarrage : le poste l'a reprise" },
+      ]);
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("BASE NEUVE FAUTE DE COPIE LISIBLE : l'ancienne génération (copies, écritures doublées) rangée dans copies/avant-…, jamais réécrite ; la nouvelle a sa copie du jour aussitôt", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    const jour = `jour-${jourPoste(Date.now())}`;
+    let pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    await pg.exec("create table t (i int primary key)");
+    await inserer(pg, 1, 10);
+    await copierBase(pg, dossier, copies, jour, registres);
+    await inserer(pg, 11, 20);
+    await pg.close();
+    const empreinte = (d: string) =>
+      Object.fromEntries(
+        readdirSync(d)
+          .sort()
+          .map((f) => [f, createHash("sha256").update(readFileSync(path.join(d, f))).digest("hex")]),
+      );
+    const ecritures = empreinte(path.join(copies, "ecritures"));
+    rmSync(path.join(copies, jour, "base", "global", "pg_control")); // la seule copie, illisible
+    abimer(dossier);
+    pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      assert.match(
+        (etatBase() as { reprise?: string }).reprise ?? "",
+        /: base neuve, aucune copie lisible ; l'ancienne génération \(copies, écritures doublées\) est rangée dans .+avant-.+ ; la base illisible est gardée dans /,
+      );
+      const rangees = readdirSync(copies).filter((x) => x.startsWith("avant-"));
+      assert.equal(rangees.length, 1);
+      const avant = path.join(copies, rangees[0]!);
+      await pg.exec("create table t (i int primary key)");
+      await inserer(pg, 100, 140);
+      assert.deepEqual(empreinte(path.join(avant, "ecritures")), ecritures, "jamais réécrites");
+      assert.ok(existsSync(path.join(avant, jour, "base", "backup_label")), "l'ancienne copie rangée");
+      await programmerCopies(pg, dossier, copies, registres);
+      assert.ok(existsSync(path.join(copies, jour, "base", "backup_label")), "la copie du jour de la nouvelle");
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("SANS COPIE : base neuve, et dit ; l'illisible gardée", async () => {
+    const { poste, dossier, copies } = nouveauPoste();
+    let pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    await pg.exec("create table t (i int)");
+    await pg.close();
+    abimer(dossier);
+    pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
     try {
       const e = etatBase();
-      assert.ok(e?.mode === "disque" && /: base neuve, sans sauvegarde ; /.test(e.reprise ?? ""), JSON.stringify(e));
-      await pg.exec("create table t (v text)");
-      assert.equal(readdirSync(path.join(poste, "data")).filter((x) => x.startsWith("base.illisible-")).length, 2);
+      assert.ok(e?.mode === "disque" && /: base neuve, sans copie ; /.test(e.reprise ?? ""), JSON.stringify(e));
+      await pg.exec("create table t (i int)");
+      assert.equal(readdirSync(path.join(poste, "data")).filter((x) => x.startsWith("base.illisible-")).length, 1);
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("ÉCRITURES DOUBLÉES EN DÉFAUT (clé des copies retirée, disque plein) : la base continue, le défaut est dit ; la copie suivante les remet en route — rien de perdu", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    let pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    await pg.exec("create table t (i int primary key)");
+    await inserer(pg, 1, 5);
+    await copierBase(pg, dossier, copies, "jour-0", registres);
+    // La clé des copies retirée : plus de dossier des écritures doublées.
+    const doublees = path.join(copies, "ecritures");
+    fs.renameSync(doublees, `${doublees}-retiree`);
+    writeFileSync(doublees, "");
+    await inserer(pg, 6, 10);
+    assert.ok(defautsCopies().some((d) => d.quoi === "écritures doublées de la base"), "le défaut est dit");
+    // Un autre segment du journal pendant la panne : jour-0 et les écritures doublées ont désormais
+    // un trou ; seule la copie suivante, la plus récente, rend tout.
+    await pg.query("select pg_switch_wal()");
+    await inserer(pg, 11, 15);
+    // La clé remise : la copie suivante remet le doublement en route.
+    rmSync(doublees);
+    fs.renameSync(`${doublees}-retiree`, doublees);
+    await copierBase(pg, dossier, copies, "jour-1", registres);
+    assert.equal(defautsCopies().find((d) => d.quoi === "écritures doublées de la base"), undefined, "remises en route");
+    await inserer(pg, 16, 20);
+    await pg.close();
+    abimer(dossier);
+    pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      assert.match((etatBase() as { reprise?: string }).reprise ?? "", REPRISE);
+      assert.deepEqual((await pg.query<{ i: number }>("select i from t order by i")).rows.map((x) => x.i), de(1, 20));
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("ÉCRITURES DOUBLÉES ABÎMÉES PENDANT L'ARRÊT (un segment effacé) : complétées à l'ouverture — rien de perdu", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    let pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    await pg.exec("create table t (i int primary key)");
+    await inserer(pg, 1, 10);
+    await copierBase(pg, dossier, copies, "jour-1", registres);
+    await inserer(pg, 11, 20);
+    const { nom } = (await pg.query<{ nom: string }>("select pg_walfile_name(pg_current_wal_lsn()) as nom")).rows[0]!;
+    await pg.close();
+    rmSync(`${dossier}.verrou`);
+    rmSync(path.join(copies, "ecritures", nom));
+    pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    await inserer(pg, 21, 30);
+    await pg.close();
+    abimer(dossier);
+    pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      assert.match((etatBase() as { reprise?: string }).reprise ?? "", REPRISE);
+      assert.deepEqual((await pg.query<{ i: number }>("select i from t order by i")).rows.map((x) => x.i), de(1, 30));
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("JOURNAL DE LA BASE ABÎMÉ PENDANT L'ARRÊT, là où elle n'en a plus besoin : elle s'ouvre, et ses écritures doublées saines ne sont pas écrasées — rien de perdu", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    let pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    await pg.exec("create table t (i int primary key)");
+    await inserer(pg, 1, 10);
+    await copierBase(pg, dossier, copies, "jour-1", registres);
+    const lsn = async () =>
+      (await pg.query<{ nom: string; o: number }>(
+        "select pg_walfile_name(pg_current_wal_lsn()) as nom, (pg_current_wal_lsn() - '0/0'::pg_lsn)::bigint % 16777216 as o",
+      )).rows[0]!;
+    const a = await lsn();
+    await pg.query("insert into t select generate_series(11, 2000)");
+    const b = await lsn();
+    assert.equal(a.nom, b.nom);
+    await pg.close();
+    rmSync(`${dossier}.verrou`);
+    // Un secteur du disque de la base perdu : des pages pleines du journal, loin de sa fin.
+    const page = 8192;
+    const debut = (Math.floor(Number(a.o) / page) + 1) * page;
+    const fin = (Math.floor(Number(b.o) / page) - 1) * page;
+    assert.ok(fin - debut >= 4 * page, `${fin - debut} octets abîmés`);
+    const fd = fs.openSync(path.join(dossier, "pg_wal", a.nom), "r+");
+    fs.writeSync(fd, Buffer.alloc(fin - debut), 0, fin - debut, debut);
+    fs.closeSync(fd);
+    pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    assert.equal((etatBase() as { reprise?: string }).reprise, undefined, "elle s'ouvre, sans reprise");
+    await inserer(pg, 2001, 2005);
+    await pg.close();
+    abimer(dossier);
+    pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      assert.match((etatBase() as { reprise?: string }).reprise ?? "", REPRISE);
+      assert.deepEqual((await pg.query<{ i: number }>("select i from t order by i")).rows.map((x) => x.i), de(1, 2005));
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("PANNE EN PLEIN SEGMENT, PUIS ARRÊT AVANT LA COPIE SUIVANTE : le marqueur fait tout recopier à l'ouverture — rien de perdu", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    let pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    await pg.exec("create table t (i int primary key)");
+    await inserer(pg, 1, 5);
+    await copierBase(pg, dossier, copies, "jour-0", registres);
+    await inserer(pg, 6, 6);
+    const { nom } = (await pg.query<{ nom: string }>("select pg_walfile_name(pg_current_wal_lsn()) as nom")).rows[0]!;
+    const ino = statSync(path.join(copies, "ecritures", nom)).ino;
+    const vrai = fs.writeSync;
+    fs.writeSync = ((fd: number, ...a: unknown[]) => {
+      if (fs.fstatSync(fd).ino === ino) throw Object.assign(new Error("ENOSPC: plus de place"), { code: "ENOSPC" });
+      return (vrai as (...x: unknown[]) => number)(fd, ...a);
+    }) as typeof fs.writeSync;
+    syncBuiltinESMExports();
+    try {
+      // Des pages entières du journal pendant la panne : Postgres ne les réécrira plus, seul le
+      // marqueur les fait recopier (une ou deux lignes tenaient dans une page réécrite ensuite).
+      await pg.query("insert into t select generate_series(7, 2000)");
+    } finally {
+      fs.writeSync = vrai;
+      syncBuiltinESMExports();
+    }
+    await pg.close();
+    rmSync(`${dossier}.verrou`);
+    const marqueur = `${dossier}.ecritures-en-panne`;
+    assert.ok(existsSync(marqueur), "la panne survit à l'arrêt");
+    pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    assert.ok(!existsSync(marqueur), "tout recopié à l'ouverture");
+    await inserer(pg, 2001, 2005);
+    await pg.close();
+    abimer(dossier);
+    pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      assert.match((etatBase() as { reprise?: string }).reprise ?? "", REPRISE);
+      assert.deepEqual((await pg.query<{ i: number }>("select i from t order by i")).rows.map((x) => x.i), de(1, 2005));
+    } finally {
+      await pg.close();
+    }
+  });
+  it("CLÉ DES COPIES RETIRÉE PUIS REMISE LE MÊME JOUR : une copie de remise en route est prise sans attendre le lendemain — les écritures doublées repartent, rien de perdu", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    let pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    await pg.exec("create table t (i int primary key)");
+    await programmerCopies(pg, dossier, copies, registres); // la copie du jour
+    fs.renameSync(copies, `${copies}-cle`); // la clé retirée : plus de dossier des copies
+    writeFileSync(copies, "");
+    await inserer(pg, 1, 10);
+    await pg.query("select pg_switch_wal()");
+    await inserer(pg, 11, 20);
+    await programmerCopies(pg, dossier, copies, registres); // clé encore absente : rien de neuf
+    rmSync(copies);
+    fs.renameSync(`${copies}-cle`, copies);
+    await programmerCopies(pg, dossier, copies, registres); // le contrôle des 5 min
+    assert.equal(readdirSync(copies).filter((x) => x.startsWith("remise-")).length, 1, "une copie de remise en route");
+    assert.equal(defautsCopies().find((d) => d.quoi === "écritures doublées de la base"), undefined);
+    await inserer(pg, 21, 30);
+    await pg.close();
+    abimer(dossier);
+    pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      assert.match((etatBase() as { reprise?: string }).reprise ?? "", REPRISE);
+      assert.deepEqual((await pg.query<{ i: number }>("select i from t order by i")).rows.map((x) => x.i), de(1, 30));
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("PANNE PUIS ARRÊT, CLÉ REMISE AVANT LE REDÉMARRAGE : à l'ouverture le journal est recopié, puis une copie de remise en route aussitôt, même si celle du jour existe", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    let pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    await pg.exec("create table t (i int primary key)");
+    await programmerCopies(pg, dossier, copies, registres);
+    fs.renameSync(copies, `${copies}-cle`);
+    writeFileSync(copies, "");
+    await inserer(pg, 1, 10);
+    await pg.close();
+    rmSync(`${dossier}.verrou`);
+    rmSync(copies);
+    fs.renameSync(`${copies}-cle`, copies);
+    pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      await programmerCopies(pg, dossier, copies, registres);
+      assert.equal(readdirSync(copies).filter((x) => x.startsWith("remise-")).length, 1);
+      await programmerCopies(pg, dossier, copies, registres);
+      assert.equal(readdirSync(copies).filter((x) => x.startsWith("remise-")).length, 1, "une seule");
+    } finally {
+      await pg.close();
+    }
+  });
+  it("DOSSIER DES ÉCRITURES DOUBLÉES CASSÉ, LE RESTE DES COPIES SAIN : la panne est dite, et pas une copie entière à chaque contrôle", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    const pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      await pg.exec("create table t (i int primary key)");
+      await programmerCopies(pg, dossier, copies, registres);
+      const doublees = path.join(copies, "ecritures");
+      rmSync(doublees, { recursive: true });
+      writeFileSync(doublees, "");
+      await inserer(pg, 1, 5);
+      for (let k = 0; k < 3; k++) await programmerCopies(pg, dossier, copies, registres);
+      assert.equal(readdirSync(copies).filter((x) => x.startsWith("remise-")).length, 0);
+      assert.ok(defautsCopies().some((d) => d.quoi === "écritures doublées de la base"));
     } finally {
       await pg.close();
     }

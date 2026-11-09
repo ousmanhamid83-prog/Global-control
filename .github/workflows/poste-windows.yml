@@ -1,7 +1,7 @@
 # Le script de préparation du poste sur un VRAI Windows (machine neuve de GitHub) : Windows
 # PowerShell 5.1, celui livré avec Windows, et PowerShell 7. Étapes sans Docker — build, IA
 # (Ollama, plus petit modèle), relief (une petite zone) — puis le serveur construit lancé et
-# interrogé, et sa base sur disque (verrou, sauvegarde, reprise d'une base abîmée).
+# interrogé, et sa base sur disque (verrou, copie du jour, reprise d'une base abîmée).
 # Une seconde machine, sans winget : Ollama par l'installeur officiel, le modèle choisi par le
 # script selon la mémoire, puis Docker absent et Docker tel qu'il est ici (conteneurs Windows).
 # L'itinéraire, le relais Signal et la recherche demandent Docker Desktop en conteneurs Linux,
@@ -21,6 +21,8 @@ on:
       - "src/lib/base-poste.server.ts"
       - "src/lib/base-poste.test.ts"
       - "src/lib/base-coupure.test.ts"
+      - "src/lib/disque-poste.server.ts"
+      - "src/lib/disque-poste.test.ts"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/poste-windows.yml"
@@ -65,11 +67,12 @@ jobs:
         run: type poste.env
 
       # fsync (Windows refuse de forcer un fichier ouvert en lecture seule), coupure de courant
-      # simulée, sauvegarde et reprise : les tests de la base, sous Windows.
-      - name: Base du poste, tests sous Windows (fsync, coupure simulée, sauvegarde, reprise)
+      # simulée, écritures doublées, copies et reprise : les tests de la base et des registres,
+      # sous Windows.
+      - name: Base du poste, tests sous Windows (fsync, coupure simulée, copies, reprise)
         if: matrix.ps == 'powershell'
         shell: cmd
-        run: node --experimental-strip-types --test src/lib/base-poste.test.ts src/lib/base-coupure.test.ts
+        run: node --experimental-strip-types --test src/lib/base-poste.test.ts src/lib/base-coupure.test.ts src/lib/disque-poste.test.ts
 
       - name: Le serveur construit démarre, lit poste.env et répond
         shell: pwsh
@@ -129,13 +132,14 @@ jobs:
           if (-not (Pret 8081)) { Get-Content a.err; exit 1 }
           Write-Host "1. verrou laissé par l'arrêt net précédent : $verrouLaisse ; repris : $(Ligne 'a' '[base] sur disque')"
           if (-not (Test-Path data\base.verrou)) { Write-Host "pas de verrou posé"; exit 1 }
-          # La sauvegarde du jour : faite au premier démarrage sur disque (étape précédente) ou, s'il
-          # a été arrêté net pendant, par celui-ci.
-          for ($i = 0; $i -lt 60 -and -not (Test-Path data\base.sauvegarde\PG_VERSION); $i++) { Start-Sleep -Seconds 1 }
-          $s = Select-String -Path serveur.log, a.out -Pattern "[base] sauvegarde faite" -SimpleMatch -ErrorAction SilentlyContinue |
+          # La copie du jour, à chaud : faite au premier démarrage sur disque (étape précédente) ou,
+          # s'il a été arrêté net pendant, par celui-ci. Les écritures doublées sont à côté.
+          for ($i = 0; $i -lt 60 -and -not (Test-Path data\copies\jour-*\base\backup_label); $i++) { Start-Sleep -Seconds 1 }
+          $s = Select-String -Path serveur.log, a.out -Pattern "[base] copie du jour faite" -SimpleMatch -ErrorAction SilentlyContinue |
             Select-Object -First 1
-          if (-not $s) { Get-Content serveur.log, a.out, a.err; Write-Host "pas de sauvegarde"; exit 1 }
-          Write-Host "   sauvegarde : $($s.Line)"
+          if (-not $s) { Get-Content serveur.log, a.out, a.err; Write-Host "pas de copie du jour"; exit 1 }
+          if (-not (Test-Path data\copies\ecritures\*)) { Get-ChildItem -Recurse data\copies; Write-Host "pas d'écritures doublées"; exit 1 }
+          Write-Host "   copie du jour : $($s.Line)"
           $b = Lancer 8082 "b"
           if (-not (Pret 8082)) { Get-Content b.err; exit 1 }
           Write-Host "2. second serveur, même dossier : $(Ligne 'b' '[base] EN M')"
@@ -147,12 +151,13 @@ jobs:
           Stop-Process -Id $c.Id -Force
           Wait-Process -Id $c.Id -ErrorAction SilentlyContinue
           if (Select-String -Path "c.out", "c.err" -Pattern "[base] EN M" -SimpleMatch -Quiet) { exit 1 }
-          # Base abîmée (le fichier de contrôle de Postgres effacé) : mise de côté, sauvegarde reprise.
+          # Base abîmée (le fichier de contrôle de Postgres effacé) : mise de côté, copie du jour reprise
+          # avec les écritures doublées qui l'ont suivie.
           # Sous Windows, la mettre de côté demande que PGLite ait relâché ses fichiers.
           Remove-Item data\base\global\pg_control
           $d = Lancer 8081 "d"
           if (-not (Pret 8081)) { Get-Content d.err; exit 1 }
-          Write-Host "4. base abîmée, relancé : $(Ligne 'd' 'reprise de la sauvegarde')"
+          Write-Host "4. base abîmée, relancé : $(Ligne 'd' 'reprise de la copie')"
           $cote = @(Get-ChildItem data -Directory -Filter "base.illisible-*")
           Stop-Process -Id $d.Id -Force
           if ($cote.Count -ne 1 -or -not (Test-Path (Join-Path $cote[0].FullName "PG_VERSION"))) { Get-ChildItem data; exit 1 }

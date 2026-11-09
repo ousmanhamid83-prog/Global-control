@@ -12,7 +12,7 @@
 import net from "node:net";
 import dgram from "node:dgram";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { ecrireFichierPoste, lireFichierPoste, listeJson } from "../disque-poste.server.ts";
 import path from "node:path";
 import { effectiveUrl, extractFirstJpeg, normIdent, type OwnDrone, type SourceKind } from "./drones-core";
 import {
@@ -43,20 +43,14 @@ const g = globalThis as unknown as { __afriDrones?: OwnDrone[] };
 
 async function load(): Promise<OwnDrone[]> {
   if (g.__afriDrones) return g.__afriDrones;
-  try {
-    const raw = await readFile(FILE, "utf8");
-    const arr: unknown = JSON.parse(raw);
-    g.__afriDrones = Array.isArray(arr) ? (arr as OwnDrone[]) : [];
-  } catch {
-    g.__afriDrones = [];
-  }
+  // Abîmé ou absent : sa copie (dossier des copies) ; rien de lisible : vide.
+  g.__afriDrones = (await lireFichierPoste(FILE, listeJson<OwnDrone>)) ?? [];
   return g.__afriDrones;
 }
 
 async function persist(list: OwnDrone[]): Promise<void> {
   g.__afriDrones = list;
-  await mkdir(DIR, { recursive: true });
-  await writeFile(FILE, JSON.stringify(list));
+  await ecrireFichierPoste(FILE, JSON.stringify(list));
 }
 
 function cleanUrl(raw: string): string | undefined {

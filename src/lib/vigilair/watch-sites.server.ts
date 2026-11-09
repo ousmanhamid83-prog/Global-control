@@ -4,7 +4,7 @@
  * Le client garde un miroir local pour peindre instantanément ; la vérité est ici. Réception seule.
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { ecrireFichierPoste, lireFichierPoste, listeJson } from "../disque-poste.server.ts";
 import path from "node:path";
 import { validateSite, type SiteInput, type WatchSite } from "./watch-sites-core";
 
@@ -16,20 +16,14 @@ const g = globalThis as unknown as { __afriWatchSites?: WatchSite[] };
 
 async function load(): Promise<WatchSite[]> {
   if (g.__afriWatchSites) return g.__afriWatchSites;
-  try {
-    const raw = await readFile(FILE, "utf8");
-    const arr: unknown = JSON.parse(raw);
-    g.__afriWatchSites = Array.isArray(arr) ? (arr as WatchSite[]) : [];
-  } catch {
-    g.__afriWatchSites = [];
-  }
+  // Abîmé ou absent : sa copie (dossier des copies) ; rien de lisible : vide.
+  g.__afriWatchSites = (await lireFichierPoste(FILE, listeJson<WatchSite>)) ?? [];
   return g.__afriWatchSites;
 }
 
 async function persist(list: WatchSite[]): Promise<void> {
   g.__afriWatchSites = list;
-  await mkdir(DIR, { recursive: true });
-  await writeFile(FILE, JSON.stringify(list));
+  await ecrireFichierPoste(FILE, JSON.stringify(list));
 }
 
 export async function listSitesServer(): Promise<WatchSite[]> {

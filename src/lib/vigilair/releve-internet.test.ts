@@ -60,6 +60,15 @@ describe("relevé Internet sur décision du chef", () => {
     assert.equal(await releveInternetActif(), true);
   });
 
+  it("DOUBLÉ : chaque décision du chef est aussi écrite dans le dossier des copies ; fichier abîmé, elle en revient", async () => {
+    await basculerReleve(true);
+    const copie = path.join(dossier, "data", "copies", "fichiers", "data", "releve-internet.json");
+    assert.deepEqual(JSON.parse(readFileSync(copie, "utf8")), { actif: true });
+    ecrire("{pas du JSON"); // coupure pendant l'écriture d'une ancienne version
+    delete g.__afriReleveInternet;
+    assert.equal(await releveInternetActif(), true, "la décision du chef, relue dans sa copie");
+  });
+
   it("DISQUE EN LECTURE SEULE : la bascule vaut jusqu'au redémarrage, et le dit", async () => {
     // « data » est un fichier : impossible d'y créer releve-internet.json.
     writeFileSync(path.join(dossier, "data"), "");

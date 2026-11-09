@@ -4,7 +4,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, describe, it } from "node:test";
-import { ouvrirPgliteDurable } from "./base-poste.server.ts";
+import { copierBase, etatBase, ouvrirBase, ouvrirPgliteDurable } from "./base-poste.server.ts";
 
 // Coupure de courant simulée : seul ce qu'un fsync a forcé survit (garantie POSIX, pire cas : le
 // système n'a rien écrit en tâche de fond). On intercepte le module fs de Node, dont se sert le
@@ -24,7 +24,7 @@ function disqueDurable(reel: string, durable: string) {
   const chemins = new Map<number, string>();
   const attente = new Map<string, Op[]>();
   const f = fs as unknown as Fs;
-  const noms = ["openSync", "writeSync", "ftruncateSync", "truncateSync", "fsyncSync", "fdatasyncSync", "closeSync", "renameSync", "unlinkSync", "mkdirSync"];
+  const noms = ["openSync", "writeSync", "ftruncateSync", "truncateSync", "fsyncSync", "fdatasyncSync", "closeSync", "renameSync", "unlinkSync", "mkdirSync", "copyFileSync"];
   const o: Fs = Object.fromEntries(noms.map((nom) => [nom, f[nom]!]));
   const appel = <R>(nom: string, args: unknown[]) => (o[nom] as (...a: unknown[]) => R).apply(fs, args);
   const noter = (p: string, op: Op) => attente.set(p, [...(attente.get(p) ?? []), op]);
@@ -120,6 +120,21 @@ function disqueDurable(reel: string, durable: string) {
   remplacer("mkdirSync", (...a) => {
     const r = appel("mkdirSync", a);
     if (sous(a[0])) appel("mkdirSync", [ombre(a[0] as string), { recursive: true }]);
+    return r;
+  });
+  // Une copie de fichier (réalignement des écritures doublées) : le nom aussitôt, le contenu en
+  // attente comme une écriture, jusqu'au fsync.
+  remplacer("copyFileSync", (...a) => {
+    const r = appel("copyFileSync", a);
+    if (sous(a[1])) {
+      const p = path.resolve(a[1] as string);
+      if (!fs.existsSync(ombre(p))) {
+        fs.mkdirSync(path.dirname(ombre(p)), { recursive: true });
+        fs.closeSync(appel<number>("openSync", [ombre(p), "w"]));
+      }
+      noter(p, { taille: 0 });
+      noter(p, { pos: 0, octets: Buffer.from(fs.readFileSync(p)) });
+    }
     return r;
   });
   syncBuiltinESMExports();
@@ -240,6 +255,88 @@ async function essai(
   return { verdicts, ecarts, fsyncs: disque.stats().fsyncs };
 }
 
+/**
+ * Le poste entier sous le modèle (base et dossier des copies) : une copie du jour, puis `n`
+ * validations, coupures comme ci-dessus. À chaque disque d'après coupure, la base est en plus
+ * DÉTRUITE, et le poste la reprend : la copie puis les écritures doublées doivent rendre tout ce
+ * qui était confirmé.
+ */
+async function essaiAvecCopies(
+  n: number,
+  aEcriture: number[],
+  aValidation: number[],
+): Promise<{ verdicts: string[]; ecarts: number }> {
+  const { PGlite } = await import("@electric-sql/pglite");
+  const { NodeFS } = await import("@electric-sql/pglite/nodefs");
+  const ouvrir = (copies: string) => async (dossier?: string) => {
+    if (!dossier) throw new Error("base sur disque attendue");
+    return (await ouvrirPgliteDurable(PGlite, NodeFS, dossier, {}, copies)) as unknown as Pg;
+  };
+  const travail = path.join(racine, "copies");
+  const data = path.join(travail, "poste", "data");
+  const base = path.join(data, "base");
+  const copies = path.join(data, "copies");
+  fs.mkdirSync(data, { recursive: true });
+  let pg = await ouvrir(copies)(base);
+  await pg.exec("create table t (i int primary key, txt text not null)");
+  await pg.query("insert into t select g, 'avant' from generate_series(-10, -1) g");
+  await copierBase(pg, base, copies, "jour-1", data);
+  await pg.close();
+
+  const disque = disqueDurable(data, path.join(travail, "durable"));
+  const coupures: { nom: string; dest: string; confirmees: number }[] = [];
+  let confirmees = 0;
+  let ecarts = 0;
+  const couper = (quand: string) => {
+    ecarts += disque.ecarts().length;
+    const dest = path.join(travail, `coupure-${coupures.length}`, "data");
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    disque.coupure(dest);
+    coupures.push({ nom: quand, dest, confirmees });
+  };
+  disque.surChaqueEcriture((rang) => {
+    if (aEcriture.includes(rang)) couper(`écriture n° ${rang}`);
+  });
+  try {
+    pg = await ouvrir(copies)(base);
+    for (let i = 1; i <= n; i++) {
+      await pg.query("insert into t values ($1, $2)", [i, `ligne ${i} `.repeat(20)]);
+      confirmees = i;
+      if (i === Math.floor(n / 2)) {
+        await pg.exec("checkpoint");
+        couper(`après un CHECKPOINT (${i} confirmées)`);
+      }
+      if (aValidation.includes(i)) couper(`après la validation n° ${i}`);
+    }
+    await pg.close();
+  } finally {
+    disque.retirer();
+  }
+  const verdicts: string[] = [];
+  for (const c of coupures) {
+    let v: string;
+    rmSyncSiLa(path.join(c.dest, "base", "global", "pg_control"));
+    rmSyncSiLa(path.join(c.dest, "base.verrou"));
+    try {
+      const p = (await ouvrirBase(ouvrir(path.join(c.dest, "copies")), undefined, path.dirname(c.dest))) as Pg;
+      const reprise = (etatBase() as { reprise?: string } | null)?.reprise ?? "";
+      const r = (await p.query<{ n: number; max: number }>(
+        "select count(*)::int as n, coalesce(max(i), 0)::int as max from t where i > 0",
+      )).rows[0]!;
+      const avant = (await p.query<{ n: number }>("select count(*)::int as n from t where i < 0")).rows[0]!.n;
+      await p.close();
+      const ok = /reprise de la copie du .* puis des écritures doublées/.test(reprise) && r.n >= c.confirmees && r.max === r.n && avant === 10;
+      v = ok ? "sans perte" : `PERTE (${r.n}/${c.confirmees}, ${avant}/10 ; ${reprise.slice(0, 80)})`;
+    } catch (e) {
+      v = `ILLISIBLE (${e instanceof Error ? e.message : String(e)})`;
+    }
+    verdicts.push(`${c.nom} : ${v}`);
+  }
+  return { verdicts, ecarts };
+}
+
+const rmSyncSiLa = (p: string) => fs.rmSync(p, { force: true });
+
 describe("base du poste : coupure de courant simulée", () => {
   it("TÉMOIN — PGLite tel qu'il était (fsync coupé) : la coupure abîme la base", async () => {
     const { PGlite } = await import("@electric-sql/pglite");
@@ -262,6 +359,13 @@ describe("base du poste : coupure de courant simulée", () => {
     assert.equal(r.ecarts, 0, "le modèle colle aux vrais fichiers");
     assert.ok(r.fsyncs >= 24, `${r.fsyncs} fsync pour 24 validations`);
     assert.equal(r.verdicts.length, 6, r.verdicts.join(" ; "));
+    for (const v of r.verdicts) assert.ok(v.endsWith("sans perte"), v);
+  });
+
+  it("LE POSTE ET SES COPIES : coupé n'importe quand, puis la base détruite — la copie du jour et les écritures doublées rendent tout ce qui était confirmé", async () => {
+    const r = await essaiAvecCopies(24, [1, 2, 37, 60], [6, 24]);
+    assert.equal(r.ecarts, 0, "le modèle colle aux vrais fichiers");
+    assert.equal(r.verdicts.length, 7, r.verdicts.join(" ; "));
     for (const v of r.verdicts) assert.ok(v.endsWith("sans perte"), v);
   });
 });

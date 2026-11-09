@@ -5,7 +5,7 @@
  * d'équipement, jamais d'identité.
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { ecrireFichierPoste, lireFichierPoste, listeJson } from "../disque-poste.server.ts";
 import path from "node:path";
 import { expandRange } from "./scan2d";
 import { appendHistory, diffCameras, type SiteNet } from "./sitenet-core";
@@ -20,20 +20,14 @@ const g = globalThis as unknown as { __afriSiteNets?: SiteNet[] };
 
 async function load(): Promise<SiteNet[]> {
   if (g.__afriSiteNets) return g.__afriSiteNets;
-  try {
-    const raw = await readFile(FILE, "utf8");
-    const arr: unknown = JSON.parse(raw);
-    g.__afriSiteNets = Array.isArray(arr) ? (arr as SiteNet[]) : [];
-  } catch {
-    g.__afriSiteNets = [];
-  }
+  // Abîmé ou absent : sa copie (dossier des copies) ; rien de lisible : vide.
+  g.__afriSiteNets = (await lireFichierPoste(FILE, listeJson<SiteNet>)) ?? [];
   return g.__afriSiteNets;
 }
 
 async function persist(list: SiteNet[]): Promise<void> {
   g.__afriSiteNets = list;
-  await mkdir(DIR, { recursive: true });
-  await writeFile(FILE, JSON.stringify(list));
+  await ecrireFichierPoste(FILE, JSON.stringify(list));
 }
 
 export async function listSiteNetsServer(): Promise<SiteNet[]> {

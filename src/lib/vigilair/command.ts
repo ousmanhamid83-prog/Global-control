@@ -26,6 +26,7 @@ import { requireCopOpen } from "./cop-lock";
 import { POSTE_ETRANGER, POSTE_EXERCICE, POSTE_LABEL, sanitizeMachineLabel, scrubSessionIps } from "./privacy";
 import { CHEF_SESSION_CAP, pruneOldSessions, requireChefSeal } from "./seal";
 import type { EtatBase } from "@/lib/base-poste.server";
+import type { DefautCopie, PlaceDisques } from "@/lib/disque-poste.server";
 import { formatDate } from "./format";
 import {
   effacerDuJournal,
@@ -94,12 +95,24 @@ export type RosterRow = {
 
 export type OpsLogRow = EntreeJournal;
 
-/** Une page du journal, ses genres et où la base du poste le garde (chef seul : genres, base). */
+/** Les copies du poste : où, si ce dossier répond (clé retirée, disque absent), combien de copies
+ * de la base, la plus récente, et ce qui n'a pas pu être doublé (depuis quand, pourquoi). */
+export type CopiesPoste = {
+  dossier: string;
+  joignable: boolean;
+  nombre: number;
+  derniere: string | null;
+  defauts: DefautCopie[];
+  place: PlaceDisques;
+};
+
+/** Une page du journal, ses genres, où la base du poste le garde et ses copies (chef seul). */
 export type JournalOps = {
   entrees: OpsLogRow[];
   suite: Curseur | null;
   genres: { genre: string; n: number }[];
   base: EtatBase | null;
+  copies: CopiesPoste | null;
 };
 
 export type IncidentRow = {
@@ -722,9 +735,15 @@ export const listOpsLog = createServerFn({ method: "GET" })
       avant: data.avant,
       limite: chef ? 120 : 60,
     });
-    if (!chef) return { ...page, genres: [], base: null };
-    const { etatBase } = await import("@/lib/base-poste.server");
-    return { ...page, genres: await genresDuJournal(sql), base: etatBase() };
+    if (!chef) return { ...page, genres: [], base: null, copies: null };
+    const { etatBase, etatCopies } = await import("@/lib/base-poste.server");
+    const { defautsCopies, dossierCopies, placeDisques } = await import("@/lib/disque-poste.server");
+    const copies = {
+      ...(await etatCopies(dossierCopies())),
+      defauts: defautsCopies(),
+      place: await placeDisques(),
+    };
+    return { ...page, genres: await genresDuJournal(sql), base: etatBase(), copies };
   });
 
 /**
