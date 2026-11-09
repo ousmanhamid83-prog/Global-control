@@ -86,10 +86,12 @@ Préparer le poste en une commande (une fois, en ligne)
   Sous Windows PowerShell 5.1 (celui livré avec Windows) et sous PowerShell 7 : npm ci, build,
   Ollama installé par winget, modèle qwen2.5:0.5b imposé (397 Mo) qui répond « Prêt. » en 2 s, 4
   tuiles de relief (17 Mo), puis le serveur construit lancé, qui lit poste.env et répond HTTP 200.
-  La base du poste aussi : ses 48 tests sous Windows (fsync, coupure simulée, écritures doublées,
-  copies, reprise, base absente, disque du poste), puis sur le vrai serveur le verrou repris après
-  un arrêt net, un second serveur en mémoire qui le dit, la copie du jour (1,6 à 1,9 s) et une base
-  abîmée reprise de sa copie et des écritures doublées, gardée à côté. Une autre machine, winget
+  La base du poste aussi : ses 60 tests sous Windows (fsync, coupure simulée, écritures doublées,
+  copies, reprise, base absente, disque du poste, compression, copies changées de dossier), puis
+  sur le vrai serveur le verrou repris après un arrêt net, un second serveur en mémoire qui le dit,
+  les copies mises seules sur l'autre disque de la machine (C:, le poste étant sur D:), la copie du
+  jour là (2,1 à 2,8 s) et une base abîmée reprise de sa copie et des écritures doublées, gardée à
+  côté. Une autre machine, winget
   caché : Ollama par l'installeur officiel, modèle choisi par le script selon la mémoire (16 Go →
   qwen2.5:7b, 4,7 Go) qui répond en 8 s, 2 min 45 s en tout ; puis Docker caché, et Docker tel qu'il
   est sur ces machines (conteneurs Windows) : le bilan dit lequel des deux et quoi faire, sans rien
@@ -119,8 +121,9 @@ Lancer comme un vrai serveur (sans mode dev)
 - Persistance (journal, personnel, comptes, quarts, zones, preuves) : sans DATABASE_URL, le poste
   garde sa base embarquée SUR DISQUE, dans data/base, sans limite de durée ; elle survit à l'arrêt,
   au redémarrage et à une coupure de courant. Chaque écriture est doublée aussitôt dans le dossier
-  des copies (data/copies, ou AFRICONTROL_COPIES : un autre disque ou une clé), avec une copie
-  complète chaque jour. Copie à emporter : le dossier data/ (et celui des copies), serveur arrêté.
+  des copies (AFRICONTROL_COPIES, sur un autre disque : le script de préparation le choisit seul
+  sous Windows, -Copies / --copies sinon ; à défaut data/copies), avec une copie complète chaque
+  jour. Copie à emporter : le dossier data/ (et celui des copies), serveur arrêté.
   AFRICONTROL_BASE=memoire la garde en mémoire (perdue à l'arrêt) ; une base Postgres
   (DATABASE_URL) reste possible. Voir « Base du poste et journal d'activité ».
 
@@ -1183,7 +1186,8 @@ Base du poste et journal d'activité — Division
   des écritures dans son cache sans les poser : l'onduleur reste conseillé, il laisse aussi le
   serveur s'arrêter proprement.
 - TOUT EST DOUBLÉ AUSSITÔT (src/lib/disque-poste.server.ts). Dossier des copies : AFRICONTROL_COPIES
-  (relatif au dossier du serveur ; un autre disque ou une clé, conseillé), sinon data/copies. La
+  (relatif au dossier du serveur ; un autre disque, voir COPIES SUR UN AUTRE DISQUE), sinon
+  data/copies. La
   base : chaque écriture de son journal (pg_wal) est refaite au même endroit dans copies/ecritures
   et forcée sur le disque AVANT que l'écriture soit confirmée — mesuré sur le serveur construit,
   9,8 à 10,5 ms par entrée au journal au lieu de 8,9 à 9,0. Les registres (data/*.json, archives
@@ -1220,6 +1224,9 @@ Base du poste et journal d'activité — Division
   s'ouvre pas, le problème n'est pas la base : elle est remise en place, intacte, et le serveur
   travaille en mémoire en le disant. Le motif affiché est la raison écrite par Postgres (ex. :
   could not open file "global/pg_control") ; PGLite seul ne disait que « Aborted() ».
+  Après une reprise, une copie de remise en route aussitôt (copies/remise-<date>) : la copie du
+  jour pouvait être celle qui ne s'ouvrait plus. Trouvé à l'essai (sans elle, plus de copie saine
+  avant le lendemain), corrigé : prise en 0,5 s après la reprise.
 - CLÉ DES COPIES RETIRÉE, DISQUE PLEIN. Le poste continue ; la Division dit en rouge ce qui n'est
   plus doublé, depuis quand et pourquoi (« Dossier des copies injoignable », « En défaut depuis
   le … »). Au retour, chaque fichier manqué est recopié en entier, puis le défaut s'efface
@@ -1232,8 +1239,36 @@ Base du poste et journal d'activité — Division
   sous 5 % ou 2 Go de libre. Mesuré : une copie du jour ≈ 40 Mo (24 Mo de base et un segment de
   16 Mo) ; les écritures doublées, 16 Mo au moins par jour ; le trafic, ≈ 310 octets par image
   pour 3 aéronefs (≈ 1,8 Mo par jour), ≈ 27 Ko pour 250 (relevé Internet allumé, ≈ 155 Mo par
-  jour) — le tout doublé. Compressés, trafic et copies tiendraient 11 à 13 fois moins : pas encore
-  fait.
+  jour) — le tout doublé. Ce qui ne sert plus qu'en archive est compressé (voir COMPRESSION). La
+  Division compare les volumes : deux partitions d'un même disque y passent pour deux disques ; le
+  bilan du script de préparation, lui, compare les disques.
+- COMPRESSION (gzip), sans rien risquer : chaque compressé est écrit à part, forcé sur le disque,
+  relu et comparé à l'original ; alors seulement l'original est effacé. Coupé n'importe où,
+  l'original ou le compressé entier reste. Fait au contrôle des copies (toutes les 5 min ; le plus
+  souvent rien à faire) : les copies de la base sauf la plus récente (celle qu'une reprise prend
+  d'abord), les segments doublés qu'elle ne rejoue plus, le trafic reçu et le relevé d'avant-hier
+  et plus vieux, au poste et dans les copies (ceux d'hier peuvent encore recevoir une ligne). La
+  reprise relit les compressés. Mesuré sur le serveur construit : une copie de la base 40,8 →
+  3,1 Mo (÷13), trois segments doublés 50,3 → 2,4 Mo (÷21), le trafic d'un jour 1,0 Mo → 92 Ko
+  (÷11), le relevé 87 → 18 Ko (÷4,8) ; 140,6 Mo regagnés au premier contrôle. Essayé : arrêt net
+  (kill -9) avec 1198 entrées confirmées, puis la base ET la copie du jour abîmées : reprise de la
+  copie compressée et des segments compressés, 1198 retrouvées, aucun doublon.
+- COPIES SUR UN AUTRE DISQUE. Le script de préparation règle AFRICONTROL_COPIES dans poste.env.
+  Sous Windows, il choisit seul un autre disque INTERNE de la machine (pas une autre partition du
+  même disque, jamais une clé ni un disque USB ; le plus de place libre, 10 Go au moins) :
+  X:\AfriControl-copies ; -Copies E:\AfriControl-copies impose le dossier. Sous Linux :
+  --copies /chemin. Les deux disent au bilan quand les copies restent sur le disque du poste (sa
+  panne emporterait les deux). Essayé sur un vrai Windows (GitHub Actions, deux disques) : poste
+  sur D: (disque 1), copies mises seules dans C:\AfriControl-copies (disque 0), copie du jour faite
+  là en 2,1 à 2,8 s, reprise de là après une base abîmée. Un dossier des copies changé (autre disque,
+  autre clé, vidé) reçoit tout ce que le poste gardait déjà : au démarrage, chaque jour, et dès
+  que la marque laissée dans ce dossier (recopie-faite) n'est plus la bonne, chaque fichier gardé
+  dont la copie manque ou n'a pas sa taille y est recopié en entier — sans cela, le trafic du jour
+  n'y aurait reçu que ses lignes nouvelles. La base y a sa copie du jour au premier contrôle ; les
+  copies d'avant restent dans l'ancien dossier, en archive. Essayé sur le serveur construit,
+  copies passées sur un second disque : copie du jour en 0,7 s, 3 fichiers gardés recopiés,
+  identiques ; arrêt net avec 1239 entrées confirmées, base abîmée : reprise depuis l'autre
+  disque, 1239 retrouvées.
 - UNE FUITE CORRIGÉE, trouvée par un mutant : chaque copie illisible essayée à la reprise laissait
   en mémoire tout le Postgres raté (≈ 180 Mo ; une minuterie de 10 s de Postgres le gardait en
   vie) — six essais montaient le serveur à 1,1 Go. Postgres est lancé sans ce suivi du démarrage.
@@ -1245,9 +1280,10 @@ Base du poste et journal d'activité — Division
   contenu s'effaçait à chaque arrêt du serveur, le dernier compris ; la première version sur
   disque démarre donc sur une base vierge (journal, personnel, quarts, zones à refaire), une fois.
   Avant d'appliquer une migration, une copie de la base : copies/avant-mise-a-jour-<date> ; le
-  dossier des copies injoignable, la mise à jour se fait quand même et le défaut est dit. Le
-  dossier data/base.sauvegarde de la version précédente ne sert plus : à effacer une fois la
-  première copie du jour faite (copies/jour-…).
+  dossier des copies injoignable, la mise à jour se fait quand même et le défaut est dit. La
+  sauvegarde que gardait la version précédente (data/base.sauvegarde) est rangée seule dans le
+  dossier des copies (copies/sauvegarde-version-precedente), compressée (57,9 → 4,8 Mo mesuré),
+  jamais effacée : rien à faire à la main.
 - JOURNAL D'ACTIVITÉ, EFFAÇABLE PAR LE CHEF (Division, panneau du journal d'activité). Lu par pages
   de 120, des plus récentes aux plus anciennes (« Plus anciennes »), filtrable par genre. Le chef
   efface une entrée (corbeille, confirmée dans la ligne) ou tout un genre (« Effacer les N
