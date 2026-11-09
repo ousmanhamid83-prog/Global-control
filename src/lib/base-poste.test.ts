@@ -497,6 +497,63 @@ describe("base du poste : écritures doublées, copies à chaud, reprise", () =>
   const inserer = async (pg: { query(s: string, p: unknown[]): Promise<unknown> }, a: number, b: number) => {
     for (let i = a; i <= b; i++) await pg.query("insert into t values ($1)", [i]);
   };
+  /**
+   * La clé des copies retirée : toute écriture sous `dossier` échoue (EIO), fichiers déjà ouverts
+   * compris — comme une clé arrachée. Sans renommer le dossier : Windows refuse de renommer un
+   * dossier aux fichiers ouverts, et sous Linux ces fichiers continueraient d'écrire. Rend
+   * `remettre`.
+   */
+  const retirerCle = (dossier: string): (() => void) => {
+    const racineCle = path.resolve(dossier);
+    const dedans = (p: unknown) => {
+      const r = path.resolve(String(p));
+      return r === racineCle || r.startsWith(racineCle + path.sep);
+    };
+    const inos = new Set<number>();
+    const parcourir = (d: string) => {
+      for (const e of readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) parcourir(p);
+        else inos.add(statSync(p).ino);
+      }
+    };
+    if (existsSync(dossier)) parcourir(dossier);
+    const eio = () => Object.assign(new Error("EIO: clé des copies retirée"), { code: "EIO" });
+    const vrai = {
+      openSync: fs.openSync,
+      writeSync: fs.writeSync,
+      fsyncSync: fs.fsyncSync,
+      mkdirSync: fs.mkdirSync,
+      copyFileSync: fs.copyFileSync,
+      cp: fs.promises.cp,
+      mkdir: fs.promises.mkdir,
+      open: fs.promises.open,
+    };
+    const ouvert = (fd: number) => inos.has(fs.fstatSync(fd).ino);
+    const f = fs as unknown as Record<string, (...a: unknown[]) => unknown>;
+    const fp = fs.promises as unknown as Record<string, (...a: unknown[]) => unknown>;
+    const appel = (g: unknown, a: unknown[]) => (g as (...x: unknown[]) => unknown)(...a);
+    f.openSync = (...a) => (dedans(a[0]) ? (() => { throw eio(); })() : appel(vrai.openSync, a));
+    f.writeSync = (...a) => (ouvert(a[0] as number) ? (() => { throw eio(); })() : appel(vrai.writeSync, a));
+    f.fsyncSync = (...a) => (ouvert(a[0] as number) ? (() => { throw eio(); })() : appel(vrai.fsyncSync, a));
+    f.mkdirSync = (...a) => (dedans(a[0]) ? (() => { throw eio(); })() : appel(vrai.mkdirSync, a));
+    f.copyFileSync = (...a) => (dedans(a[1]) ? (() => { throw eio(); })() : appel(vrai.copyFileSync, a));
+    fp.cp = async (...a) => (dedans(a[1]) ? Promise.reject(eio()) : appel(vrai.cp, a));
+    fp.mkdir = async (...a) => (dedans(a[0]) ? Promise.reject(eio()) : appel(vrai.mkdir, a));
+    fp.open = async (...a) => (dedans(a[0]) ? Promise.reject(eio()) : appel(vrai.open, a));
+    syncBuiltinESMExports();
+    return () => {
+      Object.assign(fs, {
+        openSync: vrai.openSync,
+        writeSync: vrai.writeSync,
+        fsyncSync: vrai.fsyncSync,
+        mkdirSync: vrai.mkdirSync,
+        copyFileSync: vrai.copyFileSync,
+      });
+      Object.assign(fs.promises, { cp: vrai.cp, mkdir: vrai.mkdir, open: vrai.open });
+      syncBuiltinESMExports();
+    };
+  };
   const abimer = (dossier: string) => {
     rmSync(`${dossier}.verrou`, { force: true }); // le serveur s'est arrêté
     rmSync(path.join(dossier, "global", "pg_control"));
@@ -774,10 +831,8 @@ describe("base du poste : écritures doublées, copies à chaud, reprise", () =>
     await pg.exec("create table t (i int primary key)");
     await inserer(pg, 1, 5);
     await copierBase(pg, dossier, copies, "jour-0", registres);
-    // La clé des copies retirée : plus de dossier des écritures doublées.
-    const doublees = path.join(copies, "ecritures");
-    fs.renameSync(doublees, `${doublees}-retiree`);
-    writeFileSync(doublees, "");
+    // La clé des copies retirée : plus rien ne s'écrit dans les écritures doublées.
+    const remettre = retirerCle(copies);
     await inserer(pg, 6, 10);
     assert.ok(defautsCopies().some((d) => d.quoi === "écritures doublées de la base"), "le défaut est dit");
     // Un autre segment du journal pendant la panne : jour-0 et les écritures doublées ont désormais
@@ -785,8 +840,7 @@ describe("base du poste : écritures doublées, copies à chaud, reprise", () =>
     await pg.query("select pg_switch_wal()");
     await inserer(pg, 11, 15);
     // La clé remise : la copie suivante remet le doublement en route.
-    rmSync(doublees);
-    fs.renameSync(`${doublees}-retiree`, doublees);
+    remettre();
     await copierBase(pg, dossier, copies, "jour-1", registres);
     assert.equal(defautsCopies().find((d) => d.quoi === "écritures doublées de la base"), undefined, "remises en route");
     await inserer(pg, 16, 20);
@@ -908,14 +962,12 @@ describe("base du poste : écritures doublées, copies à chaud, reprise", () =>
     let pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
     await pg.exec("create table t (i int primary key)");
     await programmerCopies(pg, dossier, copies, registres); // la copie du jour
-    fs.renameSync(copies, `${copies}-cle`); // la clé retirée : plus de dossier des copies
-    writeFileSync(copies, "");
+    const remettre = retirerCle(copies);
     await inserer(pg, 1, 10);
     await pg.query("select pg_switch_wal()");
     await inserer(pg, 11, 20);
     await programmerCopies(pg, dossier, copies, registres); // clé encore absente : rien de neuf
-    rmSync(copies);
-    fs.renameSync(`${copies}-cle`, copies);
+    remettre();
     await programmerCopies(pg, dossier, copies, registres); // le contrôle des 5 min
     assert.equal(readdirSync(copies).filter((x) => x.startsWith("remise-")).length, 1, "une copie de remise en route");
     assert.equal(defautsCopies().find((d) => d.quoi === "écritures doublées de la base"), undefined);
@@ -936,13 +988,11 @@ describe("base du poste : écritures doublées, copies à chaud, reprise", () =>
     let pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
     await pg.exec("create table t (i int primary key)");
     await programmerCopies(pg, dossier, copies, registres);
-    fs.renameSync(copies, `${copies}-cle`);
-    writeFileSync(copies, "");
+    const remettre = retirerCle(copies);
     await inserer(pg, 1, 10);
     await pg.close();
     rmSync(`${dossier}.verrou`);
-    rmSync(copies);
-    fs.renameSync(`${copies}-cle`, copies);
+    remettre();
     pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
     try {
       await programmerCopies(pg, dossier, copies, registres);

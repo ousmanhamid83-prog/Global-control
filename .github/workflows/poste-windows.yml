@@ -133,11 +133,18 @@ jobs:
           Write-Host "1. verrou laissé par l'arrêt net précédent : $verrouLaisse ; repris : $(Ligne 'a' '[base] sur disque')"
           if (-not (Test-Path data\base.verrou)) { Write-Host "pas de verrou posé"; exit 1 }
           # La copie du jour, à chaud : faite au premier démarrage sur disque (étape précédente) ou,
-          # s'il a été arrêté net pendant, par celui-ci. Les écritures doublées sont à côté.
-          for ($i = 0; $i -lt 60 -and -not (Test-Path data\copies\jour-*\base\backup_label); $i++) { Start-Sleep -Seconds 1 }
-          $s = Select-String -Path serveur.log, a.out -Pattern "[base] copie du jour faite" -SimpleMatch -ErrorAction SilentlyContinue |
-            Select-Object -First 1
+          # s'il a été arrêté net pendant, par celui-ci. Attendue par sa ligne au journal du serveur :
+          # son étiquette est écrite avant la fin, dans jour-….part. Les écritures doublées à côté.
+          $s = $null
+          for ($i = 0; $i -lt 60 -and -not $s; $i++) {
+            $s = Select-String -Path serveur.log, a.out -Pattern "[base] copie du jour faite" -SimpleMatch -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+            if (-not $s) { Start-Sleep -Seconds 1 }
+          }
           if (-not $s) { Get-Content serveur.log, a.out, a.err; Write-Host "pas de copie du jour"; exit 1 }
+          $jour = @(Get-ChildItem data\copies -Directory -Filter "jour-*" |
+            Where-Object { $_.Name -notlike "*.part" -and (Test-Path (Join-Path $_.FullName "base\backup_label")) })
+          if ($jour.Count -ne 1) { Get-ChildItem data\copies; Write-Host "copie du jour introuvable"; exit 1 }
           if (-not (Test-Path data\copies\ecritures\*)) { Get-ChildItem -Recurse data\copies; Write-Host "pas d'écritures doublées"; exit 1 }
           Write-Host "   copie du jour : $($s.Line)"
           $b = Lancer 8082 "b"

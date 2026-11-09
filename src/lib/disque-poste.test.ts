@@ -54,10 +54,12 @@ async function forces(faire: () => Promise<void>): Promise<string[]> {
 
 describe("disque du poste : rien d'écrit à moitié, tout doublé aussitôt", () => {
   it("DOSSIER DES COPIES : AFRICONTROL_COPIES (relatif au dossier du serveur), sinon data/copies", () => {
-    assert.equal(choisirCopies(undefined, "/srv/poste"), path.resolve("/srv/poste/data/copies"));
-    assert.equal(choisirCopies("  ", "/srv/poste"), path.resolve("/srv/poste/data/copies"));
-    assert.equal(choisirCopies("E:/copies", "/srv/poste"), path.resolve("/srv/poste", "E:/copies"));
-    assert.equal(choisirCopies("../usb", "/srv/poste"), path.resolve("/srv/usb"));
+    // Le dossier du serveur est toujours absolu (process.cwd()) : C:\srv\poste sous Windows.
+    const srv = path.resolve("/srv/poste");
+    assert.equal(choisirCopies(undefined, srv), path.join(srv, "data", "copies"));
+    assert.equal(choisirCopies("  ", srv), path.join(srv, "data", "copies"));
+    assert.equal(choisirCopies("E:/copies", srv), path.resolve(srv, "E:/copies"));
+    assert.equal(choisirCopies("../usb", srv), path.resolve("/srv/usb"));
     assert.equal(
       copieDe(registre()),
       path.join(dossier, "data", "copies", "fichiers", "data", "drones.json"),

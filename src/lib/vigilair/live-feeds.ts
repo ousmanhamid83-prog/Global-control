@@ -978,6 +978,11 @@ async function pullNetwork(): Promise<LivePicture> {
     if (usable || next.aircraft.length > 0) {
       releve.cache = { at: Date.now(), data: next };
       releve.lastGood = next;
+      // Ce que ce relevé a reçu (météo, SIGMET…), gardé s'il a changé ; ses aéronefs le sont
+      // avec le trafic reçu.
+      void import("./releve-garde.server")
+        .then(({ garderReleve }) => garderReleve(data))
+        .catch(() => undefined);
       return next;
     }
     if (releve.lastGood && Date.now() - releve.lastGood.at < 120_000) {
