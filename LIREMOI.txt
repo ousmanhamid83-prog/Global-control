@@ -84,23 +84,23 @@ Préparer le poste en une commande (une fois, en ligne)
 - Windows : ESSAYÉ SUR UN VRAI WINDOWS (machines neuves GitHub Actions, Windows 10.0.26100), à
   chaque changement du script, de la base ou des dépendances (.github/workflows/poste-windows.yml).
   Sous Windows PowerShell 5.1 (celui livré avec Windows) et sous PowerShell 7 : npm ci, build,
-  Ollama installé par winget, modèle qwen2.5:0.5b imposé (397 Mo) qui répond « Prêt. » en 2 s,
-  4 tuiles de relief (17 Mo), puis le serveur construit lancé, qui lit poste.env et répond HTTP
-  200. La base du poste aussi : ses 24 tests sous Windows (fsync, coupure simulée, sauvegarde,
-  reprise), puis sur le vrai serveur le verrou repris après un arrêt net, un second serveur en
-  mémoire qui le dit, la sauvegarde du jour (1,5 s, requêtes en attente 0,7 s) et une base abîmée
-  reprise de sa sauvegarde. Une autre machine, winget caché : Ollama par l'installeur officiel,
-  modèle choisi par le script selon la mémoire (16 Go → qwen2.5:7b, 4,7 Go) qui répond en 8 s,
-  2 min 45 s en tout ; puis Docker caché, et Docker tel qu'il est sur ces machines (conteneurs
+  Ollama installé par winget, modèle qwen2.5:0.5b imposé (397 Mo) qui répond « Prêt. » en 2 s, 4
+  tuiles de relief (17 Mo), puis le serveur construit lancé, qui lit poste.env et répond HTTP 200.
+  La base du poste aussi : ses tests sous Windows (fsync, coupure simulée, écritures doublées,
+  copies, reprise) et ceux du disque du poste, puis sur le vrai serveur le verrou repris après un
+  arrêt net, un second serveur en mémoire qui le dit, la copie du jour et une base abîmée reprise de
+  sa copie et des écritures doublées. Une autre machine, winget caché : Ollama par l'installeur
+  officiel, modèle choisi par le script selon la mémoire (16 Go → qwen2.5:7b, 4,7 Go) qui répond en
+  8 s, 2 min 45 s en tout ; puis Docker caché, et Docker tel qu'il est sur ces machines (conteneurs
   Windows) : le bilan dit lequel des deux et quoi faire, sans rien télécharger. Ce vrai Windows a
-  trouvé quatre défauts, corrigés : le package-lock.json refusé par npm ci depuis la mise à jour
-  de sécurité du 2 novembre (un poste neuf échouait au build, sous Linux aussi), le vite.cmd que
-  le build ne savait pas lancer sous Windows, la réponse d'essai de l'IA mal décodée sous
-  PowerShell 5.1 (« PrÃªt. »), et le script bloqué sans fin quand winget manque (il attendait
-  aussi l'application d'Ollama que lance l'installeur, qui reste ouverte). Il en a confirmé un
-  cinquième, corrigé avant l'essai : Windows refuse de forcer sur le disque un fichier ouvert en
-  lecture seule. PAS ESSAYÉ sur un vrai Windows : Docker Desktop en conteneurs Linux (itinéraire,
-  relais Signal, recherche), impossible sur ces machines. Si l'un rate, le bilan le dit.
+  trouvé quatre défauts, corrigés : le package-lock.json refusé par npm ci depuis la mise à jour de
+  sécurité du 2 novembre (un poste neuf échouait au build, sous Linux aussi), le vite.cmd que le
+  build ne savait pas lancer sous Windows, la réponse d'essai de l'IA mal décodée sous PowerShell
+  5.1 (« PrÃªt. »), et le script bloqué sans fin quand winget manque (il attendait aussi
+  l'application d'Ollama que lance l'installeur, qui reste ouverte). Il en a confirmé un cinquième,
+  corrigé avant l'essai : Windows refuse de forcer sur le disque un fichier ouvert en lecture seule.
+  PAS ESSAYÉ sur un vrai Windows : Docker Desktop en conteneurs Linux (itinéraire, relais Signal,
+  recherche), impossible sur ces machines. Si l'un rate, le bilan le dit.
 
 Lancer comme un vrai serveur (sans mode dev)
 - npm run dev est pratique mais c'est le mode développement. Pour un serveur autonome lançable
@@ -117,8 +117,9 @@ Lancer comme un vrai serveur (sans mode dev)
 - Par défaut le build vise Vercel ; NITRO_PRESET choisit la cible, rien d'autre à changer.
 - Persistance (journal, personnel, comptes, quarts, zones, preuves) : sans DATABASE_URL, le poste
   garde sa base embarquée SUR DISQUE, dans data/base, sans limite de durée ; elle survit à l'arrêt,
-  au redémarrage et à une coupure de courant, et se sauvegarde seule chaque jour
-  (data/base.sauvegarde). Copie à emporter : le dossier data/, serveur arrêté.
+  au redémarrage et à une coupure de courant. Chaque écriture est doublée aussitôt dans le dossier
+  des copies (data/copies, ou AFRICONTROL_COPIES : un autre disque ou une clé), avec une copie
+  complète chaque jour. Copie à emporter : le dossier data/ (et celui des copies), serveur arrêté.
   AFRICONTROL_BASE=memoire la garde en mémoire (perdue à l'arrêt) ; une base Postgres
   (DATABASE_URL) reste possible. Voir « Base du poste et journal d'activité ».
 
@@ -1156,7 +1157,7 @@ Base du poste et journal d'activité — Division
   et sessions, quarts, zones, preuves survivent à l'arrêt et au redémarrage. Le secret qui signe
   les sessions est gardé à côté (data/base.secret, lisible du seul compte du serveur) : un agent
   connecté le reste après un redémarrage ; le sceau du chef, lui, est à retaper. Copie à emporter :
-  le dossier data/, serveur arrêté (la sauvegarde du jour se fait seule, ci-dessous).
+  le dossier data/, serveur arrêté (les copies se font seules, ci-dessous).
   AFRICONTROL_BASE=memoire : base en mémoire, perdue à l'arrêt ; AFRICONTROL_BASE=<dossier> : la
   base ailleurs.
 - UN SEUL SERVEUR PAR BASE. Deux serveurs ouverts sur les mêmes fichiers la corrompent (essayé
@@ -1173,23 +1174,62 @@ Base du poste et journal d'activité — Division
   ouvre la base avec un vrai fsync : une écriture confirmée est sur le disque avant la réponse du
   serveur. Même simulation, coupé au démarrage, en pleine écriture, juste après une validation ou
   un point de contrôle : 10 fois sur 10 la base se relit sans rien perdre de confirmé ; refait à
-  chaque test (src/lib/base-coupure.test.ts). Coût mesuré sur le serveur construit (trois séries
+  chaque test (src/lib/base-coupure.test.ts) ; avec les copies, coupé 7 fois n'importe où puis la
+  base détruite, la copie et les écritures doublées rendent 7 fois sur 7 tout ce qui était
+  confirmé. Coût mesuré sur le serveur construit (trois séries
   de 200 entrées au journal) : 8,9 à 9,0 ms par entrée avec fsync, 7,4 à 9,3 ms sans ; sur un
   disque dur, chaque validation attend en plus que le disque l'ait posée. Un disque peut garder
   des écritures dans son cache sans les poser : l'onduleur reste conseillé, il laisse aussi le
   serveur s'arrêter proprement.
-- SAUVEGARDE CHAQUE JOUR, REPRISE TOUTE SEULE. Au démarrage puis chaque jour, le serveur copie la
-  base à côté : data/base.sauvegarde, l'image d'un instant, forcée sur le disque ; la précédente
-  n'est remplacée qu'une fois la nouvelle complète. Pendant la copie, les requêtes à la base
-  attendent (0,5 à 0,75 s pour 40 Mo) et le reste du serveur tourne, figé 11 ms au plus — la
-  première version, d'un seul bloc, figeait tout le serveur 0,4 à 1,2 s. Base illisible au
-  démarrage : le serveur la met de côté (data/base.illisible-<date>, jamais effacée), reprend la
-  sauvegarde — à défaut, une base neuve — et le dit au journal du serveur, au journal d'activité
-  (entrée critique « Base illisible au démarrage : le poste l'a reprise ») et dans la Division. Ce
-  qui a été écrit depuis la sauvegarde est perdu, un jour au plus. Si même une base neuve ne
+- TOUT EST DOUBLÉ AUSSITÔT (src/lib/disque-poste.server.ts). Dossier des copies : AFRICONTROL_COPIES
+  (relatif au dossier du serveur ; un autre disque ou une clé, conseillé), sinon data/copies. La
+  base : chaque écriture de son journal (pg_wal) est refaite au même endroit dans copies/ecritures
+  et forcée sur le disque AVANT que l'écriture soit confirmée — mesuré sur le serveur construit,
+  9,8 à 10,5 ms par entrée au journal au lieu de 8,9 à 9,0. Les registres (data/*.json, archives
+  de recordings/) : jamais écrits à moitié (un .part forcé, puis renommé), l'un après l'autre
+  quand deux arrivent ensemble, doublés dans copies/fichiers ; abîmés ou absents, relus sur leur
+  copie. Le trafic 1090ES reçu : dès le démarrage, console ouverte ou non, une image toutes les
+  15 à 20 s, une ligne dans data/trafic/1090ES-<jour>.jsonl (jour du poste), forcée et doublée,
+  gardée sans limite. La phonie ATC : chaque morceau reçu écrit et doublé aussitôt, forcé toutes
+  les 10 s et en fin de segment ; deux segments ouverts dans la même seconde ne s'écrasent plus.
+  Rien de secret n'est copié (poste.env, data/base.secret).
+- COPIE DU JOUR, À CHAUD (copies/jour-AAAA-MM-JJ, jour du poste, toutes gardées) : prise au
+  démarrage si celle du jour manque, puis chaque jour (regardé toutes les 5 min). Postgres est
+  prévenu (pg_backup_start) : les requêtes continuent pendant la copie (300 validations pendant une
+  copie, la plus longue en 2 ms). Mesuré sur le serveur construit : 0,63 à 0,82 s. Avant une mise à
+  jour qui apporte une migration, une copie de plus : copies/avant-mise-a-jour-<date>.
+- REPRISE SANS PERTE. Base illisible au démarrage : mise de côté (data/base.illisible-<date>,
+  jamais effacée), puis la copie la plus récente et les écritures doublées qui l'ont suivie ; à
+  défaut les copies plus anciennes. Base absente (dossier effacé, disque du poste remplacé) alors
+  que ses copies sont là : reprise de même, jamais une base vierge par-dessus. Plus aucune copie
+  lisible : base neuve, et l'ancienne génération (copies, écritures doublées) est rangée dans
+  copies/avant-<date> — gardée, jamais réécrite (les segments du journal d'une base neuve portent
+  les mêmes noms). Dit au journal du serveur, au journal d'activité (entrée critique « Base
+  illisible » ou « Base absente au démarrage : le poste l'a reprise ») et en rouge dans la
+  Division. Essayé sur le serveur construit : kill -9 en pleine écriture (258 entrées confirmées),
+  puis la base abîmée : 258 retrouvées ; kill -9 (207 confirmées), puis tout le dossier data/base
+  supprimé : 207 retrouvées — 0 perdue, HTTP prêt en 0,5 s. Pour repartir d'une base vierge :
+  serveur arrêté, mettre de côté data/base ET le dossier des copies. Si même une base neuve ne
   s'ouvre pas, le problème n'est pas la base : elle est remise en place, intacte, et le serveur
   travaille en mémoire en le disant. Le motif affiché est la raison écrite par Postgres (ex. :
   could not open file "global/pg_control") ; PGLite seul ne disait que « Aborted() ».
+- CLÉ DES COPIES RETIRÉE, DISQUE PLEIN. Le poste continue ; la Division dit en rouge ce qui n'est
+  plus doublé, depuis quand et pourquoi (« Dossier des copies injoignable », « En défaut depuis
+  le … »). Au retour, chaque fichier manqué est recopié en entier, puis le défaut s'efface
+  (essayé : la copie du trafic avait 82 lignes sur 87 ; une image plus tard, 89 sur 89) ; les
+  écritures doublées de la base repartent d'elles-mêmes, suivies d'une copie de remise en route
+  (copies/remise-<date>) sans attendre le lendemain. Leur dossier encore cassé : pas de copie de
+  plus, jamais une copie entière toutes les 5 min.
+- PLACE. Tout est gardé sans limite : la Division montre la place libre du disque du poste et de
+  celui des copies — en orange si c'est le même disque (sa panne emporterait les deux), en rouge
+  sous 5 % ou 2 Go de libre. Mesuré : une copie du jour ≈ 40 Mo (24 Mo de base et un segment de
+  16 Mo) ; les écritures doublées, 16 Mo au moins par jour ; le trafic, ≈ 310 octets par image
+  pour 3 aéronefs (≈ 1,8 Mo par jour), ≈ 27 Ko pour 250 (relevé Internet allumé, ≈ 155 Mo par
+  jour) — le tout doublé. Compressés, trafic et copies tiendraient 11 à 13 fois moins : pas encore
+  fait.
+- UNE FUITE CORRIGÉE, trouvée par un mutant : chaque copie illisible essayée à la reprise laissait
+  en mémoire tout le Postgres raté (≈ 180 Mo ; une minuterie de 10 s de Postgres le gardait en
+  vie) — six essais montaient le serveur à 1,1 Go. Postgres est lancé sans ce suivi du démarrage.
 - MISE À JOUR DU POSTE. Le code se remplace, le dossier data/ reste : base, secret des sessions,
   réglages (data/*.json ; poste.env à la racine). Au premier démarrage, la nouvelle version
   applique ses nouvelles migrations à la base existante, chacune dans une transaction avec son
@@ -1197,6 +1237,10 @@ Base du poste et journal d'activité — Division
   déjà faite et sans remède : les versions d'avant la base sur disque la gardaient en mémoire, son
   contenu s'effaçait à chaque arrêt du serveur, le dernier compris ; la première version sur
   disque démarre donc sur une base vierge (journal, personnel, quarts, zones à refaire), une fois.
+  Avant d'appliquer une migration, une copie de la base : copies/avant-mise-a-jour-<date> ; le
+  dossier des copies injoignable, la mise à jour se fait quand même et le défaut est dit. Le
+  dossier data/base.sauvegarde de la version précédente ne sert plus : à effacer une fois la
+  première copie du jour faite (copies/jour-…).
 - JOURNAL D'ACTIVITÉ, EFFAÇABLE PAR LE CHEF (Division, panneau du journal d'activité). Lu par pages
   de 120, des plus récentes aux plus anciennes (« Plus anciennes »), filtrable par genre. Le chef
   efface une entrée (corbeille, confirmée dans la ligne) ou tout un genre (« Effacer les N
@@ -1218,13 +1262,11 @@ Base du poste et journal d'activité — Division
   base intacte). 335 entrées en 3 pages de 28 à 32 ms, sans doublon ; effacer : 52 à 75 ms. Après
   redémarrage, sessions du chef et de l'opérateur valables, sceau à retaper. Dans le navigateur :
   filtre, effacements, « Plus anciennes » jusqu'à la dernière page, 0 erreur.
-- MISE À JOUR ET REPRISE ESSAYÉES sur le serveur construit. Une version sans la migration des
-  zones écrit 50 entrées et s'arrête ; la nouvelle démarre sur la même base, garde les 50
-  entrées, applique la migration (tables des zones créées), sauvegarde en 0,84 s (requêtes en
-  attente 0,43 s). Base abîmée ensuite (global/pg_control effacé) : relancé, HTTP prêt en 0,48 s
-  sur la sauvegarde reprise, la base abîmée gardée à côté, l'entrée critique au journal et la
-  ligne rouge dans la Division, 0 erreur dans le navigateur ; les 10 entrées écrites après la
-  sauvegarde sont perdues, comme prévu.
+- MISE À JOUR ESSAYÉE sur le serveur construit. La version précédente, sans la migration des
+  zones, écrit 50 entrées et s'arrête ; la nouvelle démarre sur la même base : copie avant mise à
+  jour en 0,82 s, migration appliquée (tables des zones créées), 50 entrées gardées, puis la copie
+  du jour en 0,63 s. Relue à part, la copie d'avant porte exactement l'état d'avant : 7
+  migrations, pas de tables des zones, 50 entrées.
 
 Diagnostic du poste — Capteurs > Outils
 - Une vue qui dit honnêtement l'état de CHAQUE source : 1090ES réseau, METAR, SIGMET, météo spatiale,
