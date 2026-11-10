@@ -1,8 +1,10 @@
 # Le script de préparation du poste sur une VRAIE machine Linux (GitHub, Ubuntu), lancé par un
-# compte qui n'est pas root (runner) mais a sudo, comme un opérateur. Le disque temporaire de la
-# machine (/mnt, à root, un autre disque que celui du système) doit être choisi seul pour les
-# copies, son dossier créé par sudo puis rendu au seul compte (700). La racine s'y dit « /dev/root »,
-# qui n'existe pas : le disque se lit par /sys. Le serveur, lui, doit voir deux disques différents.
+# compte qui n'est pas root (runner) mais a sudo, comme un opérateur. Ces machines n'ont qu'un
+# disque : le script ne doit rien inventer, et le dire. Puis un second disque est branché, monté
+# par le système (à root) : il doit être choisi seul pour les copies, son dossier créé par sudo puis
+# rendu au seul compte (700) ; disparu (disque remplacé), recréé de même au relancement. Un compte
+# sans droit sudo : le refus dit, rien de créé. La racine s'y dit « /dev/root », qui n'existe pas :
+# le disque se lit par /sys. Le serveur doit voir deux disques. Le code de sortie du script compte.
 name: Poste sous Linux
 
 on:
@@ -36,36 +38,76 @@ jobs:
       - name: Machine et disques
         run: |
           id
-          lsblk -o NAME,RM,TRAN,SIZE,FSTYPE,MOUNTPOINTS
+          lsblk -o NAME,TYPE,RM,TRAN,SIZE,FSTYPE,MOUNTPOINTS
           findmnt -no SOURCE,MAJ:MIN,FSTYPE -T "$PWD"
-          findmnt -no SOURCE,MAJ:MIN,FSTYPE -T /mnt
-          df -h "$PWD" /mnt
-          ls -ld /mnt
+          df -h "$PWD"
+
+      - name: Un seul disque — rien d'autre à choisir, les copies restent sur le poste, et c'est dit
+        run: |
+          set -o pipefail
+          test "$(id -u)" != 0
+          bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief | tee seul.txt
+          grep -F "copies du poste dans data/copies (défaut)" seul.txt
+          grep -F "Copies du poste sur le même disque que lui (" seul.txt
+          if grep -s "^AFRICONTROL_COPIES=" poste.env; then exit 1; fi
+
+      # Comme un disque monté par le système : son point de montage appartient à root.
+      - name: Un second disque branché (zram de 12 Go), monté à root sur /srv/disque-copies
+        run: |
+          [ -e /sys/class/zram-control ] || sudo modprobe zram || { sudo apt-get install -y "linux-modules-extra-$(uname -r)" && sudo modprobe zram; }
+          dev=$(sudo zramctl --find --size 12G)
+          sudo mkfs.ext4 -q "$dev"
+          sudo mkdir -p /srv/disque-copies
+          sudo mount "$dev" /srv/disque-copies
+          lsblk -o NAME,TYPE,SIZE,MOUNTPOINTS "$dev"
+          ls -ld /srv/disque-copies
 
       - name: Le script choisit seul l'autre disque, crée le dossier par sudo et le rend au seul compte
         run: |
-          test "$(id -u)" != 0
+          set -o pipefail
           bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief | tee bilan.txt
-          grep -F "dossier des copies créé par sudo sur /mnt (à root), rendu à $(id -un) seul" bilan.txt
-          grep -F "copies du poste sur un autre disque interne, choisi seul : /mnt/AfriControl-copies" bilan.txt
-          grep -Fx "AFRICONTROL_COPIES=/mnt/AfriControl-copies" poste.env
-          test "$(stat -c '%U %a' /mnt/AfriControl-copies)" = "$(id -un) 700"
-          touch /mnt/AfriControl-copies/ecrit
+          grep -F "dossier des copies créé par sudo sur /srv/disque-copies (à root), rendu à $(id -un) seul" bilan.txt
+          grep -F "copies du poste sur un autre disque interne, choisi seul : /srv/disque-copies/AfriControl-copies" bilan.txt
+          grep -Fx "AFRICONTROL_COPIES=/srv/disque-copies/AfriControl-copies" poste.env
+          test "$(stat -c '%U %a' /srv/disque-copies/AfriControl-copies)" = "$(id -un) 700"
+          touch /srv/disque-copies/AfriControl-copies/ecrit
 
       - name: Le serveur voit deux disques physiques, le poste et ses copies
         run: |
           node --experimental-strip-types --no-warnings --input-type=module -e '
             const { disquesPhysiques } = await import("./src/lib/disque-physique.server.ts");
             const poste = await disquesPhysiques("data");
-            const copies = await disquesPhysiques("/mnt/AfriControl-copies");
+            const copies = await disquesPhysiques("/srv/disque-copies/AfriControl-copies");
             console.log("Disques vus par le serveur (poste, copies) :", JSON.stringify([poste, copies]));
             if (!poste?.length || !copies?.length || poste.some((d) => copies.includes(d))) process.exit(1);
           '
+
+      - name: Un compte sans droit sudo — le refus dit, rien de créé, les copies laissées sur le poste
+        run: |
+          set -o pipefail
+          sudo useradd -m sansudo
+          sudo rm -rf /srv/disque-copies/AfriControl-copies
+          sudo cp -r "$PWD" /home/sansudo/poste
+          sudo rm -rf /home/sansudo/poste/poste.env /home/sansudo/poste/data
+          sudo chown -R sansudo: /home/sansudo/poste
+          sudo -u sansudo env PATH="$PATH" bash -c 'cd /home/sansudo/poste && bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief' < /dev/null | tee refus.txt
+          grep -F "appartient à root et sudo a refusé" refus.txt
+          grep -F "copies du poste dans data/copies (défaut)" refus.txt
+          test ! -e /srv/disque-copies/AfriControl-copies
+
+      - name: Le dossier réglé a disparu (disque remplacé, remonté à root) — recréé par sudo au relancement
+        run: |
+          set -o pipefail
+          bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief | tee relance.txt
+          grep -F "AFRICONTROL_COPIES déjà réglé dans poste.env (/srv/disque-copies/AfriControl-copies), gardé" relance.txt
+          grep -F "dossier des copies créé par sudo sur /srv/disque-copies (à root), rendu à $(id -un) seul" relance.txt
+          test "$(stat -c '%U %a' /srv/disque-copies/AfriControl-copies)" = "$(id -un) 700"
 
       # Pas de clé radio sur cette machine : le récepteur est installé par sudo, réglé, mis au
       # démarrage ; le script dit qu'aucune clé n'est branchée et que rien n'écoute encore.
       - name: Antenne 1090 — le récepteur installé par sudo, réglé sur sa position, poste.env réglé
         run: |
+          set -o pipefail
           bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief --antenne 12.1331,15.0339 | tee antenne.txt
           grep -Fx 'LAT="12.1331"' /etc/default/dump1090-mutability
           grep -Fx 'LON="15.0339"' /etc/default/dump1090-mutability

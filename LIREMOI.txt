@@ -1305,8 +1305,9 @@ Base du poste et journal d'activité — Division
   partition du disque du poste, jamais une clé ni un disque USB, le plus de place libre (10 Go au
   moins) — X:\AfriControl-copies, ou sous Linux un système de fichiers monté en écriture, hors des
   points du système (/boot, /usr, /var, /tmp, /media…), son dossier créé — par sudo quand le disque
-  appartient à root (un disque monté par le système), puis rendu à l'opérateur seul (droits 700) ;
-  sudo refusé : dit au bilan, et les copies restent dans data/copies.
+  appartient à root (un disque monté par le système), puis rendu à l'opérateur seul (droits 700),
+  et de même au relancement pour un dossier réglé qui a disparu (disque remplacé) ; sudo refusé :
+  dit au bilan, et les copies restent dans data/copies.
   -Copies E:\AfriControl-copies (Windows) ou --copies /chemin (Linux) imposent le dossier. Le bilan
   dit quand les copies restent sur le disque du poste (sa panne emporterait les deux). Essayé sur
   un vrai Windows (GitHub Actions, deux disques) : poste sur D: (disque 1), copies mises seules dans

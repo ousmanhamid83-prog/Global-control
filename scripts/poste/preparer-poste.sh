@@ -546,6 +546,15 @@ autre_disque() {
   if [ -n "$meilleur" ]; then echo "$max $meilleur"; fi
 }
 
+# creer_copies DOSSIER : créé par l'opérateur ; sous un point de montage à root (un disque monté
+# par le système), créé par sudo puis rendu à l'opérateur qui lance le poste (lui seul l'écrit, 700).
+# Choisi seul, réglé par --copies ou déjà dans poste.env mais disparu (disque remplacé) : pareil.
+creer_copies() {
+  mkdir -p "$1" 2>/dev/null && return 0
+  sudo mkdir -p "$1" && sudo chown "$(id -u):$(id -g)" "$1" && sudo chmod 700 "$1" || return 1
+  ok "dossier des copies créé par sudo sur $(findmnt -no TARGET -T "$1") (à root), rendu à $(id -un) seul"
+}
+
 etape "Copies du poste (un autre disque que le sien)"
 # Le dossier du poste d'abord : sur une installation neuve sans IA ni relief, data/ n'existe pas
 # encore, et son disque ne se lirait pas — aucun autre disque ne serait choisi.
@@ -556,24 +565,18 @@ CHOISI=""
 if [ -z "$COPIES" ] && [ -z "$REGLEES" ]; then
   read -r LIBRE POINT <<<"$(autre_disque)" || true
   if [ -n "${POINT:-}" ]; then
-    COPIES="$POINT/AfriControl-copies"
-    CHOISI="$((LIBRE / 1048576)) Go libres"
-    # Un point de montage à root : le dossier est créé par sudo, puis rendu à l'opérateur qui lance
-    # le poste (lui seul l'écrit). sudo refusé : dit, et les copies restent sur le disque du poste.
-    if ! mkdir -p "$COPIES" 2>/dev/null; then
-      if sudo mkdir -p "$COPIES" && sudo chown "$(id -u):$(id -g)" "$COPIES" && sudo chmod 700 "$COPIES"; then
-        ok "dossier des copies créé par sudo sur $POINT (à root), rendu à $(id -un) seul"
-      else
-        A_FAIRE+=("Le disque choisi pour les copies ($POINT) appartient à root et sudo a refusé : sudo mkdir -p $COPIES && sudo chown $(id -un) $COPIES, puis relancer le script.")
-        COPIES=""
-        CHOISI=""
-      fi
+    # sudo refusé : dit, et les copies restent sur le disque du poste.
+    if creer_copies "$POINT/AfriControl-copies"; then
+      COPIES="$POINT/AfriControl-copies"
+      CHOISI="$((LIBRE / 1048576)) Go libres"
+    else
+      A_FAIRE+=("Le disque choisi pour les copies ($POINT) appartient à root et sudo a refusé : sudo mkdir -p $POINT/AfriControl-copies && sudo chown $(id -un) $POINT/AfriControl-copies, puis relancer le script.")
     fi
   fi
 fi
 DOSSIER_COPIES=${COPIES:-${REGLEES:-data/copies}}
-if ! mkdir -p "$DOSSIER_COPIES" data 2>/dev/null; then
-  rate "copies : $DOSSIER_COPIES impossible à créer"
+if ! creer_copies "$DOSSIER_COPIES"; then
+  rate "copies : $DOSSIER_COPIES impossible à créer, même par sudo"
 elif [ ! -w "$DOSSIER_COPIES" ]; then
   rate "copies : $DOSSIER_COPIES en lecture seule — le poste ne pourrait rien y doubler"
 else
