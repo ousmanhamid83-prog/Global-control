@@ -89,8 +89,9 @@ Préparer le poste en une commande (une fois, en ligne)
   Sous Windows PowerShell 5.1 (celui livré avec Windows) et sous PowerShell 7 : npm ci, build,
   Ollama installé par winget, modèle qwen2.5:0.5b imposé (397 Mo) qui répond « Prêt. » en 2 s, 4
   tuiles de relief (17 Mo), puis le serveur construit lancé, qui lit poste.env et répond HTTP 200.
-  La base du poste aussi : ses 60 tests sous Windows (fsync, coupure simulée, écritures doublées,
-  copies, reprise, base absente, disque du poste, compression, copies changées de dossier), puis
+  La base du poste aussi : ses 104 tests sous Windows, 101 réussis et 3 propres à Linux sautés
+  (fsync, coupure simulée, écritures doublées, copies et leurs empreintes, reprise, base absente,
+  disque du poste, compression, anciennes copies en attente et rapatriées), puis
   sur le vrai serveur le verrou repris après un arrêt net, un second serveur en mémoire qui le dit,
   les copies mises seules sur l'autre disque de la machine (C:, le poste étant sur D:), la copie du
   jour là (2,1 à 2,8 s) et une base abîmée reprise de sa copie et des écritures doublées, gardée à
@@ -400,10 +401,13 @@ Les anciens noms VIGILAIR_1090 / VIGILAIR_ANTENNE sont encore lus : un poste dé
   (4D2023, AMC421, vers 37,0 N 13,8 E) : une ligne toutes les 20 s dans data/trafic, doublée
   aussitôt — 60 lignes en 15 min, à travers 5 relancements dont 2 après un arrêt net, et 3
   changements du disque des copies, sans trou, la copie identique octet pour octet. PAS ESSAYÉ
-  ici : une clé RTL-SDR branchée en direct (aucune sur cette machine). Le paquet
+  ici : une vraie clé RTL-SDR en direct (aucune sur cette machine). Le paquet
   dump1090-mutability d'Ubuntu, celui que le script installe, n'a rien décodé de cet
   enregistrement-là (0 trame valide) : c'est le dump1090 d'origine qui l'a démodulé ; avec une
-  vraie clé, ce paquet n'a pas pu être essayé ici.
+  vraie clé, ce paquet n'a pas pu être essayé ici. Sur une machine Linux neuve de GitHub Actions,
+  à chaque changement du script : installé par sudo, réglé, lancé avec la machine, poste.env
+  réglé, et l'absence de clé radio dite ; sur un vrai Windows, -Antenne essayé contre un port
+  30002 qui écoute, une position fausse refusée.
 
 GPS du poste (position + heure réelles) — Capteurs > GNSS
 - Branche un RÉCEPTEUR GPS (clé USB GPS, module u-blox, ou un terminal qui sort du NMEA). L'antenne
@@ -1315,10 +1319,14 @@ Base du poste et journal d'activité — Division
   base abîmée ; sous Linux, un second disque de 12 Go branché : choisi seul (zram0, le poste étant
   sur vda), gardé au relancement ; trop petit (1 Go), pas choisi. Lancé par de vrais comptes sans
   droits root, le disque monté à root : avec sudo, le dossier créé sur ce disque et rendu à ce
-  seul compte (700), poste.env réglé ; sans sudo, le refus dit, rien de créé. Un dossier des
-  copies changé (autre disque, autre clé, vidé) reçoit tout ce que le poste gardait déjà, au
-  contenu (voir CONTRÔLE AU CONTENU) — sans cela, le trafic du jour n'y aurait reçu que ses lignes
-  nouvelles. La base y a sa copie du jour au premier contrôle.
+  seul compte (700), poste.env réglé ; sans sudo, le refus dit, rien de créé. Refait à chaque
+  changement du script sur une machine Linux neuve de GitHub Actions (compte sans droits root) :
+  un seul disque, rien d'inventé et c'est dit ; un second disque branché à root, choisi seul, le
+  dossier créé par sudo et rendu (700) ; disparu, recréé au relancement ; sans droit sudo, refus
+  dit. Cette CI a trouvé un défaut, corrigé : un dossier réglé puis disparu n'était pas recréé. Un
+  dossier des copies changé (autre disque, autre clé, vidé) reçoit tout ce que le poste gardait
+  déjà, au contenu (voir CONTRÔLE AU CONTENU) — sans cela, le trafic du jour n'y aurait reçu que
+  ses lignes nouvelles. La base y a sa copie du jour au premier contrôle.
 - ANCIENNES COPIES RAPATRIÉES. Le dossier des copies changé de disque, ce que l'ancien gardait
   (copies de la base, écritures doublées, copies des fichiers, archives) est rapatrié dans le
   nouveau, sous copies/ancien-dossier-<date> : recopié dans un .part, forcé, comparé fichier par
@@ -1445,7 +1453,8 @@ Phonie ATC — réception seule (Capteurs > Phonie ATC)
   ESSAYÉ avec une vraie phonie VHF : pas de récepteur VHF ici, et aucune source publique joignable
   d'ici (LiveATC demande une vérification de navigateur Cloudflare, non contournée ; les
   enregistrements publics de Wikimedia sont refusés par sa limite de débit). Essayé : le réglage et
-  l'essai du flux, sur un faux flux HTTP local.
+  l'essai du flux, sur un faux flux HTTP local, et sur un vrai Windows (GitHub Actions) une
+  phonie muette dite.
 
 Alertes feu (FIRMS) — ce que le capteur peut, honnêtement
 - Détection thermique VIIRS : foyers groupés, puissance FRP (MW), confiance, jour/nuit, ville la
