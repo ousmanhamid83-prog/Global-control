@@ -1276,9 +1276,13 @@ export const fetchChangePair = createServerFn({ method: "POST" })
 /** Phonie ATC — état de l'enregistrement du flux public (réception seule). */
 export const atcStatus = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .handler(async (): Promise<{ status: AtcStatus; segments: AtcSegment[] }> => {
+  .handler(async (): Promise<{ status: AtcStatus; segments: AtcSegment[]; total: number }> => {
     const atc = await import("./atc.server");
-    return { status: atc.atcStatus(), segments: await atc.atcSegments() };
+    return {
+      status: atc.atcStatus(),
+      segments: await atc.atcSegments(),
+      total: await atc.atcNombreSegments(),
+    };
   });
 
 /** Active / coupe l'enregistrement de la phonie ATC publique (réception seule, sans limite). */
@@ -1515,7 +1519,7 @@ export const posteDiagnostic = createServerFn({ method: "GET" })
     if (!as.configured) {
       rows.push({ id: "atc", label: "Phonie ATC (réception)", state: "off", detail: "Flux non réglé (AFRICONTROL_ATC). Optionnel, réception seule." });
     } else if (as.recording && as.connected) {
-      rows.push({ id: "atc", label: "Phonie ATC (réception)", state: "ok", detail: `Enregistre ${as.endpoint} · ${as.segments} segments.` });
+      rows.push({ id: "atc", label: "Phonie ATC (réception)", state: "ok", detail: `Enregistre ${as.endpoint} · ${await atc.atcNombreSegments()} segments gardés.` });
     } else if (as.recording && !as.connected) {
       rows.push({ id: "atc", label: "Phonie ATC (réception)", state: "crit", detail: `${as.endpoint} injoignable${as.lastError ? ` : ${as.lastError}` : ""}.` });
     } else {

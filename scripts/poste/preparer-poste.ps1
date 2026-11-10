@@ -506,6 +506,37 @@ if ($Recherche) {
   }
 }
 
+# Les trames brutes (AVR « *…; ») que sert le récepteur 1090 : 20 au plus, en 30 s au plus ; -1
+# s'il ne répond pas. Un port ouvert ne prouve pas qu'une antenne entend : ces trames, si.
+function TramesAntenne([string]$Hote, [int]$Port, [int]$Secondes = 30) {
+  $client = New-Object Net.Sockets.TcpClient
+  try {
+    try {
+      $joint = $client.ConnectAsync($Hote, $Port).Wait(3000) # refusé : exception ; sans réponse en 3 s : faux
+    } catch {
+      $joint = $false
+    }
+    if (-not $joint) { return -1 }
+    $tampon = New-Object byte[] 65536
+    $texte = ""
+    $trames = 0
+    $fin = [DateTime]::UtcNow.AddSeconds($Secondes)
+    while ($trames -lt 20 -and [DateTime]::UtcNow -lt $fin) {
+      # 100 ms d'attente au plus : un récepteur muet (antenne débranchée) ne bloque pas la lecture.
+      if (-not $client.Client.Poll(100000, [Net.Sockets.SelectMode]::SelectRead)) { continue }
+      # Raccroché ou coupé net (arrêté en force) : 0 octet, sans exception ; ce qui est compté reste.
+      $erreur = [Net.Sockets.SocketError]::Success
+      $lus = $client.Client.Receive($tampon, 0, $tampon.Length, [Net.Sockets.SocketFlags]::None, [ref]$erreur)
+      if ($lus -le 0) { break }
+      $texte += [Text.Encoding]::ASCII.GetString($tampon, 0, $lus)
+      $trames = [regex]::Matches($texte, '(?m)^\*[0-9A-Fa-f]+;').Count
+    }
+    return [math]::Min($trames, 20)
+  } finally {
+    $client.Close()
+  }
+}
+
 if ($Antenne -or $Recepteur1090) {
   Etape "Antenne 1090 MHz du poste (réception seule)"
   $pos = [regex]::Match($Antenne, '^(-?\d{1,2}(\.\d+)?),(-?\d{1,3}(\.\d+)?)$')
@@ -519,20 +550,15 @@ if ($Antenne -or $Recepteur1090) {
     $position = "$($pos.Groups[1].Value),$($pos.Groups[3].Value)"
     Regler "AFRICONTROL_1090" $recepteur
     Regler "AFRICONTROL_ANTENNE" $position
-    $ecoute = $false
+    $trames = -1
+    $chrono = [Diagnostics.Stopwatch]::StartNew()
     $adresse = [regex]::Match($recepteur, '^\[?(.+?)\]?:(\d{1,5})$')
-    if ($adresse.Success) {
-      $client = New-Object Net.Sockets.TcpClient
-      try {
-        $ecoute = $client.ConnectAsync($adresse.Groups[1].Value, [int]$adresse.Groups[2].Value).Wait(3000) -and $client.Connected
-      } catch {
-        $ecoute = $false
-      } finally {
-        $client.Close()
-      }
-    }
-    if ($ecoute) {
-      Ok "antenne 1090 : récepteur sur $recepteur, antenne à $position — le poste décode lui-même les trames"
+    if ($adresse.Success) { $trames = TramesAntenne $adresse.Groups[1].Value ([int]$adresse.Groups[2].Value) }
+    $secondes = [math]::Floor($chrono.Elapsed.TotalSeconds) + 1
+    if ($trames -gt 0) {
+      Ok "antenne 1090 : $trames trame(s) brute(s) reçue(s) de $recepteur en moins de $secondes s, antenne à $position — le poste les décode lui-même"
+    } elseif ($trames -eq 0) {
+      $AFaire.Add("Antenne 1090 : $recepteur répond mais n'a servi aucune trame brute en 30 s — le port des trames brutes (30002 pour dump1090) ? antenne branchée, dégagée ? un aéronef à portée ? Le poste s'y raccroche seul.")
     } else {
       $AFaire.Add("Antenne 1090 : rien n'écoute sur $recepteur. Sous Windows : la clé radio RTL-SDR branchée, son pilote WinUSB posé par Zadig, un récepteur dump1090 lancé avec --net (trames brutes sur 30002) ; le poste s'y raccroche seul dès qu'il répond.")
     }

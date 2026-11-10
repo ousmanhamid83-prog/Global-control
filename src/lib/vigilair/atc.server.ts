@@ -41,7 +41,6 @@ export type AtcStatus = {
   recording: boolean;
   connected: boolean;
   bytes: number;
-  segments: number;
   startedAt: number | null;
   lastChunkAt: number | null;
   lastError: string | null;
@@ -96,6 +95,16 @@ function endpoint(): string {
  * reprise aussitôt) ne s'écrasent plus. */
 function segId(now: number): string {
   return `atc-${new Date(now).toISOString().replace(/[:.]/g, "-").slice(0, 23)}Z`;
+}
+
+/** Un segment gardé : atc-<début>.<ext>. */
+const SEGMENT = /^atc-.*\.\w+$/;
+
+/** Le début d'un segment, écrit dans son nom (segId ; à la seconde avant le 9 novembre 2026) ; un
+ * nom sans date : null. */
+function debutDe(nom: string): number | null {
+  const m = /^atc-(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})(?:-(\d{3}))?Z\./.exec(nom);
+  return m ? Date.parse(`${m[1]}:${m[2]}:${m[3]}.${m[4] ?? "000"}Z`) : null;
 }
 
 /** Forcé sur le disque ; le fichier pas encore ouvert par son flux, rien à forcer. */
@@ -247,7 +256,6 @@ export function atcStatus(): AtcStatus {
     recording: s.on,
     connected: s.connected,
     bytes: s.bytes,
-    segments: s.segList.length,
     startedAt: s.startedAt,
     lastChunkAt: s.lastChunkAt,
     lastError: s.lastError,
@@ -262,14 +270,20 @@ export async function atcSegments(): Promise<AtcSegment[]> {
   try {
     const files = await readdir(DIR);
     for (const f of files) {
-      if (seen.has(f) || !/^atc-.*\.\w+$/.test(f)) continue;
+      if (seen.has(f) || !SEGMENT.test(f)) continue;
       const st = await stat(path.join(DIR, f));
-      out.push({ id: f, at: st.mtimeMs, bytes: st.size });
+      // Daté de son début, comme ceux de ce démarrage — pas de sa dernière écriture.
+      out.push({ id: f, at: debutDe(f) ?? st.mtimeMs, bytes: st.size });
     }
   } catch {
     /* pas encore de segments */
   }
   return out.sort((a, b) => b.at - a.at).slice(0, MAX_SEGMENTS);
+}
+
+/** Tous les segments gardés sur le disque, pas seulement ceux de ce démarrage (ni les derniers listés). */
+export async function atcNombreSegments(): Promise<number> {
+  return (await readdir(DIR).catch(() => [] as string[])).filter((f) => SEGMENT.test(f)).length;
 }
 
 /** Un segment audio (base64) pour téléchargement. */

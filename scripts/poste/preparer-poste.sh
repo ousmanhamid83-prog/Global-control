@@ -436,6 +436,24 @@ fi
 # Antenne 1090 MHz : le récepteur (dump1090) sur la clé radio, ses trames brutes lues par le poste.
 recepteur_repond() { timeout 3 bash -c "exec 3<>/dev/tcp/${RECEPTEUR_1090%:*}/${RECEPTEUR_1090##*:}" 2>/dev/null; }
 
+# trames_1090 : les trames brutes (AVR « *…; ») que sert le récepteur — 20 au plus, en 30 s au plus.
+# Un port ouvert ne prouve pas qu'une antenne entend : ces trames, si.
+trames_1090() {
+  { timeout 30 bash -c "exec 3<>/dev/tcp/${RECEPTEUR_1090%:*}/${RECEPTEUR_1090##*:} && cat <&3" 2>/dev/null |
+    grep -m 20 -aE '^\*[0-9A-Fa-f]+;' | wc -l; } || true
+}
+
+# cle_rtl_sdr [DOSSIER] : une clé radio RTL2832U branchée (0bda:2832 ou 0bda:2838), lue dans /sys —
+# lsusb manque sur bien des postes, et l'aurait dite absente.
+cle_rtl_sdr() {
+  local d
+  for d in "${1:-/sys/bus/usb/devices}"/*; do
+    [ "$(cat "$d/idVendor" 2>/dev/null)" = 0bda ] || continue
+    case "$(cat "$d/idProduct" 2>/dev/null)" in 2832 | 2838) return 0 ;; esac
+  done
+  return 1
+}
+
 if [ -n "$ANTENNE$RECEPTEUR_1090" ]; then
   etape "Antenne 1090 MHz du poste (réception seule)"
   if ! [[ "$ANTENNE" =~ ^(-?[0-9]{1,2}(\.[0-9]+)?),(-?[0-9]{1,3}(\.[0-9]+)?)$ ]] ||
@@ -444,8 +462,10 @@ if [ -n "$ANTENNE$RECEPTEUR_1090" ]; then
   else
     LAT=${BASH_REMATCH[1]}
     LON=${BASH_REMATCH[3]}
+    LOCALE=""
     if [ -z "$RECEPTEUR_1090" ]; then
       RECEPTEUR_1090=127.0.0.1:30002
+      LOCALE=1
       SUDO=""
       if [ "$(id -u)" != 0 ]; then SUDO=sudo; fi
       if ! command -v dump1090-mutability >/dev/null; then installer_paquet dump1090-mutability || true; fi
@@ -461,18 +481,27 @@ if [ -n "$ANTENNE$RECEPTEUR_1090" ]; then
           -e 's/^RAW_OUTPUT_PORT=.*/RAW_OUTPUT_PORT="30002"/' \
           -e 's/^NET_BIND_ADDRESS=.*/NET_BIND_ADDRESS="127.0.0.1"/' /etc/default/dump1090-mutability
         $SUDO systemctl enable dump1090-mutability >/dev/null 2>&1 || true
-        $SUDO systemctl restart dump1090-mutability >/dev/null 2>&1 || true
-        if ! lsusb 2>/dev/null | grep -qiE '0bda:28(32|38)'; then
-          A_FAIRE+=("Antenne 1090 : aucune clé radio RTL-SDR vue (lsusb) — brancher la clé et son antenne, puis : sudo systemctl restart dump1090-mutability")
-        fi
+        # Sans systemd (conteneur, installation minimale) : par son script de démarrage.
+        $SUDO systemctl restart dump1090-mutability >/dev/null 2>&1 ||
+          $SUDO service dump1090-mutability restart >/dev/null 2>&1 || true
       else
         rate "antenne 1090 : le récepteur dump1090-mutability n'a pas pu être installé — en installer un (readsb, dump1090-fa), puis relancer avec --recepteur-1090 127.0.0.1:30002"
       fi
     fi
     regler AFRICONTROL_1090 "$RECEPTEUR_1090"
     regler AFRICONTROL_ANTENNE "$LAT,$LON"
+    trames=0
     if attendre recepteur_repond 20; then
-      ok "antenne 1090 : récepteur sur $RECEPTEUR_1090, antenne à $LAT,$LON — le poste décode lui-même les trames"
+      debut=$SECONDS
+      trames=$(trames_1090)
+      duree=$((SECONDS - debut + 1))
+    fi
+    if [ "$trames" -gt 0 ]; then
+      ok "antenne 1090 : $trames trame(s) brute(s) reçue(s) de $RECEPTEUR_1090 en moins de $duree s, antenne à $LAT,$LON — le poste les décode lui-même"
+    elif [ -n "$LOCALE" ] && ! cle_rtl_sdr; then
+      A_FAIRE+=("Antenne 1090 : aucune clé radio RTL-SDR vue — brancher la clé et son antenne, puis : sudo systemctl restart dump1090-mutability")
+    elif recepteur_repond; then
+      A_FAIRE+=("Antenne 1090 : $RECEPTEUR_1090 répond mais n'a servi aucune trame brute en 30 s — le port des trames brutes (30002 pour dump1090) ? antenne branchée, dégagée ? un aéronef à portée ? Le poste s'y raccroche seul.")
     else
       A_FAIRE+=("Antenne 1090 : rien n'écoute encore sur $RECEPTEUR_1090 — le poste s'y raccroche seul dès qu'il répond.")
     fi

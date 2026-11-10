@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -214,6 +222,42 @@ describe("phonie ATC : chaque morceau reçu gardé aussitôt, et doublé", () =>
       );
     } finally {
       atc.atcStop();
+    }
+  });
+
+  it("APRÈS UN REDÉMARRAGE : les segments du disque comptés tous, datés de leur début (leur nom), pas de leur dernière écriture", async () => {
+    const g = globalThis as { __afriAtc?: unknown };
+    const etat = g.__afriAtc;
+    const deCeDemarrage = await atc.atcSegments();
+    assert.ok(deCeDemarrage.length > 0);
+    delete g.__afriAtc; // le serveur redémarré : plus rien en mémoire
+    try {
+      // Laissés par un démarrage précédent, écrits pour la dernière fois 10 min après leur début.
+      const fin = new Date(Date.UTC(2026, 10, 1, 8, 10));
+      for (const f of [
+        "atc-2026-11-01T08-00-00-000Z.mp3",
+        "atc-2026-10-20T06-30-15Z.mp3",
+        "atc-sans-date.mp3",
+        "notes.txt",
+        "atc-sans-extension",
+      ]) {
+        const chemin = path.join(dossier, "recordings", "atc", f);
+        writeFileSync(chemin, "son");
+        utimesSync(chemin, fin, fin);
+      }
+      const at = new Map((await atc.atcSegments()).map((x) => [x.id, x.at]));
+      for (const x of deCeDemarrage) assert.equal(at.get(x.id), x.at, `${x.id} daté pareil`);
+      assert.equal(at.get("atc-2026-11-01T08-00-00-000Z.mp3"), Date.UTC(2026, 10, 1, 8, 0, 0, 0));
+      assert.equal(
+        at.get("atc-2026-10-20T06-30-15Z.mp3"),
+        Date.UTC(2026, 9, 20, 6, 30, 15),
+        "nommé à la seconde, avant le 9 novembre",
+      );
+      assert.equal(at.get("atc-sans-date.mp3"), fin.getTime(), "sans date : sa dernière écriture");
+      assert.equal(at.size, deCeDemarrage.length + 3, "ni notes.txt ni atc-sans-extension");
+      assert.equal(await atc.atcNombreSegments(), deCeDemarrage.length + 3);
+    } finally {
+      g.__afriAtc = etat;
     }
   });
 });

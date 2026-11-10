@@ -400,14 +400,27 @@ Les anciens noms VIGILAIR_1090 / VIGILAIR_ANTENNE sont encore lus : un poste dé
   démodule et sert les trames brutes sur 30002. Le poste décode et garde l'aéronef entendu
   (4D2023, AMC421, vers 37,0 N 13,8 E) : une ligne toutes les 20 s dans data/trafic, doublée
   aussitôt — 60 lignes en 15 min, à travers 5 relancements dont 2 après un arrêt net, et 3
-  changements du disque des copies, sans trou, la copie identique octet pour octet. PAS ESSAYÉ
-  ici : une vraie clé RTL-SDR en direct (aucune sur cette machine). Le paquet
-  dump1090-mutability d'Ubuntu, celui que le script installe, n'a rien décodé de cet
-  enregistrement-là (0 trame valide) : c'est le dump1090 d'origine qui l'a démodulé ; avec une
-  vraie clé, ce paquet n'a pas pu être essayé ici. Sur une machine Linux neuve de GitHub Actions,
-  à chaque changement du script : installé par sudo, réglé, lancé avec la machine, poste.env
-  réglé, et l'absence de clé radio dite ; sur un vrai Windows, -Antenne essayé contre un port
-  30002 qui écoute, une position fausse refusée.
+  changements du disque des copies, sans trou, la copie identique octet pour octet.
+- Le paquet dump1090-mutability d'Ubuntu, celui que le script installe, essayé sur ce même
+  signal : il ne démodule qu'à 2,4 millions d'échantillons par seconde (la cadence à laquelle il
+  règle la clé), l'enregistrement est à 2,0. Rééchantillonné à 2,4, il en tire 319 trames brutes
+  (275 de 4D2023), le dump1090 d'origine 217 (183), sans aucune adresse de plus. La notice
+  d'avant disait « 0 trame » : l'essai était mal réglé (fichier laissé à 2,0), pas le paquet.
+- La chaîne entière comme sur un poste : le script règle le paquet (position, trames brutes sur
+  127.0.0.1:30002), son service le lance, et seule l'entrée change (l'enregistrement au lieu de
+  la clé USB). Le poste construit s'y raccroche seul : 64 relevés de 4D2023 en 16 min, aucun trou
+  de plus de 25 s, la copie identique.
+- Au bilan, le script ne se fie plus à un port ouvert : il compte les trames brutes servies, 20
+  au plus en 30 s au plus (« ✓ antenne 1090 : 20 trame(s) brute(s) reçue(s) … en moins de 2 s »).
+  Le port SBS (30003, des positions), un récepteur muet ou coupé net : ce qui est compté, et dit.
+  La clé RTL-SDR est cherchée dans /sys (0bda:2832 ou 0bda:2838), sans lsusb.
+- PAS ESSAYÉ ici : une vraie clé RTL-SDR branchée en direct (aucun matériel sur cette machine).
+  Seul ce maillon manque, de la clé USB au paquet : sur place, le bilan du script le prouve dès
+  qu'une clé est branchée (des trames comptées), ou dit qu'aucune clé n'est vue.
+- Sur une machine Linux neuve de GitHub Actions, à chaque changement du script : installé par
+  sudo, réglé, lancé avec la machine, poste.env réglé, l'absence de clé radio dite, puis le vrai
+  signal décodé par le paquet lancé par systemd, ses trames comptées par le script ; sur un vrai
+  Windows, -Antenne compte 3 vraies trames servies sur 30002, une position fausse est refusée.
 
 GPS du poste (position + heure réelles) — Capteurs > GNSS
 - Branche un RÉCEPTEUR GPS (clé USB GPS, module u-blox, ou un terminal qui sort du NMEA). L'antenne
@@ -1449,12 +1462,19 @@ Phonie ATC — réception seule (Capteurs > Phonie ATC)
 - Réception seule : le poste lit un flux public et l'archive, sans limite (segments de 10 min),
   activable/désactivable. Il n'accorde aucune radio, ne décode pas la parole, n'émet jamais.
   Segments téléchargeables. Pas d'écoute d'autre chose que l'aéronautique en clair.
-- Le script de préparation la règle et essaie le flux : --phonie URL (Windows -Phonie URL). PAS
-  ESSAYÉ avec une vraie phonie VHF : pas de récepteur VHF ici, et aucune source publique joignable
-  d'ici (LiveATC demande une vérification de navigateur Cloudflare, non contournée ; les
-  enregistrements publics de Wikimedia sont refusés par sa limite de débit). Essayé : le réglage et
-  l'essai du flux, sur un faux flux HTTP local, et sur un vrai Windows (GitHub Actions) une
-  phonie muette dite.
+- Le script de préparation la règle et essaie le flux : --phonie URL (Windows -Phonie URL).
+- Essayé avec une VRAIE phonie VHF : l'enregistrement brut de la tour et du sol de Dublin
+  (archive.org « dublinatc101023 », Elderpaa / TheRadioBunker, licence CC BY-NC-SA 4.0, gardé
+  hors du dépôt) ; 10 min ramenées au format d'un récepteur de bande aéro (MP3 32 kbit/s, 75 à
+  85 transmissions), servies en flux HTTP au rythme réel, comme rtl_airband. Le poste construit,
+  démarré et arrêté depuis la console : le segment gardé (617 600 octets, 154 s, 15
+  transmissions) est identique octet pour octet à la source, doublé à l'identique, scellé
+  (SHA-256 conforme), téléchargeable. Les scripts Linux et Windows (PowerShell 7) règlent ce
+  flux et le disent joignable ; sur un vrai Windows (GitHub Actions), une phonie muette dite.
+- Après un redémarrage du poste, la console compte tous les segments gardés sur le disque et les
+  date de leur début, lu dans leur nom (avant : « 0 », et datés de leur fin).
+- PAS ESSAYÉ : un vrai récepteur VHF branché ici (aucun matériel). LiveATC n'a pas servi : sa
+  vérification de navigateur Cloudflare n'a pas été contournée.
 
 Alertes feu (FIRMS) — ce que le capteur peut, honnêtement
 - Détection thermique VIIRS : foyers groupés, puissance FRP (MW), confiance, jour/nuit, ville la

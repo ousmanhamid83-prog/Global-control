@@ -229,16 +229,44 @@ test("script Linux --antenne / --recepteur-1090 / --phonie : réglés dans poste
     join(ICI, "preparer-poste.sh"),
     join(poste, "scripts", "poste", "preparer-poste.sh"),
   );
-  // Un récepteur 1090 (trames brutes) et un flux de phonie, ici sur la machine.
+  // Un récepteur 1090 qui sert de vraies trames brutes (entendues de 4D2023, l'enregistrement d'une
+  // clé RTL-SDR), un autre qui répond sans rien servir, et un flux de phonie, ici sur la machine.
+  const vraies = [
+    "*8D4D2023586990A3359E5A546080;",
+    "*8D4D202399108CAB287014ABB53C;",
+    "*5D4D20237A55A6;",
+  ];
   const recepteur = createServer((s) => {
     s.on("error", () => undefined); // le script essaie, puis raccroche
-    s.end("*8D4D2023587F345E35837E2218B2;\n");
+    s.end(`${vraies.join("\n")}\n`);
+  });
+  // Le mauvais port : dump1090 sert sur 30003 ses positions en SBS, pas de trames brutes.
+  const sbs = createServer((s) => {
+    s.on("error", () => undefined);
+    s.end(
+      "MSG,3,1,1,4D2023,1,2026/11/10,09:10:00.000,2026/11/10,09:10:00.000,AMC421,20750,,,36.99,13.84,,,0,0,0,0\n",
+    );
+  });
+  // Un vrai récepteur sert sans fin : le script s'arrête à 20 trames, sans attendre 30 s.
+  const flot = createServer((s) => {
+    s.on("error", () => undefined);
+    const minuterie = setInterval(() => s.write(`${vraies.join("\n")}\n`), 20);
+    s.on("close", () => clearInterval(minuterie));
+  });
+  // Arrêté en force en pleine trame (coupure nette, RST).
+  const coupe = createServer((s) => {
+    s.on("error", () => undefined);
+    s.write(`${vraies[0]}\n${vraies[2]}\n*8D4D202399108C`);
+    setTimeout(() => s.resetAndDestroy(), 300);
   });
   const flux = http.createServer((_, r) => {
     r.writeHead(200, { "content-type": "audio/mpeg" });
     r.write(Buffer.alloc(4096));
   });
   await new Promise((r) => recepteur.listen(0, "127.0.0.1", r));
+  await new Promise((r) => sbs.listen(0, "127.0.0.1", r));
+  await new Promise((r) => flot.listen(0, "127.0.0.1", r));
+  await new Promise((r) => coupe.listen(0, "127.0.0.1", r));
   await new Promise((r) => flux.listen(0, "127.0.0.1", r));
   const portR = recepteur.address().port;
   const portF = flux.address().port;
@@ -276,7 +304,7 @@ test("script Linux --antenne / --recepteur-1090 / --phonie : réglés dans poste
     assert.match(
       r.sortie,
       new RegExp(
-        `✓ antenne 1090 : récepteur sur 127\\.0\\.0\\.1:${portR}, antenne à 37\\.5,14\\.0`,
+        `✓ antenne 1090 : 3 trame\\(s\\) brute\\(s\\) reçue\\(s\\) de 127\\.0\\.0\\.1:${portR} en moins de \\d+ s, antenne à 37\\.5,14\\.0`,
       ),
     );
     assert.match(
@@ -289,6 +317,45 @@ test("script Linux --antenne / --recepteur-1090 / --phonie : réglés dans poste
       env(),
       new RegExp(`^AFRICONTROL_ATC=http://127\\.0\\.0\\.1:${portF}/atc\\.mp3$`, "m"),
     );
+    // Un vrai récepteur sert sans fin : 20 trames comptées, sans attendre les 30 s.
+    r = await lancer(
+      "--antenne",
+      "37.5,14.0",
+      "--recepteur-1090",
+      `127.0.0.1:${flot.address().port}`,
+    );
+    assert.equal(r.code, 0, r.sortie);
+    const [, n, secondes] =
+      /✓ antenne 1090 : (\d+) trame\(s\) brute\(s\) reçue\(s\) de 127\.0\.0\.1:\d+ en moins de (\d+) s/.exec(
+        r.sortie,
+      ) ?? [];
+    assert.equal(n, "20", r.sortie);
+    assert.ok(Number(secondes) < 10, `${secondes} s`);
+    // Coupé net en pleine trame : les deux trames entières comptées, pas la moitié de la troisième.
+    r = await lancer(
+      "--antenne",
+      "37.5,14.0",
+      "--recepteur-1090",
+      `127.0.0.1:${coupe.address().port}`,
+    );
+    assert.equal(r.code, 0, r.sortie);
+    assert.match(
+      r.sortie,
+      /✓ antenne 1090 : 2 trame\(s\) brute\(s\) reçue\(s\) de 127\.0\.0\.1:\d+ en/,
+    );
+    // Le port SBS au lieu des trames brutes : il répond, rien n'est compté, c'est dit.
+    r = await lancer(
+      "--antenne",
+      "37.5,14.0",
+      "--recepteur-1090",
+      `127.0.0.1:${sbs.address().port}`,
+    );
+    assert.equal(r.code, 0, r.sortie);
+    assert.match(
+      r.sortie,
+      /Antenne 1090 : 127\.0\.0\.1:\d+ répond mais n'a servi aucune trame brute en 30 s — le port des trames brutes \(30002 pour dump1090\) \?/,
+    );
+    assert.doesNotMatch(r.sortie, /✓ antenne 1090/);
     // Rien n'écoute : réglé quand même, et dit — le poste s'y raccroche seul.
     recepteur.close();
     flux.close();
@@ -331,8 +398,39 @@ test("script Linux --antenne / --recepteur-1090 / --phonie : réglés dans poste
     assert.match(env(), /^AFRICONTROL_ANTENNE=12\.1331,15\.0339$/m, "le réglage d'avant reste");
   } finally {
     recepteur.close();
+    sbs.close();
+    flot.close();
+    coupe.close();
     flux.close();
     rmSync(poste, { recursive: true, force: true });
+  }
+});
+
+test("script Linux : la clé radio RTL-SDR reconnue dans /sys (0bda:2832, 0bda:2838), sans lsusb", async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const fonction = SH.match(/^cle_rtl_sdr\(\) \{\n[\s\S]*?\n\}$/m)?.[0];
+  assert.ok(fonction, "cle_rtl_sdr dans le script");
+  const usb = mkdtempSync(join(tmpdir(), "usb-"));
+  const branche = (nom, vendeur, produit) => {
+    mkdirSync(join(usb, nom), { recursive: true });
+    writeFileSync(join(usb, nom, "idVendor"), `${vendeur}\n`);
+    writeFileSync(join(usb, nom, "idProduct"), `${produit}\n`);
+  };
+  const vue = () =>
+    spawnSync("bash", ["-c", `${fonction}\ncle_rtl_sdr "$1"`, "essai", usb]).status === 0;
+  try {
+    branche("1-1", "046d", "c52b"); // une souris
+    branche("1-2", "0bda", "8153"); // un autre périphérique Realtek (réseau)
+    branche("1-4", "1234", "2838"); // le même numéro de produit, un autre fabricant
+    assert.equal(vue(), false, "pas de clé radio");
+    branche("1-3", "0bda", "2838");
+    assert.equal(vue(), true, "RTL2832U 0bda:2838");
+    rmSync(join(usb, "1-3"), { recursive: true });
+    branche("2-1", "0bda", "2832");
+    assert.equal(vue(), true, "RTL2832U 0bda:2832");
+  } finally {
+    rmSync(usb, { recursive: true, force: true });
   }
 });
 
@@ -364,6 +462,78 @@ test(
       "11.6,12.7,14.5,15.6",
       "True",
     ]);
+  },
+);
+
+test(
+  "PowerShell : TramesAntenne compte les vraies trames brutes — pas un port ouvert, ni le port SBS",
+  { skip: SANS_PWSH },
+  async () => {
+    const { createServer } = await import("node:net");
+    const serveur = (texte) =>
+      createServer((s) => {
+        s.on("error", () => undefined);
+        s.end(texte);
+      });
+    // De vraies trames brutes entendues de 4D2023, puis le port SBS (positions, pas de trames).
+    const vraies = serveur(
+      "*8D4D2023586990A3359E5A546080;\r\n*8D4D202399108CAB287014ABB53C;\r\n*5D4D20237A55A6;\r\n",
+    );
+    const sbs = serveur(
+      "MSG,3,1,1,4D2023,1,2026/11/10,09:10:00.000,,,AMC421,20750,,,36.99,13.84\n",
+    );
+    // Trente trames d'un coup : 20 comptées au plus, comme sous Linux.
+    const salve = serveur("*8D4D2023586990A3359E5A546080;\n".repeat(30));
+    // Un vrai récepteur sert sans fin : 20 comptées, sans attendre les 30 s.
+    const flot = createServer((s) => {
+      s.on("error", () => undefined);
+      const minuterie = setInterval(() => s.write("*5D4D20237A55A6;\n"), 20);
+      s.on("close", () => clearInterval(minuterie));
+    });
+    // Arrêté en force en pleine trame (coupure nette, RST) : les deux trames entières restent comptées.
+    const coupe = createServer((s) => {
+      s.on("error", () => undefined);
+      s.write("*8D4D2023586990A3359E5A546080;\n*5D4D20237A55A6;\n*8D4D202399108C");
+      setTimeout(() => s.resetAndDestroy(), 300);
+    });
+    // Antenne débranchée : le récepteur accepte et ne sert rien — 0 au bout du délai, sans bloquer.
+    const muet = createServer((s) => s.on("error", () => undefined));
+    for (const s of [vraies, sbs, salve, flot, coupe, muet]) {
+      await new Promise((ok) => s.listen(0, "127.0.0.1", ok));
+    }
+    const ferme = createServer();
+    await new Promise((ok) => ferme.listen(0, "127.0.0.1", ok));
+    const portFerme = ferme.address().port;
+    await new Promise((ok) => ferme.close(ok));
+    try {
+      const essai = [
+        '$src = Get-Content -Raw "' + join(ICI, "preparer-poste.ps1") + '"',
+        "$ast = [System.Management.Automation.Language.Parser]::ParseInput($src, [ref]$null, [ref]$null)",
+        '$f = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq "TramesAntenne" }, $true)[0]',
+        "Invoke-Expression $f.Extent.Text",
+        `TramesAntenne "127.0.0.1" ${vraies.address().port}`,
+        `TramesAntenne "127.0.0.1" ${sbs.address().port}`,
+        `TramesAntenne "127.0.0.1" ${portFerme}`,
+        `TramesAntenne "127.0.0.1" ${salve.address().port}`,
+        `TramesAntenne "127.0.0.1" ${flot.address().port}`,
+        `TramesAntenne "127.0.0.1" ${coupe.address().port}`,
+        `TramesAntenne "127.0.0.1" ${muet.address().port} 2`,
+      ].join("\n");
+      const debut = Date.now();
+      const r = await new Promise((ok) => {
+        const p = spawn(PWSH, ["-NoProfile", "-Command", essai]);
+        let sortie = "";
+        p.stdout.on("data", (d) => (sortie += d));
+        p.stderr.on("data", (d) => (sortie += d));
+        p.on("close", (code) => ok({ code, sortie }));
+      });
+      assert.equal(r.code, 0, r.sortie);
+      assert.deepEqual(r.sortie.trim().split(/\r?\n/), ["3", "0", "-1", "20", "20", "2", "0"]);
+      // Un récepteur qui raccroche est vu aussitôt : pas 30 s d'attente par essai.
+      assert.ok(Date.now() - debut < 25_000, `${Date.now() - debut} ms`);
+    } finally {
+      for (const s of [vraies, sbs, salve, flot, coupe, muet]) s.close();
+    }
   },
 );
 

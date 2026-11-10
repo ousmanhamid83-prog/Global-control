@@ -118,5 +118,35 @@ jobs:
           grep -Fx "AFRICONTROL_ANTENNE=12.1331,15.0339" poste.env
           grep -F "aucune clé radio RTL-SDR vue" antenne.txt
 
+      # Le vrai signal 1090 MHz : l'enregistrement d'une clé RTL-SDR livré avec le dump1090 d'origine,
+      # rééchantillonné à 2,4 MS/s (la cadence à laquelle le paquet règle la clé), lu par le paquet
+      # d'Ubuntu lancé par systemd tel que le script le règle — seule différence avec un poste : il lit
+      # ce fichier au lieu de la clé USB. Le script doit compter les trames entendues de 4D2023.
+      - name: Vrai signal 1090 MHz décodé par le paquet d'Ubuntu (systemd), trames comptées par le script
+        run: |
+          set -o pipefail
+          curl -sSfL -o modes1.bin https://raw.githubusercontent.com/antirez/dump1090/master/testfiles/modes1.bin
+          python3 -m venv /tmp/signal
+          /tmp/signal/bin/pip install --quiet numpy scipy
+          /tmp/signal/bin/python - modes1.bin modes1-2m4.bin <<'PY'
+          import sys
+          import numpy as np
+          from scipy.signal import resample_poly
+          brut = np.fromfile(sys.argv[1], dtype=np.uint8).astype(np.float64)
+          y = resample_poly((brut[0::2] - 127.5) + 1j * (brut[1::2] - 127.5), 6, 5)
+          s = np.empty(2 * len(y))
+          s[0::2], s[1::2] = y.real, y.imag
+          np.clip(np.round(s + 127.5), 0, 255).astype(np.uint8).tofile(sys.argv[2])
+          PY
+          sudo install -d -o dump1090 /run/afri-iq
+          sudo mkfifo -m 644 /run/afri-iq/iq
+          sudo chown "$(id -un)" /run/afri-iq/iq
+          (while true; do cat modes1-2m4.bin; sleep 1; done > /run/afri-iq/iq) &
+          sudo sed -i 's#^EXTRA_ARGS=.*#EXTRA_ARGS="--ifile /run/afri-iq/iq --throttle"#' /etc/default/dump1090-mutability
+          bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief --antenne 37.5,14.0 | tee signal.txt
+          grep -E "✓ antenne 1090 : [0-9]+ trame\(s\) brute\(s\) reçue\(s\) de 127\.0\.0\.1:30002" signal.txt
+          systemctl is-active dump1090-mutability
+          { timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/30002 && cat <&3' || true; } | grep -m 1 '^\*8D4D2023'
+
       - name: Tests des scripts
         run: node --test scripts/poste/preparer-poste.test.mjs

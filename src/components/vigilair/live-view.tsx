@@ -253,7 +253,7 @@ function Stat({
       <p className="text-xs text-muted-foreground">{k}</p>
       <p
         className={cn(
-          "mt-1 font-mono text-lg tabular-nums",
+          "mt-1 break-all font-mono text-lg tabular-nums",
           tone === "ok" && "text-ok",
           tone === "warn" && "text-warn",
           tone === "crit" && "text-crit",
@@ -274,6 +274,7 @@ function Stat({
 function AtcPanel() {
   const [status, setStatus] = useState<AtcStatus | null>(null);
   const [segments, setSegments] = useState<AtcSegment[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const wall = useWallClock();
 
@@ -282,6 +283,7 @@ function AtcPanel() {
       .then((r) => {
         setStatus(r.status);
         setSegments(r.segments);
+        setTotal(r.total);
       })
       .catch(() => undefined);
   };
@@ -347,7 +349,7 @@ function AtcPanel() {
         <dl className="grid grid-cols-4 gap-3 font-mono text-[12px]">
           <Stat k="Flux" v={status?.endpoint ?? "—"} />
           <Stat k="Enregistré" v={status ? `${(status.bytes / 1e6).toFixed(1)} Mo` : "—"} tone={status?.recording ? "ok" : "default"} />
-          <Stat k="Segments" v={status ? String(status.segments) : "—"} />
+          <Stat k="Segments" v={total === null ? "—" : String(total)} />
           <Stat
             k="Dernier son"
             v={status?.lastChunkAt ? `il y a ${formatAge(wall - status.lastChunkAt)}` : "—"}
