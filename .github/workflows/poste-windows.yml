@@ -92,6 +92,9 @@ jobs:
           if ($LASTEXITCODE -ne 1) { throw "une position fausse doit faire échouer le bilan ($LASTEXITCODE)" }
           if ((Get-Content poste.env -Raw) -notmatch "AFRICONTROL_ANTENNE=37\.5,14\.0") { throw "le réglage d'avant doit rester" }
           Write-Host "Antenne et phonie : réglées, essayées, dites ; position fausse refusée."
+          # Le refus voulu (code 1) ne doit pas faire échouer l'étape : Actions la juge sur le
+          # dernier code de sortie.
+          $global:LASTEXITCODE = 0
 
       # Le script choisit seul un autre disque INTERNE pour les copies : ici, le poste est sur D:
       # (le disque temporaire du runner) et C: (le disque du système) est un autre disque.

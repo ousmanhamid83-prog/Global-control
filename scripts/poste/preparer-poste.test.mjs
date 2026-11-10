@@ -369,8 +369,21 @@ test(
 
 test("script Linux --zone-imagerie : de bout en bout contre un faux compte Copernicus", async () => {
   const { createServer } = await import("node:http");
-  const { mkdtempSync, readdirSync, rmSync } = await import("node:fs");
+  const { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } =
+    await import("node:fs");
   const { tmpdir } = await import("node:os");
+  // Un poste à part : le script écrit poste.env et data/ à sa racine, jamais dans ce dépôt (lancé
+  // ici, il y aurait réglé les copies sur un autre disque de la machine).
+  const poste = mkdtempSync(join(tmpdir(), "poste-imagerie-"));
+  for (const f of [
+    "poste/preparer-poste.sh",
+    "poste/imagerie-poste.mjs",
+    "poste/imagerie-plan.mjs",
+    "sentinel-rendu.mjs",
+  ]) {
+    mkdirSync(dirname(join(poste, "scripts", f)), { recursive: true });
+    copyFileSync(join(ICI, "..", f), join(poste, "scripts", f));
+  }
   const srv = createServer((req, res) => {
     req.resume();
     req.on("end", () => {
@@ -392,10 +405,12 @@ test("script Linux --zone-imagerie : de bout en bout contre un faux compte Coper
     const r = await new Promise((ok) => {
       const p = spawn(
         "bash",
-        [join(ICI, "preparer-poste.sh"), "--sans-build", "--sans-ia", "--sans-relief"].concat([
-          "--zone-imagerie",
-          "12.0,12.2,15.0,15.2",
-        ]),
+        [
+          join(poste, "scripts", "poste", "preparer-poste.sh"),
+          "--sans-build",
+          "--sans-ia",
+          "--sans-relief",
+        ].concat(["--zone-imagerie", "12.0,12.2,15.0,15.2"]),
         {
           env: {
             PATH: process.env.PATH,
@@ -419,8 +434,10 @@ test("script Linux --zone-imagerie : de bout en bout contre un faux compte Coper
       String(f).endsWith(".jpg"),
     );
     assert.equal(ecrites.length, n);
+    assert.ok(existsSync(join(poste, "data")), "le script a travaillé dans le poste d'essai");
   } finally {
     await new Promise((ok) => srv.close(ok));
     rmSync(dossier, { recursive: true, force: true });
+    rmSync(poste, { recursive: true, force: true });
   }
 });
