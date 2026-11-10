@@ -681,9 +681,51 @@ function PlaceLibre({ place }: { place: PlaceDuPoste }) {
         {!memeDisque && copies && (!disques.poste || !disques.copies)
           ? " Disques physiques non reconnus ici : seuls les volumes sont comparés."
           : ""}
-        {basse ? " Place basse : disque plein, plus rien ne pourrait être gardé." : ""}
+        {basse
+          ? " Place basse (moins de 2 Go ou de 5 % libres) : le disque plein, plus rien ne pourrait être gardé."
+          : ""}
       </span>
     </p>
+  );
+}
+
+type ControleDesCopies = NonNullable<JournalOps["copies"]>["controle"];
+
+const pluriel = (n: number, un: string, plusieurs: string) => `${n} ${n > 1 ? plusieurs : un}`;
+
+/** Les copies de la base relues au contenu contre leurs empreintes (contrôle quotidien, et à toute
+ * reprise) : saines et scellées, sans ce sceau, sans empreintes, pas encore relues ; les abîmées en
+ * rouge, nommées, avec ce qui ne va pas. */
+function ControleCopies({ controle: c }: { controle: ControleDesCopies }) {
+  if (c === null) return null;
+  const parts = [
+    `${pluriel(c.scellees, "saine et scellée", "saines et scellées")} par la clé du poste`,
+    c.nonScellees > 0
+      ? `${pluriel(c.nonScellees, "saine", "saines")} sans ce sceau (une ancienne clé)`
+      : "",
+    c.sansEmpreintes > 0
+      ? `${pluriel(c.sansEmpreintes, "faite", "faites")} avant les empreintes`
+      : "",
+    c.aRelire > 0
+      ? `${pluriel(c.aRelire, "pas encore relue", "pas encore relues")} (contrôle progressif)`
+      : "",
+  ].filter(Boolean);
+  return (
+    <>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Copies de la base relues au contenu contre leurs empreintes (dernière relecture le{" "}
+        {formatDate(c.at)}) : {parts.join(" ; ")}.
+      </p>
+      {c.abimees.map((a) => (
+        <p key={a.nom} className="mt-1 flex items-start gap-1.5 text-xs text-crit">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            Copie de la base <span className="font-mono">{a.nom}</span> abîmée, découverte le{" "}
+            {formatDate(a.at)} : {a.raison} — une reprise ne la prend qu'à défaut de toute autre.
+          </span>
+        </p>
+      ))}
+    </>
   );
 }
 
@@ -692,26 +734,43 @@ type IntegriteDuPoste = NonNullable<JournalOps["copies"]>["integrite"];
 /** L'intégrité des fichiers gardés : relus au contenu, scellés ; ce qui a été réparé ou rescellé,
  * ce qui est abîmé des deux côtés (aussi en défaut, plus haut), les anciennes copies rapatriées. */
 function IntegriteFichiers({ integrite: i }: { integrite: IntegriteDuPoste }) {
-  if (i.derniere === null) return null;
+  if (i.derniere === null && i.attentes.length === 0) return null;
   return (
     <>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Intégrité des fichiers gardés : contrôlés au contenu le {formatDate(i.derniere)} —{" "}
-        {i.relus} relu{i.relus > 1 ? "s" : ""} au poste et dans leur copie (SHA-256 scellé par la
-        clé du poste), {i.recopies} recopié{i.recopies > 1 ? "s" : ""}.
-      </p>
+      {i.derniere !== null ? (
+        <p className="mt-1 text-xs text-muted-foreground">
+          Intégrité des fichiers gardés : contrôlés au contenu le {formatDate(i.derniere)} —{" "}
+          {i.relus} relu{i.relus > 1 ? "s" : ""} au poste et dans leur copie (SHA-256 scellé par la
+          clé du poste), {i.recopies} recopié{i.recopies > 1 ? "s" : ""}.
+        </p>
+      ) : null}
+      {i.attentes.map((a) => (
+        <p key={`a${a.de}`} className="mt-1 flex items-start gap-1.5 text-xs text-warn">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            Anciennes copies en attente de rapatriement : <span className="font-mono">{a.de}</span>{" "}
+            ne répond pas depuis le {formatDate(a.depuis)} ({a.raison}) — réessayé à chaque
+            contrôle, le dernier essai le {formatDate(a.dernier)}. Rebrancher son disque ou sa clé :
+            ses copies sont rapatriées dès qu'il répond, jamais oubliées.
+          </span>
+        </p>
+      ))}
       {i.reparees.map((r) => (
         <p key={`r${r.f}${r.at}`} className="mt-1 flex items-start gap-1.5 text-xs text-warn">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-          Réparé depuis sa copie le {formatDate(r.at)} (le disque du poste l'avait abîmé) :{" "}
-          <span className="font-mono">{r.f}</span>.
+          <span>
+            Réparé depuis sa copie le {formatDate(r.at)} (le disque du poste l'avait abîmé) :{" "}
+            <span className="font-mono">{r.f}</span>.
+          </span>
         </p>
       ))}
       {i.rescellees.map((r) => (
         <p key={`s${r.f}${r.at}`} className="mt-1 flex items-start gap-1.5 text-xs text-warn">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-          Modifié hors du poste, pareil des deux côtés, rescellé le {formatDate(r.at)} :{" "}
-          <span className="font-mono">{r.f}</span>.
+          <span>
+            Modifié hors du poste, pareil des deux côtés, rescellé le {formatDate(r.at)} :{" "}
+            <span className="font-mono">{r.f}</span>.
+          </span>
         </p>
       ))}
       {i.rapatriement ? (
@@ -843,6 +902,7 @@ function OpsPanel() {
                 {copies.dossier} — rien n'y est doublé tant qu'il ne répond pas.
               </p>
             )}
+            <ControleCopies controle={copies.controle} />
             {copies.defauts.map((d) => (
               <p key={d.quoi} className="mt-1 flex items-start gap-1.5 text-xs text-crit">
                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />

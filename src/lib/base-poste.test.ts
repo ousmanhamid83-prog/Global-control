@@ -30,11 +30,13 @@ import {
   prendreBase,
   programmerCopies,
   compresserAnciennes,
+  controlerCopiesBase,
   copierBase,
   etatCopies,
   secretDuPoste,
 } from "./base-poste.server.ts";
 import { defautsCopies } from "./disque-poste.server.ts";
+import { manifesteDossier } from "./empreintes-poste.server.ts";
 import { jourPoste } from "./vigilair/format.ts";
 
 const racine = mkdtempSync(path.join(tmpdir(), "base-poste-"));
@@ -722,7 +724,11 @@ describe("base du poste : écritures doublées, copies à chaud, reprise", () =>
 
     pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
     try {
-      assert.match((etatBase() as { reprise?: string }).reprise ?? "", REPRISE);
+      // Découverte à ses empreintes, avant d'être essayée.
+      assert.match(
+        (etatBase() as { reprise?: string }).reprise ?? "",
+        new RegExp(`qui l'ont suivie ; écartée, abîmée : ${duJour} \\(base/global/pg_control manque\\) ; la base illisible est gardée`),
+      );
       assert.deepEqual((await pg.query<{ i: number }>("select i from t order by i")).rows.map((x) => x.i), de(1, 30));
       // Celle du jour existe, illisible : sans copie neuve, la prochaine reprise repartirait de la
       // plus ancienne et de tout le miroir.
@@ -1060,7 +1066,11 @@ describe("base du poste : écritures doublées, copies à chaud, reprise", () =>
     abimer(dossier);
     pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
     try {
-      assert.match((etatBase() as { reprise?: string }).reprise ?? "", REPRISE);
+      // L'ancienne, compressée, relue saine à ses empreintes ; la plus récente écartée.
+      assert.match(
+        (etatBase() as { reprise?: string }).reprise ?? "",
+        /qui l'ont suivie ; écartée, abîmée : jour-2 \(base\/global\/pg_control manque\) ; la base illisible est gardée/,
+      );
       assert.deepEqual((await pg.query<{ i: number }>("select i from t order by i")).rows.map((x) => x.i), de(1, 30));
       const plats = readdirSync(path.join(copies, "ecritures")).filter((n) => /^[0-9A-F]{24}$/.test(n));
       assert.ok(plats.every((n) => !existsSync(path.join(copies, "ecritures", `${n}.gz`))), "pas refaits en clair");
@@ -1132,6 +1142,198 @@ describe("base du poste : écritures doublées, copies à chaud, reprise", () =>
       delete process.env.AFRICONTROL_COPIES;
     }
   });
+  it("EMPREINTES DES COPIES DE LA BASE : chaque copie a les siennes, scellées par la clé du poste, gardées lisibles quand elle est compressée ; relues saines au contrôle", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    const pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      await pg.exec("create table t (i int primary key)");
+      await inserer(pg, 1, 5);
+      await copierBase(pg, dossier, copies, "jour-1", registres);
+      await copierBase(pg, dossier, copies, "jour-2", registres);
+      const m = JSON.parse(readFileSync(path.join(copies, "jour-1", "manifeste.json"), "utf8")) as {
+        cle: string;
+        s: string;
+        fichiers: [string, number, string][];
+      };
+      const chemins = m.fichiers.map(([f]) => f);
+      for (const f of ["base/backup_label", "base/PG_VERSION", "base/global/pg_control"]) assert.ok(chemins.includes(f), f);
+      assert.ok(chemins.some((f) => /^base\/pg_wal\/[0-9A-F]{24}$/.test(f)), "les segments de la copie");
+      assert.match(m.s, /^[0-9a-f]{64}$/);
+      assert.ok(m.fichiers.length > 100, `${m.fichiers.length} fichiers`);
+      assert.ok((await compresserAnciennes(copies)) > 0, "jour-1 compressée");
+      assert.ok(existsSync(path.join(copies, "jour-1", "manifeste.json")), "ses empreintes restent lisibles");
+      const avant = Date.now();
+      assert.equal(await controlerCopiesBase(copies, registres, "2026-11-09"), false);
+      const { controle } = await etatCopies(copies);
+      assert.ok(controle && controle.at >= avant);
+      assert.deepEqual(controle, {
+        at: controle.at,
+        scellees: 2,
+        nonScellees: 0,
+        sansEmpreintes: 0,
+        aRelire: 0,
+        abimees: [],
+      });
+      // Une copie faite avant les empreintes (un poste mis à jour) : dite comme telle, pas abîmée.
+      rmSync(path.join(copies, "jour-1", "manifeste.json"));
+      assert.equal(await controlerCopiesBase(copies, registres, "2026-11-10"), false);
+      const apres = (await etatCopies(copies)).controle;
+      assert.deepEqual([apres?.scellees, apres?.sansEmpreintes, apres?.abimees], [1, 1, []]);
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("LE CONTRÔLE QUOTIDIEN DÉCOUVRE LA PLUS RÉCENTE ABÎMÉE : dite (défaut, Division), et une copie neuve aussitôt ; le lendemain, la neuve relue saine", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    const pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      await pg.exec("create table t (i int primary key)");
+      await programmerCopies(pg, dossier, copies, registres); // la copie du jour
+      const duJour = `jour-${jourPoste(Date.now())}`;
+      const f = path.join(copies, duJour, "base", "global", "pg_control");
+      const b = readFileSync(f);
+      b[100]! ^= 1; // un bit, sur le disque des copies
+      writeFileSync(f, b);
+      await programmerCopies(pg, dossier, copies, registres); // le contrôle du jour la relit
+      const remise = readdirSync(copies).filter((n) => n.startsWith("remise-"));
+      assert.equal(remise.length, 1, readdirSync(copies).join(" "));
+      const { controle } = await etatCopies(copies);
+      assert.deepEqual(
+        controle?.abimees.map((a) => [a.nom, a.raison]),
+        [[duJour, "base/global/pg_control diffère de son empreinte"]],
+      );
+      assert.equal(controle?.aRelire, 1, "la neuve, relue au prochain contrôle");
+      assert.match(
+        defautsCopies().find((d) => d.quoi === "copies de la base")?.raison ?? "",
+        new RegExp(`^abîmée\\(s\\) : ${duJour} \\(base/global/pg_control diffère de son empreinte\\)$`),
+      );
+      assert.equal(await controlerCopiesBase(copies, registres, "lendemain"), false);
+      assert.equal((await etatCopies(copies)).controle?.scellees, 1, "la copie neuve, saine et scellée");
+      rmSync(path.join(copies, duJour), { recursive: true });
+      await controlerCopiesBase(copies, registres, "surlendemain");
+      assert.equal(defautsCopies().find((d) => d.quoi === "copies de la base"), undefined, "ôtée, plus dite");
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("CONTRÔLE PROGRESSIF : une fois par jour, borné — la plus récente et au moins une autre, à tour de rôle ; un changement se voit au passage suivant", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    const pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      await pg.exec("create table t (i int)");
+      for (const n of ["jour-1", "jour-2", "jour-3"]) await copierBase(pg, dossier, copies, n, registres);
+      const aRelire = async () => (await etatCopies(copies)).controle?.aRelire;
+      assert.equal(await controlerCopiesBase(copies, registres, "j1", 1), false); // jour-3 et jour-1
+      assert.equal(await aRelire(), 1);
+      const f = path.join(copies, "jour-3", "base", "PG_VERSION");
+      writeFileSync(f, "99\n");
+      assert.equal(await controlerCopiesBase(copies, registres, "j1", 1), false, "pas relue deux fois le même jour");
+      assert.equal(await controlerCopiesBase(copies, registres, "j2", 1), true, "le jour suivant, découverte"); // et jour-2
+      assert.equal(await aRelire(), 0, "le tour a avancé");
+    } finally {
+      await pg.close();
+    }
+  });
+
+  /**
+   * Deux copies (jour-1, puis celle du jour), t de 1 à 30, u = « intact » ; dans la copie du jour,
+   * u devient « trafiq » — une page que le journal ne réécrit pas : Postgres ne le verrait pas, et
+   * une reprise de cette copie rendrait « trafiq ». La base, elle, est abîmée.
+   */
+  const copieDuJourAlteree = async () => {
+    const p = nouveauPoste();
+    const duJour = `jour-${jourPoste(Date.now())}`;
+    const pg = await ouvrirBase(ouvrirAvecCopies(p.copies), undefined, p.poste);
+    await pg.exec("create table t (i int primary key); create table u (v text)");
+    await pg.query("insert into u values ('intact')");
+    await inserer(pg, 1, 10);
+    await copierBase(pg, p.dossier, p.copies, "jour-1", p.registres);
+    await inserer(pg, 11, 20);
+    await copierBase(pg, p.dossier, p.copies, duJour, p.registres);
+    const rel = (await pg.query<{ f: string }>("select pg_relation_filepath('u') as f")).rows[0]!.f;
+    await inserer(pg, 21, 30); // u n'est plus touchée : sa page n'est pas réécrite par le journal
+    await pg.close();
+    const fu = path.join(p.copies, duJour, "base", rel);
+    const b = readFileSync(fu);
+    assert.ok(b.indexOf("intact") >= 0);
+    b.write("trafiq", b.indexOf("intact"));
+    writeFileSync(fu, b);
+    abimer(p.dossier);
+    return { ...p, duJour, rel };
+  };
+  const rienDePerduRienDeFaux = async (pg: { query<R>(s: string): Promise<{ rows: R[] }> }) => {
+    assert.deepEqual((await pg.query<{ i: number }>("select i from t order by i")).rows.map((x) => x.i), de(1, 30));
+    assert.deepEqual((await pg.query<{ v: string }>("select v from u")).rows, [{ v: "intact" }]);
+  };
+
+  it("REPRISE : la plus récente abîmée sans que Postgres le voie — écartée, et dit ; la précédente et les écritures doublées : rien de perdu, rien de faux ; puis une copie neuve", async () => {
+    const { poste, dossier, copies, registres, duJour, rel } = await copieDuJourAlteree();
+    const pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      const reprise = (etatBase() as { reprise?: string }).reprise ?? "";
+      assert.match(
+        reprise,
+        new RegExp(`puis des écritures doublées qui l'ont suivie ; écartée, abîmée : ${duJour} \\(base/${rel} diffère de son empreinte\\) ; la base illisible`),
+      );
+      await rienDePerduRienDeFaux(pg);
+      assert.equal((await etatCopies(copies)).controle?.abimees[0]?.nom, duJour, "dite à la Division");
+      await programmerCopies(pg, dossier, copies, registres);
+      assert.equal(readdirSync(copies).filter((n) => n.startsWith("remise-")).length, 1, "une copie neuve");
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("REPRISE SANS LA CLÉ DU POSTE (son disque remplacé) : les copies relues au contenu seul — l'abîmée écartée, la précédente prise", async () => {
+    const { poste, copies, registres, duJour } = await copieDuJourAlteree();
+    rmSync(path.join(registres, "empreintes.cle"));
+    const pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      assert.match((etatBase() as { reprise?: string }).reprise ?? "", new RegExp(`écartée, abîmée : ${duJour} `));
+      await rienDePerduRienDeFaux(pg);
+      assert.ok(!existsSync(path.join(registres, "empreintes.cle")), "aucune clé tirée à la reprise");
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("UNE COPIE AUX EMPREINTES REFAITES SANS LE SCEAU DU POSTE (par un tiers, pour cacher un changement) : la copie scellée, plus ancienne, passe avant — rien de faux ; la Division la montre sans sceau", async () => {
+    const { poste, copies, duJour } = await copieDuJourAlteree();
+    const hors = (c: string) => c === "manifeste.json" || c === "compressee";
+    const refait = await manifesteDossier(path.join(copies, duJour), null, hors);
+    writeFileSync(path.join(copies, duJour, "manifeste.json"), JSON.stringify(refait));
+    const pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      await rienDePerduRienDeFaux(pg);
+      assert.equal((await etatCopies(copies)).controle?.nonScellees, 1);
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("REPRISE SANS COPIE SAINE : l'abîmée est prise faute de mieux — rien ne se perd par excès de prudence — et c'est dit", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    let pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    await pg.exec("create table t (i int primary key)");
+    await inserer(pg, 1, 10);
+    await copierBase(pg, dossier, copies, "jour-1", registres);
+    await pg.close();
+    writeFileSync(path.join(copies, "jour-1", "fichiers", "en-trop.json"), "[]");
+    abimer(dossier);
+    pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      assert.match(
+        (etatBase() as { reprise?: string }).reprise ?? "",
+        /reprise de la copie du .* \(heure du poste\), abîmée \(fichiers\/en-trop\.json en trop\), prise faute de copie saine — à vérifier, puis des écritures doublées/,
+      );
+      assert.deepEqual((await pg.query<{ i: number }>("select i from t order by i")).rows.map((x) => x.i), de(1, 10));
+    } finally {
+      await pg.close();
+    }
+  });
+
   it("LE CONTRÔLE DES 5 MIN refait la copie du jour qui manque ; sa base fermée, son programme s'arrête avec elle — rien n'est plus tenté sur elle", async () => {
     const { poste, dossier, copies, registres } = nouveauPoste();
     const pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);

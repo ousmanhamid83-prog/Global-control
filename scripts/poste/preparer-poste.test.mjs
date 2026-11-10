@@ -23,11 +23,14 @@ function sources(dossier) {
 const SERVEUR = sources(join(RACINE, "src")).join("\n");
 
 const cles = (texte, motif) => [...new Set([...texte.matchAll(motif)].map((m) => m[1]))].sort();
-const clesSh = cles(SH, /^\s*regler (AFRICONTROL_[A-Z_]+) /gm);
-const clesPs1 = cles(PS1, /^\s*Regler "(AFRICONTROL_[A-Z_]+)" /gm);
+const clesSh = cles(SH, /^\s*regler (AFRICONTROL_[A-Z0-9_]+) /gm);
+const clesPs1 = cles(PS1, /^\s*Regler "(AFRICONTROL_[A-Z0-9_]+)" /gm);
 
 test("poste.env : les deux scripts écrivent les mêmes clés, et le serveur les lit toutes", () => {
   assert.deepEqual(clesSh, [
+    "AFRICONTROL_1090",
+    "AFRICONTROL_ANTENNE",
+    "AFRICONTROL_ATC",
     "AFRICONTROL_COPIES",
     "AFRICONTROL_IA",
     "AFRICONTROL_IA_MODELE",
@@ -211,6 +214,124 @@ test("script Linux --copies : réglé dans poste.env, gardé ensuite, refusé s'
     assert.match(r.stderr, /✗ copies : \/proc\/impossible\/copies impossible à créer/);
     assert.equal(reglage(), copies, "le réglage d'avant reste");
   } finally {
+    rmSync(poste, { recursive: true, force: true });
+  }
+});
+
+test("script Linux --antenne / --recepteur-1090 / --phonie : réglés dans poste.env, le récepteur et le flux essayés, une position fausse refusée", async () => {
+  const { mkdtempSync, mkdirSync, copyFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { createServer } = await import("node:net");
+  const http = await import("node:http");
+  const poste = mkdtempSync(join(tmpdir(), "poste-antenne-"));
+  mkdirSync(join(poste, "scripts", "poste"), { recursive: true });
+  copyFileSync(
+    join(ICI, "preparer-poste.sh"),
+    join(poste, "scripts", "poste", "preparer-poste.sh"),
+  );
+  // Un récepteur 1090 (trames brutes) et un flux de phonie, ici sur la machine.
+  const recepteur = createServer((s) => {
+    s.on("error", () => undefined); // le script essaie, puis raccroche
+    s.end("*8D4D2023587F345E35837E2218B2;\n");
+  });
+  const flux = http.createServer((_, r) => {
+    r.writeHead(200, { "content-type": "audio/mpeg" });
+    r.write(Buffer.alloc(4096));
+  });
+  await new Promise((r) => recepteur.listen(0, "127.0.0.1", r));
+  await new Promise((r) => flux.listen(0, "127.0.0.1", r));
+  const portR = recepteur.address().port;
+  const portF = flux.address().port;
+  const lancer = (...options) =>
+    new Promise((fini) => {
+      const p = spawn(
+        "bash",
+        [
+          join(poste, "scripts", "poste", "preparer-poste.sh"),
+          "--sans-build",
+          "--sans-ia",
+          "--sans-relief",
+          "--copies",
+          join(poste, "copies"),
+          ...options,
+        ],
+        { env: { PATH: process.env.PATH } },
+      );
+      let sortie = "";
+      p.stdout.on("data", (d) => (sortie += d));
+      p.stderr.on("data", (d) => (sortie += d));
+      p.on("close", (code) => fini({ code, sortie }));
+    });
+  const env = () => readFileSync(join(poste, "poste.env"), "utf8");
+  try {
+    let r = await lancer(
+      "--antenne",
+      "37.5,14.0",
+      "--recepteur-1090",
+      `127.0.0.1:${portR}`,
+      "--phonie",
+      `http://127.0.0.1:${portF}/atc.mp3`,
+    );
+    assert.equal(r.code, 0, r.sortie);
+    assert.match(
+      r.sortie,
+      new RegExp(
+        `✓ antenne 1090 : récepteur sur 127\\.0\\.0\\.1:${portR}, antenne à 37\\.5,14\\.0`,
+      ),
+    );
+    assert.match(
+      r.sortie,
+      /✓ phonie : flux http:\/\/127\.0\.0\.1:\d+\/atc\.mp3 — enregistré à la demande/,
+    );
+    assert.match(env(), new RegExp(`^AFRICONTROL_1090=127\\.0\\.0\\.1:${portR}$`, "m"));
+    assert.match(env(), /^AFRICONTROL_ANTENNE=37\.5,14\.0$/m);
+    assert.match(
+      env(),
+      new RegExp(`^AFRICONTROL_ATC=http://127\\.0\\.0\\.1:${portF}/atc\\.mp3$`, "m"),
+    );
+    // Rien n'écoute : réglé quand même, et dit — le poste s'y raccroche seul.
+    recepteur.close();
+    flux.close();
+    flux.closeAllConnections();
+    r = await lancer(
+      "--antenne",
+      "12.1331,15.0339",
+      "--recepteur-1090",
+      `127.0.0.1:${portR}`,
+      "--phonie",
+      `http://127.0.0.1:${portF}/atc.mp3`,
+    );
+    assert.equal(r.code, 0, r.sortie);
+    assert.match(
+      r.sortie,
+      /Antenne 1090 : rien n'écoute encore sur 127\.0\.0\.1:\d+ — le poste s'y raccroche seul/,
+    );
+    assert.match(r.sortie, /Phonie ATC : http:\/\/127\.0\.0\.1:\d+\/atc\.mp3 ne répond pas encore/);
+    assert.match(env(), /^AFRICONTROL_ANTENNE=12\.1331,15\.0339$/m);
+    // Une position fausse, une adresse qui n'est pas un flux : refusées, le bilan échoue.
+    for (const [options, motif] of [
+      [
+        ["--antenne", "95,14", "--recepteur-1090", "127.0.0.1:1"],
+        /✗ antenne 1090 : --antenne LAT,LON attendu/,
+      ],
+      [
+        ["--antenne", "12,190", "--recepteur-1090", "127.0.0.1:1"],
+        /✗ antenne 1090 : --antenne LAT,LON attendu/,
+      ],
+      [
+        ["--antenne", "Ndjamena", "--recepteur-1090", "127.0.0.1:1"],
+        /✗ antenne 1090 : --antenne LAT,LON attendu/,
+      ],
+      [["--phonie", "ftp://ailleurs/atc"], /✗ phonie : --phonie attend une adresse http\(s\):\/\//],
+    ]) {
+      r = await lancer(...options);
+      assert.equal(r.code, 1, r.sortie);
+      assert.match(r.sortie, motif);
+    }
+    assert.match(env(), /^AFRICONTROL_ANTENNE=12\.1331,15\.0339$/m, "le réglage d'avant reste");
+  } finally {
+    recepteur.close();
+    flux.close();
     rmSync(poste, { recursive: true, force: true });
   }
 });

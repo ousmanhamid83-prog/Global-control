@@ -27,6 +27,7 @@ import { POSTE_ETRANGER, POSTE_EXERCICE, POSTE_LABEL, sanitizeMachineLabel, scru
 import { CHEF_SESSION_CAP, pruneOldSessions, requireChefSeal } from "./seal";
 import type { EtatBase } from "@/lib/base-poste.server";
 import type { Integrite } from "@/lib/controle-copies.server";
+import type { ControleCopiesBase } from "@/lib/base-poste.server";
 import type { DefautCopie, PlaceDisques } from "@/lib/disque-poste.server";
 import { formatDate } from "./format";
 import {
@@ -106,6 +107,7 @@ export type CopiesPoste = {
   defauts: DefautCopie[];
   place: PlaceDisques;
   integrite: Integrite;
+  controle: ControleCopiesBase | null;
 };
 
 /** Une page du journal, ses genres, où la base du poste le garde et ses copies (chef seul). */

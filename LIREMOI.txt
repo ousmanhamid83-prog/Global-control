@@ -65,7 +65,10 @@ Préparer le poste en une commande (une fois, en ligne)
     (number = le numéro inscrit, recipients = qui reçoit les alertes). La console reconnaît le
     relais et lui envoie le détail, que Signal chiffre de bout en bout jusqu'aux téléphones ;
     Division affiche « Relais Signal du poste · détail chiffré » ;
-  · écrit AFRICONTROL_IA, AFRICONTROL_IA_MODELE et AFRICONTROL_ITINERAIRE dans poste.env.
+  · sur demande, --antenne LAT,LON et --phonie URL (Windows -Antenne, -Phonie) : voir
+    « Antenne 1090 du poste » et « Phonie ATC » ;
+  · écrit AFRICONTROL_IA, AFRICONTROL_IA_MODELE et AFRICONTROL_ITINERAIRE dans poste.env (et les
+    réglages des options demandées).
 - Ensuite, même hors ligne : PORT=8080 node .output/server/index.mjs
   (Windows : $env:PORT="8080"; node .output\server\index.mjs). Rien à retaper : le serveur lit
   poste.env seul et l'écrit dans son journal (« [poste] réglages lus dans poste.env : … »). Une
@@ -383,6 +386,24 @@ Récepteur sur une autre machine :  AFRICONTROL_1090=192.168.1.50:30002 npm run 
 Position de l'antenne :  AFRICONTROL_ANTENNE=12.1331,15.0339   Couper la liaison :  AFRICONTROL_1090=off
 Réception seule : AfriControl décode l'ADS-B / Mode S entendu en clair, il n'interroge ni n'émet.
 Les anciens noms VIGILAIR_1090 / VIGILAIR_ANTENNE sont encore lus : un poste déjà réglé n'a rien à changer.
+- Le script de préparation le fait seul : --antenne LAT,LON (Windows : -Antenne "LAT,LON"). Sous
+  Linux, il installe dump1090 (paquet dump1090-mutability), écarte le pilote de télévision qui
+  prendrait la clé RTL-SDR, sert les trames brutes sur 127.0.0.1:30002 seulement, le lance avec la
+  machine, et dit au bilan si elle manque ; sous Windows, le pilote WinUSB (Zadig) et dump1090
+  restent à poser à la main. Il écrit AFRICONTROL_1090 et AFRICONTROL_ANTENNE=LAT,LON dans
+  poste.env, puis essaie le port ; une position impossible (95,14) est refusée.
+- dump1090 déjà en place sur une autre machine : --recepteur-1090 HOTE:PORT (PowerShell :
+  -Recepteur1090), avec --antenne pour sa position.
+- Essayé avec un VRAI signal radio : un enregistrement public du 1090 MHz pris par une antenne
+  (échantillons IQ d'une clé RTL-SDR, celui livré avec dump1090), rejoué dans dump1090 qui le
+  démodule et sert les trames brutes sur 30002. Le poste décode et garde l'aéronef entendu
+  (4D2023, AMC421, vers 37,0 N 13,8 E) : une ligne toutes les 20 s dans data/trafic, doublée
+  aussitôt — 60 lignes en 15 min, à travers 5 relancements dont 2 après un arrêt net, et 3
+  changements du disque des copies, sans trou, la copie identique octet pour octet. PAS ESSAYÉ
+  ici : une clé RTL-SDR branchée en direct (aucune sur cette machine). Le paquet
+  dump1090-mutability d'Ubuntu, celui que le script installe, n'a rien décodé de cet
+  enregistrement-là (0 trame valide) : c'est le dump1090 d'origine qui l'a démodulé ; avec une
+  vraie clé, ce paquet n'a pas pu être essayé ici.
 
 GPS du poste (position + heure réelles) — Capteurs > GNSS
 - Branche un RÉCEPTEUR GPS (clé USB GPS, module u-blox, ou un terminal qui sort du NMEA). L'antenne
@@ -1227,6 +1248,26 @@ Base du poste et journal d'activité — Division
   Après une reprise, une copie de remise en route aussitôt (copies/remise-<date>) : la copie du
   jour pouvait être celle qui ne s'ouvrait plus. Trouvé à l'essai (sans elle, plus de copie saine
   avant le lendemain), corrigé : prise en 0,5 s après la reprise.
+- EMPREINTES DES COPIES DE LA BASE. Chaque copie de la base (du jour, de remise en route) a les
+  siennes, faites avant qu'elle soit renommée : copies/<copie>/manifeste.json, la taille et le
+  SHA-256 de chaque fichier (un fichier compressé compte pour ce qu'il contient), scellés par la
+  clé du poste. Une copie abîmée est DÉCOUVERTE : au premier contrôle de chaque jour, la plus
+  récente est relue au contenu, puis les autres à tour de rôle (au moins une chaque jour, 2 Gio
+  relus par jour au plus, repris où le tour s'était arrêté) ; abîmée, c'est dit en rouge à la
+  Division (la copie, le fichier fautif) et, si c'est la plus récente, une copie neuve est prise
+  aussitôt. À la reprise, les copies sont relues de la plus récente à la plus ancienne : la
+  première saine ET scellée qui s'ouvre est prise, avec les écritures doublées qui l'ont suivie ;
+  une copie abîmée est écartée, nommée avec ce qui ne va pas, et ne serait prise qu'à défaut de
+  toute autre (« prise faute de copie saine — à vérifier ») ; une copie sans le sceau (une
+  ancienne clé) ou faite avant les empreintes vient après les scellées ; clé du poste perdue
+  (disque du poste remplacé) : le contenu seul est vérifié. Puis une copie neuve. Essayé sur le
+  serveur construit : arrêt net (kill -9) en pleine écriture, base rendue illisible : reprise,
+  390 entrées confirmées sur 390 retrouvées, copie de remise en route en 0,7 s ; puis cette copie,
+  la plus récente, abîmée d'un octet (base/base/5/1255), nouvel arrêt net en pleine écriture, base
+  illisible : la copie abîmée découverte et écartée (« base/base/5/1255 diffère de son
+  empreinte »), reprise de la copie précédente, compressée, et des écritures doublées : 434 sur 434
+  retrouvées, les 390 d'avant aussi ; copie neuve en 0,8 s ; la Division dit la reprise, la copie
+  écartée et le défaut, en rouge. Mutants : 37 sur 37 attrapés.
 - CLÉ DES COPIES RETIRÉE, DISQUE PLEIN. Le poste continue ; la Division dit en rouge ce qui n'est
   plus doublé, depuis quand et pourquoi (« Dossier des copies injoignable », « En défaut depuis
   le … »). Au retour, chaque fichier manqué est recopié en entier, puis le défaut s'efface
@@ -1263,24 +1304,42 @@ Base du poste et journal d'activité — Division
   choisit seul un autre disque INTERNE de la machine, sous Windows comme sous Linux : pas une autre
   partition du disque du poste, jamais une clé ni un disque USB, le plus de place libre (10 Go au
   moins) — X:\AfriControl-copies, ou sous Linux un système de fichiers monté en écriture, hors des
-  points du système (/boot, /usr, /var, /tmp, /media…), son dossier créé puis rendu à l'opérateur.
+  points du système (/boot, /usr, /var, /tmp, /media…), son dossier créé — par sudo quand le disque
+  appartient à root (un disque monté par le système), puis rendu à l'opérateur seul (droits 700) ;
+  sudo refusé : dit au bilan, et les copies restent dans data/copies.
   -Copies E:\AfriControl-copies (Windows) ou --copies /chemin (Linux) imposent le dossier. Le bilan
   dit quand les copies restent sur le disque du poste (sa panne emporterait les deux). Essayé sur
   un vrai Windows (GitHub Actions, deux disques) : poste sur D: (disque 1), copies mises seules dans
   C:\AfriControl-copies (disque 0), copie du jour faite là en 2,1 à 2,8 s, reprise de là après une
   base abîmée ; sous Linux, un second disque de 12 Go branché : choisi seul (zram0, le poste étant
-  sur vda), gardé au relancement ; trop petit (1 Go), pas choisi. Un dossier des copies changé
-  (autre disque, autre clé, vidé) reçoit tout ce que le poste gardait déjà, au contenu (voir
-  CONTRÔLE AU CONTENU) — sans cela, le trafic du jour n'y aurait reçu que ses lignes nouvelles. La
-  base y a sa copie du jour au premier contrôle.
+  sur vda), gardé au relancement ; trop petit (1 Go), pas choisi. Lancé par de vrais comptes sans
+  droits root, le disque monté à root : avec sudo, le dossier créé sur ce disque et rendu à ce
+  seul compte (700), poste.env réglé ; sans sudo, le refus dit, rien de créé. Un dossier des
+  copies changé (autre disque, autre clé, vidé) reçoit tout ce que le poste gardait déjà, au
+  contenu (voir CONTRÔLE AU CONTENU) — sans cela, le trafic du jour n'y aurait reçu que ses lignes
+  nouvelles. La base y a sa copie du jour au premier contrôle.
 - ANCIENNES COPIES RAPATRIÉES. Le dossier des copies changé de disque, ce que l'ancien gardait
   (copies de la base, écritures doublées, copies des fichiers, archives) est rapatrié dans le
   nouveau, sous copies/ancien-dossier-<date> : recopié dans un .part, forcé, comparé fichier par
   fichier (SHA-256), renommé ; alors seulement retiré de l'ancien dossier, puis compressé comme
-  les autres archives. Coupé n'importe où, repris au contrôle suivant (revérifié avant que rien ne
-  soit retiré) ; l'ancien dossier injoignable (clé retirée), c'est dit et réessayé. Le dossier en
-  service est retenu dans data/copies-dossier.json. Jamais mêlé aux copies en service : la reprise
-  ne prend pas ces archives d'elle-même.
+  les autres archives. Les anciens dossiers forment une FILE, gardée dans data/copies-dossier.json
+  avant toute recopie : coupé n'importe où, repris au contrôle suivant sous la même archive
+  (revérifiée avant que rien ne soit retiré). Un ancien dossier qui ne répond pas (clé retirée,
+  disque absent ou perdu pour de bon) reste dans la file sans fin, EXPRÈS : jamais abandonné de
+  lui-même, des copies qui pourraient revenir ne sont jamais oubliées. La Division le dit en orange
+  à chaque contrôle : depuis quand (gardé au registre, il survit aux redémarrages), le dernier
+  essai, pourquoi ; rebranché, il est rapatrié au contrôle suivant (5 min au plus) et la ligne
+  s'efface. Changé ENCORE pendant qu'un ancien attend (A perdu, puis B → C) : B est rapatrié
+  aussitôt, A attend toujours et son archive ira dans C. C'était un trou de ma version
+  précédente (un seul ancien retenu : B était oublié), trouvé en réglant cette attente, corrigé.
+  Un ancien qui échoue (recopié différent) n'arrête pas les autres. Jamais mêlé aux copies en
+  service : la reprise ne prend pas ces archives d'elle-même. Essayé sur le serveur construit,
+  antenne 1090 branchée : clé A → disque B (1079 fichiers, 59,3 Mo, comparés un à un) ; disque B
+  démonté pour de bon, copies passées sur C : attente dite à la Division, réessayée au contrôle
+  des 5 min (« depuis » gardé, dernier essai avancé) ; puis C → D, B toujours absent : C rapatrié
+  (1082 fichiers, 57,9 Mo), B toujours en attente avec sa date ; B rebranché : rapatrié au
+  contrôle suivant (2161 fichiers, 62,6 Mo), les 2161 identiques à ce qu'il gardait (SHA-256,
+  relus à part), file vide, Division sans défaut. Mutants : 27 sur 27 attrapés.
 - CONTRÔLE AU CONTENU, EMPREINTES SCELLÉES. Chaque version finie d'un fichier gardé (un registre,
   AVANT son écriture ; un segment de phonie fermé ; le journal d'un jour compressé) a son empreinte :
   taille et SHA-256, scellées par la clé du poste (HMAC-SHA256) dans data/empreintes.jsonl, un
@@ -1381,6 +1440,11 @@ Phonie ATC — réception seule (Capteurs > Phonie ATC)
 - Réception seule : le poste lit un flux public et l'archive, sans limite (segments de 10 min),
   activable/désactivable. Il n'accorde aucune radio, ne décode pas la parole, n'émet jamais.
   Segments téléchargeables. Pas d'écoute d'autre chose que l'aéronautique en clair.
+- Le script de préparation la règle et essaie le flux : --phonie URL (Windows -Phonie URL). PAS
+  ESSAYÉ avec une vraie phonie VHF : pas de récepteur VHF ici, et aucune source publique joignable
+  d'ici (LiveATC demande une vérification de navigateur Cloudflare, non contournée ; les
+  enregistrements publics de Wikimedia sont refusés par sa limite de débit). Essayé : le réglage et
+  l'essai du flux, sur un faux flux HTTP local.
 
 Alertes feu (FIRMS) — ce que le capteur peut, honnêtement
 - Détection thermique VIIRS : foyers groupés, puissance FRP (MW), confiance, jour/nuit, ville la

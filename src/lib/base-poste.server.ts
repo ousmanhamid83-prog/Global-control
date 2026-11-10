@@ -70,12 +70,20 @@ import {
   compresserJournaliers,
   copieDe,
   dossierCopies,
+  ecrireDurable,
   forcer,
   forcerArbre,
   fsyncDossier,
   noterDefautCopie,
   restaurerArbre,
 } from "./disque-poste.server.ts";
+import {
+  cleDuPoste,
+  lireCleDuPoste,
+  manifesteDossier,
+  verifierDossier,
+  type Verdict,
+} from "./empreintes-poste.server.ts";
 import { formatDate, jourPoste } from "./vigilair/format.ts";
 
 /** `reprise` : la base était illisible au démarrage, et ce que le poste en a fait. */
@@ -418,6 +426,11 @@ function rangerAncienneGeneration(copies: string): string | null {
   return avant;
 }
 
+/** Les empreintes d'une copie de la base, dans la copie même. */
+const MANIFESTE = "manifeste.json";
+/** Ce que le manifeste d'une copie ne compte pas : lui-même, et la marque de sa compression. */
+const horsManifeste = (chemin: string) => chemin === MANIFESTE || chemin === "compressee";
+
 /** Ce qu'il faut d'une base ouverte pour la copier à chaud. */
 type BaseInterrogeable = {
   query<R>(sql: string, params?: unknown[]): Promise<{ rows: R[] }>;
@@ -438,8 +451,10 @@ function lireEtiquette(etiquette: string): { premier: string; debut: number } | 
  * fichiers sont copiés pendant que les requêtes continuent ; la copie, faite d'instants
  * différents, se recolle à l'ouverture grâce à son backup_label et aux segments du journal de la
  * même période, copiés avec elle. Les registres du poste (`registres/*.json`) sont copiés à côté.
- * Mesuré : 300 validations pendant une copie, la plus longue en 2 ms (la copie sous le verrou des
- * requêtes les faisait attendre 0,5 à 2 s). Rend sa durée (ms).
+ * Ses empreintes (manifeste.json : chaque fichier, sa taille, son SHA-256) sont scellées par la clé
+ * du poste : une copie abîmée ou trafiquée se découvre au contrôle des copies, et avant toute
+ * reprise. Mesuré : 300 validations pendant une copie, la plus longue en 2 ms (la copie sous le
+ * verrou des requêtes les faisait attendre 0,5 à 2 s). Rend sa durée (ms).
  */
 export async function copierBase(
   pg: BaseInterrogeable,
@@ -488,18 +503,139 @@ export async function copierBase(
       await copyFile(path.join(registres, f), path.join(part, "fichiers", f));
   }
   await forcerArbre(part);
+  const cle = cleDuPoste(path.join(registres, "empreintes.cle"));
+  const manifeste = await manifesteDossier(part, cle, horsManifeste);
+  await ecrireDurable(path.join(part, MANIFESTE), `${JSON.stringify(manifeste)}\n`);
   await rename(part, dest);
   await forcer(copies, true);
   if (ecritures) ecritures.remettre = false;
   return Date.now() - t0;
 }
 
+/** Une copie de la base relue au contenu contre ses empreintes ; null si elle n'en a pas (faite
+ * avant elles). */
+async function verifierCopie(
+  copies: string,
+  nom: string,
+  cle: Buffer | null,
+): Promise<Verdict | null> {
+  const dossier = path.join(copies, nom);
+  const texte = await readFile(path.join(dossier, MANIFESTE), "utf8").catch(() => null);
+  return texte === null ? null : verifierDossier(dossier, texte, cle, horsManifeste);
+}
+
+/** Ce que le dernier contrôle a trouvé d'une copie de la base. */
+type VerdictCopie = {
+  etat: "scellee" | "non-scellee" | "sans-empreintes" | "abimee";
+  raison?: string;
+  at: number;
+};
+
+const verdictCopie = (v: Verdict | null, at: number): VerdictCopie =>
+  v === null
+    ? { etat: "sans-empreintes", at }
+    : v.sain
+      ? { etat: v.scelle ? "scellee" : "non-scellee", at }
+      : { etat: "abimee", raison: v.raison, at };
+
+/** Le contrôle des copies de la base, gardé dans leur dossier : il survit aux redémarrages. */
+type ControleBase = {
+  /** Le jour (du poste) du dernier passage quotidien. */
+  jour: string;
+  /** La dernière relecture (passage quotidien ou reprise), en ms ; 0 avant la première. */
+  at: number;
+  /** La dernière copie relue par le contrôle progressif : le suivant reprend après elle. */
+  curseur: string;
+  verdicts: Record<string, VerdictCopie>;
+};
+
+const CONTROLE_BASE = "controle-base.json";
+/** Relus au plus par jour (contenu d'origine) par le contrôle progressif des copies de la base ;
+ * la plus récente l'est chaque jour en plus. */
+const BUDGET_BASE = 2 * 2 ** 30;
+
+async function lireControleBase(copies: string): Promise<ControleBase> {
+  try {
+    const v = JSON.parse(await readFile(path.join(copies, CONTROLE_BASE), "utf8")) as ControleBase;
+    if (
+      typeof v.jour === "string" &&
+      typeof v.at === "number" &&
+      typeof v.curseur === "string" &&
+      typeof v.verdicts === "object"
+    )
+      return v;
+  } catch {
+    // Pas encore de contrôle, ou sa trace abîmée : tout est relu.
+  }
+  return { jour: "", at: 0, curseur: "", verdicts: {} };
+}
+
+/** Les copies de la base abîmées, dites en défaut (la Division les montre en rouge). */
+function direAbimees(c: ControleBase): void {
+  const abimees = Object.entries(c.verdicts).filter(([, v]) => v.etat === "abimee");
+  noterDefautCopie(
+    "copies de la base",
+    abimees.length > 0
+      ? new Error(`abîmée(s) : ${abimees.map(([n, v]) => `${n} (${v.raison})`).join(", ")}`)
+      : null,
+  );
+}
+
+/**
+ * Le contrôle des copies de la base, au contenu, une fois par jour : la plus récente d'abord (la
+ * reprise la prend la première), puis les autres à tour de rôle, `budget` octets au plus, repris où
+ * il s'était arrêté. Une copie abîmée est dite ; rend vrai si c'est la plus récente — une copie
+ * neuve la remplace alors aussitôt. Jette si le dossier des copies ne répond pas.
+ */
+export async function controlerCopiesBase(
+  copies: string,
+  registres: string,
+  jour: string,
+  budget = BUDGET_BASE,
+): Promise<boolean> {
+  const c = await lireControleBase(copies);
+  const liste = await copiesDeLaBase(copies);
+  const recente = liste[0]?.nom;
+  if (c.jour !== jour && recente !== undefined) {
+    const t0 = Date.now();
+    const cle = cleDuPoste(path.join(registres, "empreintes.cle"));
+    const noms = liste.map((x) => x.nom).sort();
+    const depart = Math.max(
+      0,
+      noms.findIndex((n) => n > c.curseur),
+    );
+    const autres = [...noms.slice(depart), ...noms.slice(0, depart)].filter((n) => n !== recente);
+    let lus = 0;
+    let relues = 0;
+    for (const nom of [recente, ...autres]) {
+      // Une autre au moins chaque jour : le tour avance, même avec un budget plus petit qu'une copie.
+      if (relues >= 2 && lus >= budget) break;
+      const v = await verifierCopie(copies, nom, cle);
+      lus += v?.octets ?? 0;
+      relues += 1;
+      c.verdicts[nom] = verdictCopie(v, Date.now());
+      if (nom !== recente) c.curseur = nom;
+    }
+    for (const nom of Object.keys(c.verdicts)) if (!noms.includes(nom)) delete c.verdicts[nom];
+    c.jour = jour;
+    c.at = Date.now();
+    await ecrireDurable(path.join(copies, CONTROLE_BASE), `${JSON.stringify(c)}\n`);
+    const abimees = Object.values(c.verdicts).filter((v) => v.etat === "abimee").length;
+    console.log(
+      `[copies] copies de la base contrôlées au contenu : ${relues} relue(s) (${(lus / 1e6).toFixed(1)} Mo), ${abimees} abîmée(s), en ${Date.now() - t0} ms`,
+    );
+  }
+  direAbimees(c);
+  return recente !== undefined && c.verdicts[recente]?.etat === "abimee";
+}
+
 /**
  * Une copie par jour (copies/jour-AAAA-MM-JJ, jour du poste) : tout de suite si celle du jour
  * manque, puis à chaque nouveau jour (vu toutes les 5 min). Toutes sont gardées. Des écritures
  * doublées en panne (clé des copies retirée) ou tout juste réparées : une copie de remise en route
- * (copies/remise-<date>) dès que le dossier des copies répond, sans attendre le lendemain. Le
- * programme s'arrête avec sa base : rien n'est tenté sur une base fermée.
+ * (copies/remise-<date>) dès que le dossier des copies répond, sans attendre le lendemain ; de même
+ * quand le contrôle des copies trouve la plus récente abîmée. Le programme s'arrête avec sa base :
+ * rien n'est tenté sur une base fermée.
  */
 export function programmerCopies(
   pg: BaseInterrogeable,
@@ -517,7 +653,16 @@ export function programmerCopies(
       // copie de plus — jamais une copie entière toutes les 5 min.
       const ecritures = g.__afriEcritures;
       if (ecritures && !ecritures.actif) ecritures.realigner(path.join(dossier, "pg_wal"), null);
-      const remise = ecritures?.actif === true && ecritures.remettre;
+      // Les copies de la base relues au contenu (une fois par jour) : la plus récente abîmée en
+      // appelle une neuve aussitôt — la reprise ne repartira pas d'elle.
+      let abimee = false;
+      try {
+        abimee = await controlerCopiesBase(copies, registres, jourPoste(Date.now()));
+        noterDefautCopie("contrôle des copies de la base", null);
+      } catch (e) {
+        noterDefautCopie("contrôle des copies de la base", e);
+      }
+      const remise = (ecritures?.actif === true && ecritures.remettre) || abimee;
       const jour = `jour-${jourPoste(Date.now())}`;
       const faite = existsSync(path.join(copies, jour, "base", "backup_label"));
       if (!faite || remise) {
@@ -525,7 +670,11 @@ export function programmerCopies(
         try {
           const ms = await copierBase(pg, dossier, copies, nom, registres);
           noterDefautCopie("copie du jour de la base", null);
-          const quoi = faite ? "de remise en route" : "du jour";
+          const quoi = !faite
+            ? "du jour"
+            : abimee
+              ? "neuve (la plus récente est abîmée)"
+              : "de remise en route";
           console.log(`[base] copie ${quoi} faite en ${ms} ms : ${path.join(copies, nom)}`);
         } catch (e) {
           noterDefautCopie("copie du jour de la base", e);
@@ -591,7 +740,10 @@ export async function compresserAnciennes(copies: string): Promise<number> {
   for (const nom of [...liste.slice(1).map((c) => c.nom), ...archives]) {
     const marque = path.join(copies, nom, "compressee");
     if (existsSync(marque)) continue;
-    gagne += await compresserArbre(path.join(copies, nom), (n) => n === "backup_label");
+    gagne += await compresserArbre(
+      path.join(copies, nom),
+      (n) => n === "backup_label" || n === MANIFESTE,
+    );
     await writeFile(marque, `${new Date().toISOString()}\n`);
     await forcer(path.join(copies, nom), true);
   }
@@ -662,14 +814,32 @@ async function copiesDeLaBase(copies: string): Promise<CopieDeBase[]> {
   return trouvees.sort((a, b) => b.premier.localeCompare(a.premier) || b.debut - a.debut);
 }
 
-/** Les copies de la base pour la Division : où, si le dossier répond, combien, la plus récente. */
+/** Le contrôle des copies de la base, pour la Division : combien relues saines et scellées par la
+ * clé du poste, saines sans ce sceau (une ancienne clé), sans empreintes (faites avant elles), pas
+ * encore relues ; les abîmées, nommées. */
+export type ControleCopiesBase = {
+  /** La dernière relecture (contrôle quotidien ou reprise), en ms. */
+  at: number;
+  scellees: number;
+  nonScellees: number;
+  sansEmpreintes: number;
+  aRelire: number;
+  abimees: { nom: string; raison: string; at: number }[];
+};
+
+/** Les copies de la base pour la Division : où, si le dossier répond, combien, la plus récente, et
+ * leur contrôle au contenu. */
 export async function etatCopies(copies: string): Promise<{
   dossier: string;
   joignable: boolean;
   nombre: number;
   derniere: string | null;
+  controle: ControleCopiesBase | null;
 }> {
   const liste = await copiesDeLaBase(copies);
+  const c = await lireControleBase(copies);
+  const verdicts = liste.map((x) => c.verdicts[x.nom]);
+  const compter = (etat: VerdictCopie["etat"]) => verdicts.filter((v) => v?.etat === etat).length;
   return {
     dossier: copies,
     joignable: await stat(copies).then(
@@ -678,20 +848,48 @@ export async function etatCopies(copies: string): Promise<{
     ),
     nombre: liste.length,
     derniere: liste[0] ? formatDate(liste[0].debut) : null,
+    controle: c.at
+      ? {
+          at: c.at,
+          scellees: compter("scellee"),
+          nonScellees: compter("non-scellee"),
+          sansEmpreintes: compter("sans-empreintes"),
+          aRelire: verdicts.filter((v) => v === undefined).length,
+          abimees: liste.flatMap((x) => {
+            const v = c.verdicts[x.nom];
+            return v?.etat === "abimee" ? [{ nom: x.nom, raison: v.raison ?? "", at: v.at }] : [];
+          }),
+        }
+      : null,
   };
+}
+
+/** Les verdicts de copies relues hors du contrôle quotidien (à la reprise), gardés avec les siens. */
+async function noterVerdicts(copies: string, relues: [string, Verdict | null][]): Promise<void> {
+  if (relues.length === 0) return;
+  const c = await lireControleBase(copies);
+  c.at = Date.now();
+  for (const [nom, v] of relues) c.verdicts[nom] = verdictCopie(v, c.at);
+  await ecrireDurable(path.join(copies, CONTROLE_BASE), `${JSON.stringify(c)}\n`);
+  direAbimees(c);
 }
 
 /**
  * La base est illisible au démarrage : mise de côté (jamais effacée), puis la copie la plus
  * récente, avec les écritures doublées qui l'ont suivie — rien de perdu ; à défaut les copies plus
- * anciennes, puis une base neuve. Si rien ne s'ouvre, pas même une base neuve, le problème n'est
- * pas la base : elle est remise en place, et null.
+ * anciennes, puis une base neuve. Chaque copie est d'abord relue contre ses empreintes (la clé du
+ * poste lue dans `registres`, jamais tirée : le disque du poste a pu être remplacé) : une copie
+ * abîmée ou trafiquée est écartée — la précédente est prise — et ne sert qu'à défaut de toute autre,
+ * et c'est dit ; une copie scellée par la clé du poste passe avant une copie qui ne l'est pas.
+ * Si rien ne s'ouvre, pas même une base neuve, le problème n'est pas la base : elle est remise en
+ * place, et null.
  */
 async function reprendre<T>(
   ouvrir: (dossier?: string) => Promise<T>,
   dossier: string,
   motif: string,
   copies: string,
+  registres: string,
 ): Promise<{ pg: T; reprise: string } | null> {
   // Absente (dossier effacé, disque du poste remplacé ; le verrou l'a recréé vide) : rien à mettre
   // de côté.
@@ -713,10 +911,10 @@ async function reprendre<T>(
       : `Base absente au démarrage : ${quoi}`;
   const candidates = await copiesDeLaBase(copies);
   const doublees = path.join(copies, "ecritures");
-  for (const c of candidates) {
+  /** La copie `c`, et les segments doublés depuis son début (peut-être compressés), ouverte. */
+  const essayer = async (c: CopieDeBase): Promise<T | null> => {
     await rm(dossier, { recursive: true, force: true });
     try {
-      // La copie, et les segments doublés depuis son début, peut-être compressés (les anciens).
       await restaurerArbre(c.base, dossier);
       const segments = new Set(await readdir(doublees).catch(() => [] as string[]));
       for (const nom of segments) {
@@ -733,17 +931,48 @@ async function reprendre<T>(
         }
       }
       await forcerArbre(dossier);
-      const pg = await ouvrir(dossier);
-      const quand = formatDate(c.debut);
-      return {
-        pg,
-        reprise: dire(
-          `reprise de la copie du ${quand} (heure du poste), puis des écritures doublées qui l'ont suivie`,
-        ),
-      };
+      return await ouvrir(dossier);
     } catch {
-      // Copie suivante, plus ancienne.
+      return null; // copie suivante
     }
+  };
+  // Relues de la plus récente à la plus ancienne, jusqu'à la première saine et scellée qui s'ouvre ;
+  // les saines sans sceau du poste ensuite, les abîmées en dernier.
+  const cle = lireCleDuPoste(path.join(registres, "empreintes.cle"));
+  const relues: [string, Verdict | null][] = [];
+  const sansSceau: CopieDeBase[] = [];
+  const abimees: { c: CopieDeBase; raison: string }[] = [];
+  let prise: { c: CopieDeBase; pg: T } | null = null;
+  for (const c of candidates) {
+    const v = await verifierCopie(copies, c.nom, cle);
+    relues.push([c.nom, v]);
+    if (v && !v.sain) abimees.push({ c, raison: v.raison });
+    else if (!v?.scelle) sansSceau.push(c);
+    else {
+      const pg = await essayer(c);
+      if (pg) {
+        prise = { c, pg };
+        break;
+      }
+    }
+  }
+  for (const c of [...sansSceau, ...abimees.map((a) => a.c)]) {
+    if (prise) break;
+    const pg = await essayer(c);
+    if (pg) prise = { c, pg };
+  }
+  await noterVerdicts(copies, relues).catch(() => undefined);
+  if (prise) {
+    const { c, pg } = prise;
+    const faute = abimees.find((a) => a.c === c);
+    const ecartees = faute ? [] : abimees;
+    const s = ecartees.length > 1 ? "s" : "";
+    return {
+      pg,
+      reprise: dire(
+        `reprise de la copie du ${formatDate(c.debut)} (heure du poste)${faute ? `, abîmée (${faute.raison}), prise faute de copie saine — à vérifier` : ""}, puis des écritures doublées qui l'ont suivie${ecartees.length > 0 ? ` ; écartée${s}, abîmée${s} : ${ecartees.map((a) => `${a.c.nom} (${a.raison})`).join(", ")}` : ""}`,
+      ),
+    };
   }
   await rm(dossier, { recursive: true, force: true });
   try {
@@ -991,7 +1220,7 @@ export async function ouvrirBase<T>(
         return pg;
       } catch (e) {
         const motif = e instanceof Error ? e.message : String(e);
-        const r = await reprendre(ouvrir, choix.dossier, motif, copies);
+        const r = await reprendre(ouvrir, choix.dossier, motif, copies, path.join(cwd, "data"));
         if (r) {
           g.__afriBase = { ...choix, reprise: r.reprise };
           if (g.__afriEcritures) g.__afriEcritures.remettre = true;

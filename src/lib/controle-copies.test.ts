@@ -20,7 +20,10 @@ import {
   cleDuPoste,
   hacherTexte,
   ligneEmpreinte,
+  lireCleDuPoste,
   lireEmpreintes,
+  manifesteDossier,
+  verifierDossier,
 } from "./empreintes-poste.server.ts";
 
 // Chaque essai dans un poste neuf : ses empreintes sont relues par dossier du serveur.
@@ -353,6 +356,130 @@ describe("empreintes scellées : le journal et la clé du poste", () => {
       1,
     );
   });
+
+  it("CLÉ RELUE SANS JAMAIS EN TIRER (à la reprise, disque du poste remplacé) : absente ou abîmée, null — rien n'est écrit", () => {
+    const f = ici("data", "empreintes.cle");
+    assert.equal(lireCleDuPoste(f), null);
+    assert.ok(!fs.existsSync(f), "pas tirée");
+    const a = cleDuPoste(f)!;
+    assert.ok(lireCleDuPoste(f)?.equals(a));
+    writeFileSync(f, "abîmée\n");
+    assert.equal(lireCleDuPoste(f), null);
+    assert.equal(texte(f), "abîmée\n", "laissée telle quelle");
+  });
+});
+
+describe("empreintes d'un dossier entier (une copie de la base), scellées par la clé du poste", () => {
+  const cle = Buffer.alloc(32, 7);
+  const hors = (c: string) => c === "manifeste.json" || c === "compressee";
+  /** Une copie : des fichiers à plusieurs niveaux, l'un compressé, une compression inachevée. */
+  function copie(): string {
+    const d = ici("copie");
+    for (const [f, c] of [
+      ["base/PG_VERSION", "17\n"],
+      ["base/global/pg_control", "contrôle".repeat(100)],
+      ["fichiers/routes.json", "[1]"],
+    ]) {
+      fs.mkdirSync(path.dirname(path.join(d, f)), { recursive: true });
+      writeFileSync(path.join(d, f), c);
+    }
+    writeFileSync(path.join(d, "base", "pg_wal.gz"), gzipSync("journal".repeat(50)));
+    writeFileSync(path.join(d, "base", "x.gz.part"), "compression coupée");
+    return d;
+  }
+  const manifeste = async (d: string, k: Buffer | null) =>
+    JSON.stringify(await manifesteDossier(d, k, hors));
+
+  it("SAINE : chaque fichier à sa taille et à son SHA-256 ; un compressé compte pour son contenu d'origine, l'original primant s'il est encore là ; les .part et le manifeste ne comptent pas", async () => {
+    const d = copie();
+    const m = await manifeste(d, cle);
+    const lu = JSON.parse(m) as { fichiers: [string, number, string][] };
+    assert.deepEqual(lu.fichiers.map(([f, t]) => [f, t]).sort(), [
+      ["base/PG_VERSION", 3],
+      ["base/global/pg_control", 900],
+      ["base/pg_wal", 350],
+      ["fichiers/routes.json", 3],
+    ]);
+    writeFileSync(path.join(d, "manifeste.json"), m);
+    writeFileSync(path.join(d, "compressee"), "marque");
+    assert.deepEqual(await verifierDossier(d, m, cle, hors), {
+      sain: true,
+      scelle: true,
+      octets: 1256,
+    });
+    // Coupé entre la compression et l'effacement : les deux sont là, l'original prime.
+    writeFileSync(path.join(d, "base", "PG_VERSION.gz"), gzipSync("autre chose"));
+    assert.equal((await verifierDossier(d, m, cle, hors)).sain, true);
+  });
+
+  it("ABÎMÉE, ET DITE : un octet changé, un fichier ôté, un fichier en trop, un compressé abîmé — chacun nommé", async () => {
+    const d = copie();
+    const m = await manifeste(d, cle);
+    const raison = async () => {
+      const v = await verifierDossier(d, m, cle, hors);
+      return v.sain ? "saine" : v.raison;
+    };
+    const controle = path.join(d, "base", "global", "pg_control");
+    const vrai = fs.readFileSync(controle);
+    const faux = Buffer.from(vrai);
+    faux[400]! ^= 1;
+    writeFileSync(controle, faux);
+    assert.equal(await raison(), "base/global/pg_control diffère de son empreinte");
+    writeFileSync(controle, vrai);
+    rmSync(path.join(d, "fichiers", "routes.json"));
+    assert.equal(await raison(), "fichiers/routes.json manque");
+    writeFileSync(path.join(d, "fichiers", "routes.json"), "[1]");
+    writeFileSync(path.join(d, "base", "pg_wal", "..", "000000010000000000000009"), "glissé");
+    assert.equal(await raison(), "base/000000010000000000000009 en trop");
+    rmSync(path.join(d, "base", "000000010000000000000009"));
+    const gz = path.join(d, "base", "pg_wal.gz");
+    const g = fs.readFileSync(gz);
+    g[g.length - 6]! ^= 0xff; // sa somme de contrôle
+    writeFileSync(gz, g);
+    assert.match(await raison(), /^base\/pg_wal illisible \(/);
+  });
+
+  it("SCEAU : des empreintes trafiquées (une empreinte refaite pour un fichier changé) sont prises pour ce qu'elles sont ; d'une autre clé (une ancienne) ou sans la clé du poste (disque remplacé), le contenu seul est vérifié", async () => {
+    const d = copie();
+    const vraies = await manifeste(d, cle);
+    const m = JSON.parse(vraies) as { fichiers: [string, number, string][]; s: string | null };
+    writeFileSync(path.join(d, "fichiers", "routes.json"), "[2]");
+    m.fichiers.find(([f]) => f === "fichiers/routes.json")![2] = hacherTexte("[2]").h; // refaite, sans la clé
+    const faux = {
+      sain: false,
+      raison: "ses empreintes ne portent pas le sceau du poste (modifiées ?)",
+      octets: 0,
+    };
+    assert.deepEqual(await verifierDossier(d, JSON.stringify(m), cle, hors), faux);
+    m.s = null; // le sceau ôté, l'identifiant de la clé laissé
+    assert.deepEqual(await verifierDossier(d, JSON.stringify(m), cle, hors), faux);
+    writeFileSync(path.join(d, "fichiers", "routes.json"), "[1]");
+    const ancienne = await manifeste(d, Buffer.alloc(32, 8));
+    assert.deepEqual(await verifierDossier(d, ancienne, cle, hors), {
+      sain: true,
+      scelle: false,
+      octets: 1256,
+    });
+    assert.deepEqual(await verifierDossier(d, ancienne, null, hors), {
+      sain: true,
+      scelle: false,
+      octets: 1256,
+    });
+    // Abîmées elles-mêmes : jamais une erreur qui arrêterait la reprise au démarrage.
+    const illisibles = { sain: false, raison: "ses empreintes sont illisibles", octets: 0 };
+    const v = JSON.parse(vraies) as Record<string, unknown>;
+    for (const texte of [
+      "{abîmé",
+      JSON.stringify({ ...v, v: 2 }),
+      JSON.stringify({ ...v, fichiers: "base/PG_VERSION" }),
+      JSON.stringify({ ...v, fichiers: [["base/PG_VERSION", 3]] }),
+      JSON.stringify({ ...v, fichiers: [["base/PG_VERSION", "3", "a".repeat(64)]] }),
+      JSON.stringify({ ...v, fichiers: [[7, 3, "a".repeat(64)]] }),
+      JSON.stringify({ ...v, fichiers: [["base/PG_VERSION", 3, "pas une empreinte"]] }),
+    ]) {
+      assert.deepEqual(await verifierDossier(d, texte, cle, hors), illisibles, texte);
+    }
+  });
 });
 
 describe("rapatriement des anciennes copies (le dossier des copies a changé de disque)", () => {
@@ -374,25 +501,55 @@ describe("rapatriement des anciennes copies (le dossier des copies a changé de 
     fs.readdirSync(autre()).filter((n) => n.startsWith("ancien-dossier-") && !n.endsWith(".part"));
   const registre = () => JSON.parse(texte(ici("data", "copies-dossier.json"))) as unknown;
 
+  /** Le nouveau disque écrit faux : un octet du segment doublé recopié, inversé. */
+  async function recopieFausse(f: () => Promise<unknown>): Promise<void> {
+    const vrai = fs.promises.cp;
+    fs.promises.cp = (async (de: string, vers: string, o: fs.CopyOptions) => {
+      await vrai(de, vers, o);
+      const seg = path.join(vers, "ecritures", "000000010000000000000001");
+      if (!fs.existsSync(seg)) return;
+      const b = readFileSync(seg);
+      b[0]! ^= 0xff;
+      writeFileSync(seg, b);
+    }) as typeof vrai;
+    syncBuiltinESMExports();
+    try {
+      await f();
+    } finally {
+      fs.promises.cp = vrai;
+      syncBuiltinESMExports();
+    }
+  }
+  const enAttente = (d: string, raison: string) =>
+    `l'ancien dossier des copies ${d} ne répond pas (${raison}) : ses copies seront rapatriées dès qu'il répondra — rien n'est oublié`;
+  type Lu = { dossier: string; anciens: { de: string; archive: string; attente: number | null }[] };
+
   it("data/copies → UN AUTRE DISQUE : tout rapatrié sous ancien-dossier-<date>, à l'identique, puis retiré de l'ancien dossier ; rien à refaire ensuite", async () => {
     const vieux = ancien(ici("data", "copies"));
     const contenus = vieux.map(lu);
     process.env.AFRICONTROL_COPIES = autre();
-    const bilan = await rapatrierAnciennes(autre());
+    const [bilan, ...rien] = await rapatrierAnciennes(autre());
+    assert.deepEqual(rien, []);
     assert.equal(bilan?.fichiers, 4);
+    assert.equal(
+      bilan?.octets,
+      contenus.reduce((t, c) => t + c.length, 0),
+    );
     assert.equal(archives().length, 1);
     for (const [i, f] of vieux.entries()) {
       const rel = path.relative(ici("data", "copies"), f);
       assert.ok(lu(path.join(autre(), archives()[0]!, rel)).equals(contenus[i]!), rel);
     }
     assert.ok(!fs.existsSync(ici("data", "copies")), "l'ancien dossier, vidé, retiré");
-    assert.deepEqual(registre(), { dossier: autre(), precedent: null, archive: null });
+    assert.deepEqual(registre(), { dossier: autre(), anciens: [] });
     assert.equal(etatIntegrite().rapatriement?.fichiers, 4);
-    assert.equal(await rapatrierAnciennes(autre()), null, "rien à refaire");
+    const journal = statSync(journalEmpreintes()).size;
+    assert.deepEqual(await rapatrierAnciennes(autre()), [], "rien à refaire");
     assert.equal(archives().length, 1);
+    assert.equal(statSync(journalEmpreintes()).size, journal, "registre inchangé, pas réécrit");
   });
 
-  it("COUPÉ APRÈS LE RENOMMAGE : repris — l'archive revérifiée, l'ancien dossier vidé, pas de seconde archive", async () => {
+  it("COUPÉ APRÈS LE RENOMMAGE (registre écrit par la version d'avant) : repris — l'archive revérifiée, l'ancien dossier vidé, pas de seconde archive", async () => {
     const vieux = ancien(ici("data", "copies"));
     process.env.AFRICONTROL_COPIES = autre();
     const archive = path.join(autre(), "ancien-dossier-2026-11-09T10-00-00-000Z");
@@ -402,32 +559,45 @@ describe("rapatriement des anciennes copies (le dossier des copies a changé de 
       JSON.stringify({ dossier: autre(), precedent: ici("data", "copies"), archive }),
     );
     // Renommée, mais l'arrêt est venu avant que l'ancien dossier se vide.
-    assert.equal((await rapatrierAnciennes(autre()))?.fichiers, vieux.length);
-    assert.deepEqual(archives(), [path.basename(archive)]);
+    assert.deepEqual(
+      (await rapatrierAnciennes(autre())).map((b) => b.fichiers),
+      [vieux.length],
+    );
+    assert.deepEqual(
+      fs.readdirSync(autre()).sort(),
+      [path.basename(archive), "fichiers"],
+      "l'archive revérifiée, rien recopié ailleurs (fichiers : la copie des registres)",
+    );
     assert.ok(!fs.existsSync(ici("data", "copies")));
+    assert.deepEqual(registre(), { dossier: autre(), anciens: [] });
+  });
+
+  it("COUPÉ APRÈS L'EFFACEMENT, AVANT LA FILE RÉÉCRITE : l'ancien dossier ne répond plus mais son archive est complète — pas de fausse attente", async () => {
+    process.env.AFRICONTROL_COPIES = autre();
+    const archive = path.join(autre(), "ancien-dossier-2026-11-09T10-00-00-000Z");
+    ancien(archive);
+    const file = {
+      dossier: autre(),
+      anciens: [{ de: ici("cle-E"), archive: path.basename(archive), attente: null }],
+    };
+    await ecrireFichierPoste(ici("data", "copies-dossier.json"), JSON.stringify(file));
+    assert.deepEqual(await rapatrierAnciennes(autre()), []);
+    assert.deepEqual(registre(), { dossier: autre(), anciens: [] });
+    assert.deepEqual(etatIntegrite().attentes, []);
+    assert.deepEqual(archives(), [path.basename(archive)], "l'archive gardée");
   });
 
   it("RECOPIÉ DIFFÉRENT (le nouveau disque écrit faux) : rien n'est retiré de l'ancien dossier, pas d'archive, l'erreur est dite ; repris proprement ensuite", async () => {
     const vieux = ancien(ici("data", "copies"));
     process.env.AFRICONTROL_COPIES = autre();
-    const vrai = fs.promises.cp;
-    fs.promises.cp = (async (de: string, vers: string, o: fs.CopyOptions) => {
-      await vrai(de, vers, o);
-      const seg = path.join(vers, "ecritures", "000000010000000000000001");
-      const b = readFileSync(seg);
-      b[0]! ^= 0xff;
-      writeFileSync(seg, b);
-    }) as typeof vrai;
-    syncBuiltinESMExports();
-    try {
-      await assert.rejects(rapatrierAnciennes(autre()), /recopié différent/);
-    } finally {
-      fs.promises.cp = vrai;
-      syncBuiltinESMExports();
-    }
+    await recopieFausse(() => assert.rejects(rapatrierAnciennes(autre()), /recopié différent/));
     for (const f of vieux) assert.ok(fs.existsSync(f), `${f} : gardé`);
     assert.deepEqual(archives(), []);
-    assert.equal((await rapatrierAnciennes(autre()))?.fichiers, vieux.length);
+    assert.equal((registre() as Lu).anciens.length, 1, "toujours dans la file");
+    assert.deepEqual(
+      (await rapatrierAnciennes(autre())).map((b) => b.fichiers),
+      [vieux.length],
+    );
     assert.equal(archives().length, 1);
   });
 
@@ -435,7 +605,7 @@ describe("rapatriement des anciennes copies (le dossier des copies a changé de 
     ancien(ici("data", "copies"));
     const dedans = ici("data", "copies", "disque2");
     process.env.AFRICONTROL_COPIES = dedans;
-    assert.equal(await rapatrierAnciennes(dedans), null);
+    assert.deepEqual(await rapatrierAnciennes(dedans), []);
     assert.ok(fs.existsSync(ici("data", "copies", "jour-2026-11-01")), "rien de retiré");
   });
 
@@ -446,23 +616,178 @@ describe("rapatriement des anciennes copies (le dossier des copies a changé de 
       process.env.AFRICONTROL_COPIES = autre();
       await ecrireFichierPoste(
         ici("data", "copies-dossier.json"),
-        JSON.stringify({ dossier: autre().toUpperCase(), precedent: null, archive: null }),
+        JSON.stringify({ dossier: autre().toUpperCase(), anciens: [] }),
       );
-      assert.equal(await rapatrierAnciennes(autre()), null);
+      assert.deepEqual(await rapatrierAnciennes(autre()), []);
     },
   );
 
-  it("ANCIEN DOSSIER INJOIGNABLE (clé retirée) : une erreur, le rapatriement reste en attente ; fait quand il répond — d'un dossier choisi à un autre", async () => {
+  it("ANCIEN DOSSIER INJOIGNABLE (clé retirée, perdue) : jamais abandonné — dit, depuis quand (gardé au registre), le dernier essai, pourquoi ; rapatrié quand il répond, et l'attente s'efface", async () => {
     const cleE = ici("cle-E", "AfriControl-copies");
     process.env.AFRICONTROL_COPIES = autre();
     await ecrireFichierPoste(
       ici("data", "copies-dossier.json"),
-      JSON.stringify({ dossier: cleE, precedent: null, archive: null }),
+      JSON.stringify({ dossier: cleE, anciens: [] }),
     );
-    await assert.rejects(rapatrierAnciennes(autre()));
-    assert.equal((registre() as { precedent: string }).precedent, cleE, "en attente");
-    ancien(cleE);
-    assert.equal((await rapatrierAnciennes(autre()))?.fichiers, 4);
-    assert.deepEqual(registre(), { dossier: autre(), precedent: null, archive: null });
+    const avant = Date.now();
+    await assert.rejects(rapatrierAnciennes(autre()), { message: enAttente(cleE, "ENOENT") });
+    const r1 = registre() as Lu;
+    assert.equal(r1.anciens.length, 1);
+    assert.equal(r1.anciens[0]!.de, cleE, "en attente");
+    const depuis = r1.anciens[0]!.attente!;
+    assert.ok(depuis >= avant, "depuis quand : gardé au registre");
+    const [a1] = etatIntegrite().attentes;
+    assert.deepEqual({ ...a1, dernier: 0 }, { de: cleE, depuis, dernier: 0, raison: "ENOENT" });
+    assert.ok(a1!.dernier >= depuis);
+    await assert.rejects(rapatrierAnciennes(autre()), { message: enAttente(cleE, "ENOENT") });
+    assert.equal(
+      (registre() as Lu).anciens[0]!.attente,
+      depuis,
+      "toujours depuis la première fois",
+    );
+    assert.equal(etatIntegrite().attentes[0]!.depuis, depuis);
+    assert.ok(etatIntegrite().attentes[0]!.dernier >= a1!.dernier, "réessayé");
+    // Rebranchée, mais le nouveau disque écrit faux : il a répondu, l'attente s'efface ; reste dans la file.
+    const vieux = ancien(cleE);
+    await recopieFausse(() => assert.rejects(rapatrierAnciennes(autre()), /recopié différent/));
+    assert.deepEqual(etatIntegrite().attentes, []);
+    assert.deepEqual(
+      (registre() as Lu).anciens.map((a) => [a.de, a.attente]),
+      [[cleE, null]],
+    );
+    assert.deepEqual(
+      (await rapatrierAnciennes(autre())).map((b) => b.fichiers),
+      [vieux.length],
+    );
+    assert.deepEqual(registre(), { dossier: autre(), anciens: [] });
+    assert.deepEqual(etatIntegrite().attentes, []);
+  });
+
+  it("CLÉ PERDUE PUIS DOSSIER CHANGÉ ENCORE (A perdue → B → C) : B rapatrié dans C, A toujours en attente, son archive ira dans C ; A rebranchée : rapatriée dans C", async () => {
+    const [a, b, c] = ["cle-A", "disque-B", "disque-C"].map((n) => ici(n, "AfriControl-copies"));
+    await ecrireFichierPoste(
+      ici("data", "copies-dossier.json"),
+      JSON.stringify({ dossier: a, anciens: [] }),
+    );
+    await assert.rejects(rapatrierAnciennes(b!), { message: enAttente(a!, "ENOENT") });
+    const depuisA = (registre() as Lu).anciens[0]!.attente;
+    const vieuxB = ancien(b!);
+    await assert.rejects(rapatrierAnciennes(c!), { message: enAttente(a!, "ENOENT") });
+    // B, lisible : rapatrié dans C malgré A qui attend.
+    const dansC = () =>
+      fs.readdirSync(c!).filter((n) => n.startsWith("ancien-dossier-") && !n.endsWith(".part"));
+    assert.equal(dansC().length, 1);
+    assert.ok(!fs.existsSync(b!), "B vidé, retiré");
+    assert.equal(etatIntegrite().rapatriement?.de, b);
+    assert.equal(etatIntegrite().rapatriement?.fichiers, vieuxB.length);
+    const r = registre() as Lu;
+    assert.equal(r.dossier, c);
+    assert.deepEqual(
+      r.anciens.map((x) => [x.de, x.attente]),
+      [[a, depuisA]],
+      "A gardée, depuis la première fois",
+    );
+    assert.deepEqual(
+      etatIntegrite().attentes.map((x) => x.de),
+      [a],
+    );
+    const vieuxA = ancien(a!);
+    const contenusA = vieuxA.map(lu);
+    assert.deepEqual(
+      (await rapatrierAnciennes(c!)).map((b) => b.fichiers),
+      [vieuxA.length],
+    );
+    const archiveA = path.join(c!, r.anciens[0]!.archive);
+    for (const [i, f] of vieuxA.entries()) {
+      assert.ok(lu(path.join(archiveA, path.relative(a!, f))).equals(contenusA[i]!), f);
+    }
+    assert.equal(dansC().length, 2);
+    assert.deepEqual(registre(), { dossier: c, anciens: [] });
+    assert.deepEqual(etatIntegrite().attentes, []);
+  });
+
+  it("POSTE NEUF (ni registre, ni data/copies) : rien en file, rien en attente", async () => {
+    process.env.AFRICONTROL_COPIES = autre();
+    assert.deepEqual(await rapatrierAnciennes(autre()), []);
+    assert.deepEqual(registre(), { dossier: autre(), anciens: [] });
+    assert.deepEqual(etatIntegrite().attentes, []);
+  });
+
+  it("COUPÉ PENDANT LA RECOPIE : la file était gardée avant d'y toucher — reprise sous la même archive, rien en double", async () => {
+    const vieux = ancien(ici("data", "copies"));
+    process.env.AFRICONTROL_COPIES = autre();
+    const vrai = fs.promises.cp;
+    let pendant: Lu | null = null;
+    fs.promises.cp = (async () => {
+      pendant = fs.existsSync(ici("data", "copies-dossier.json")) ? (registre() as Lu) : null;
+      throw new Error("coupure");
+    }) as typeof vrai;
+    syncBuiltinESMExports();
+    try {
+      await assert.rejects(rapatrierAnciennes(autre()), /coupure/);
+    } finally {
+      fs.promises.cp = vrai;
+      syncBuiltinESMExports();
+    }
+    const enCours = pendant as Lu | null;
+    assert.deepEqual(
+      enCours?.anciens.map((a) => a.de),
+      [ici("data", "copies")],
+      "gardée avant",
+    );
+    assert.deepEqual(
+      (await rapatrierAnciennes(autre())).map((b) => b.fichiers),
+      [vieux.length],
+    );
+    assert.deepEqual(archives(), [enCours?.anciens[0]?.archive], "la même archive, une seule");
+  });
+
+  it("UN ANCIEN QUI ÉCHOUE N'ARRÊTE PAS LES AUTRES : A recopié faux, gardé dans la file ; B rapatrié quand même", async () => {
+    const [a, b] = ["cle-A", "disque-B"].map((n) => ici(n, "AfriControl-copies"));
+    const vieuxA = ancien(a!);
+    const routes = path.join(b!, "fichiers", "data", "routes.json");
+    fs.mkdirSync(path.dirname(routes), { recursive: true });
+    writeFileSync(routes, "routes\n");
+    process.env.AFRICONTROL_COPIES = autre();
+    const file = { dossier: b, anciens: [{ de: a, archive: "ancien-dossier-A", attente: null }] };
+    await ecrireFichierPoste(ici("data", "copies-dossier.json"), JSON.stringify(file));
+    await recopieFausse(() => assert.rejects(rapatrierAnciennes(autre()), /recopié différent/));
+    assert.ok(!fs.existsSync(b!), "B rapatrié, retiré");
+    assert.equal(etatIntegrite().rapatriement?.de, b);
+    assert.deepEqual(
+      (registre() as Lu).anciens.map((x) => x.de),
+      [a],
+      "A gardé dans la file",
+    );
+    for (const f of vieuxA) assert.ok(fs.existsSync(f), `${f} : gardé`);
+  });
+
+  it("L'ANCIEN DANS LE NOUVEAU (autre-disque/poste1 → autre-disque) : rangé sous ancien-dossier-<date> comme un autre", async () => {
+    const poste1 = path.join(autre(), "poste1");
+    const vieux = ancien(poste1);
+    process.env.AFRICONTROL_COPIES = autre();
+    await ecrireFichierPoste(
+      ici("data", "copies-dossier.json"),
+      JSON.stringify({ dossier: poste1, anciens: [] }),
+    );
+    assert.deepEqual(
+      (await rapatrierAnciennes(autre())).map((b) => b.fichiers),
+      [vieux.length],
+    );
+    assert.ok(!fs.existsSync(poste1));
+    assert.equal(archives().length, 1);
+  });
+
+  it("ANCIEN DOSSIER VIDE : rien à rapatrier, pas d'archive vide, retiré de la file", async () => {
+    const vide = ici("disque-B", "AfriControl-copies");
+    fs.mkdirSync(vide, { recursive: true });
+    process.env.AFRICONTROL_COPIES = autre();
+    await ecrireFichierPoste(
+      ici("data", "copies-dossier.json"),
+      JSON.stringify({ dossier: vide, anciens: [] }),
+    );
+    assert.deepEqual(await rapatrierAnciennes(autre()), []);
+    assert.deepEqual(archives(), []);
+    assert.deepEqual(registre(), { dossier: autre(), anciens: [] });
   });
 });

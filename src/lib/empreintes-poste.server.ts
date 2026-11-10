@@ -11,7 +11,10 @@
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import path from "node:path";
+import { pipeline } from "node:stream/promises";
+import { createGunzip } from "node:zlib";
 
 /** Une version finie d'un fichier gardé : son chemin relatif au dossier du serveur (séparé par
  * « / »), sa taille en octets, son SHA-256 en hexadécimal. */
@@ -50,6 +53,26 @@ export function cleDuPoste(fichier: string): Buffer | null {
   } catch {
     return null;
   }
+}
+
+/** La clé du poste si elle est là et lisible, sans jamais en tirer une : à la reprise, le disque du
+ * poste a pu être remplacé, et une clé neuve ne vérifierait aucun sceau. */
+export function lireCleDuPoste(fichier: string): Buffer | null {
+  try {
+    const texte = readFileSync(fichier, "utf8").trim();
+    return HEX64.test(texte) ? Buffer.from(texte, "hex") : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Ce qui désigne une clé sans la révéler : un sceau posé par une autre clé (une ancienne, mise de
+ * côté abîmée) se reconnaît, et n'est pas pris pour un faux. */
+export function idCle(cle: Buffer): string {
+  return createHmac("sha256", cle)
+    .update("identifiant de la clé du poste")
+    .digest("hex")
+    .slice(0, 16);
 }
 
 /** Le sceau d'une empreinte : HMAC-SHA256, par la clé du poste, de son chemin, sa taille et son
@@ -110,13 +133,154 @@ export function hacherTexte(contenu: string): { t: number; h: string } {
   };
 }
 
-/** La taille et le SHA-256 d'un fichier, lu au fil de l'eau. */
-export async function hacherFichier(fichier: string): Promise<{ t: number; h: string }> {
+/** La taille et le SHA-256 de ce qui passe dans un flux. */
+async function hacherFlux(flux: AsyncIterable<Buffer>): Promise<{ t: number; h: string }> {
   const h = createHash("sha256");
   let t = 0;
-  for await (const morceau of createReadStream(fichier) as AsyncIterable<Buffer>) {
+  for await (const morceau of flux) {
     h.update(morceau);
     t += morceau.length;
   }
   return { t, h: h.digest("hex") };
+}
+
+/** La taille et le SHA-256 d'un fichier, lu au fil de l'eau. */
+export function hacherFichier(fichier: string): Promise<{ t: number; h: string }> {
+  return hacherFlux(createReadStream(fichier) as AsyncIterable<Buffer>);
+}
+
+/** La taille et le SHA-256 du contenu d'origine d'un fichier compressé (gzip). Abîmé : jette. */
+async function hacherCompresse(fichier: string): Promise<{ t: number; h: string }> {
+  let v = { t: 0, h: "" };
+  await pipeline(createReadStream(fichier), createGunzip(), async (flux: AsyncIterable<Buffer>) => {
+    v = await hacherFlux(flux);
+  });
+  return v;
+}
+
+/**
+ * Les empreintes du contenu d'un dossier, par chemin relatif (« / ») : un fichier compressé
+ * (« x.gz ») compte pour son contenu d'origine (« x »), l'original primant s'il est encore là (coupé
+ * entre la compression et l'effacement) ; les écritures inachevées (« .part ») ne comptent pas, ni
+ * ce que `ignorer` écarte. Un fichier illisible jette.
+ */
+export async function empreintesDossier(
+  dossier: string,
+  ignorer: (chemin: string) => boolean,
+): Promise<Map<string, { t: number; h: string }>> {
+  const vues = new Map<string, { t: number; h: string }>();
+  const hacher = async (r: string, faire: () => Promise<{ t: number; h: string }>) => {
+    try {
+      vues.set(r, await faire());
+    } catch (e) {
+      throw new Error(`${r} illisible (${(e as Error).message})`);
+    }
+  };
+  const parcourir = async (d: string, rel: string): Promise<void> => {
+    const entrees = await readdir(d, { withFileTypes: true });
+    const noms = new Set(entrees.map((e) => e.name));
+    for (const e of entrees) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) await parcourir(p, r);
+      else if (!e.isFile() || e.name.endsWith(".part")) continue;
+      else if (e.name.endsWith(".gz")) {
+        const x = r.slice(0, -3);
+        if (!noms.has(e.name.slice(0, -3))) await hacher(x, () => hacherCompresse(p));
+      } else if (!ignorer(r)) await hacher(r, () => hacherFichier(p));
+    }
+  };
+  await parcourir(dossier, "");
+  return vues;
+}
+
+/** Les empreintes d'un dossier entier (une copie de la base) : chemin, taille et SHA-256 de chaque
+ * fichier, scellés ensemble par la clé du poste. */
+export type Manifeste = {
+  v: 1;
+  /** L'identifiant de la clé qui l'a scellé, ou null (clé du poste illisible). */
+  cle: string | null;
+  fichiers: [string, number, string][];
+  /** HMAC-SHA256, par cette clé, de la version et des fichiers ; ou null. */
+  s: string | null;
+};
+
+const sceauManifeste = (cle: Buffer, m: Pick<Manifeste, "v" | "fichiers">) =>
+  createHmac("sha256", cle)
+    .update(JSON.stringify({ v: m.v, fichiers: m.fichiers }))
+    .digest("hex");
+
+/** Le manifeste de `dossier` tel qu'il est sur le disque, scellé par `cle` (si elle est lisible). */
+export async function manifesteDossier(
+  dossier: string,
+  cle: Buffer | null,
+  ignorer: (chemin: string) => boolean,
+): Promise<Manifeste> {
+  const vues = await empreintesDossier(dossier, ignorer);
+  const fichiers = [...vues].map(([f, v]): [string, number, string] => [f, v.t, v.h]);
+  const corps = { v: 1 as const, cle: cle ? idCle(cle) : null, fichiers };
+  return { ...corps, s: cle ? sceauManifeste(cle, corps) : null };
+}
+
+/** Un dossier relu contre son manifeste. `scelle` : le sceau est celui de la clé du poste. */
+export type Verdict =
+  { sain: true; scelle: boolean; octets: number } | { sain: false; raison: string; octets: number };
+
+/**
+ * `dossier` relu au contenu contre son manifeste (`texte`) : chaque fichier présent, entier, à son
+ * SHA-256, aucun en plus. Le sceau est vérifié quand le manifeste vient de la clé
+ * du poste (`cle`) — faux, le dossier est donné abîmé ; posé par une autre clé (une ancienne) ou
+ * sans clé du poste (disque du poste remplacé), le contenu seul est vérifié.
+ */
+export async function verifierDossier(
+  dossier: string,
+  texte: string,
+  cle: Buffer | null,
+  ignorer: (chemin: string) => boolean,
+): Promise<Verdict> {
+  let m: Manifeste;
+  try {
+    m = JSON.parse(texte) as Manifeste;
+    const bien = (x: unknown): x is [string, number, string] =>
+      Array.isArray(x) &&
+      typeof x[0] === "string" &&
+      typeof x[1] === "number" &&
+      typeof x[2] === "string" &&
+      HEX64.test(x[2]);
+    if (m.v !== 1 || !Array.isArray(m.fichiers) || !m.fichiers.every(bien)) throw new Error();
+  } catch {
+    return { sain: false, raison: "ses empreintes sont illisibles", octets: 0 };
+  }
+  let scelle = false;
+  if (cle && m.cle === idCle(cle)) {
+    const attendu = Buffer.from(sceauManifeste(cle, m), "hex");
+    if (
+      typeof m.s !== "string" ||
+      !HEX64.test(m.s) ||
+      !timingSafeEqual(Buffer.from(m.s, "hex"), attendu)
+    ) {
+      return {
+        sain: false,
+        raison: "ses empreintes ne portent pas le sceau du poste (modifiées ?)",
+        octets: 0,
+      };
+    }
+    scelle = true;
+  }
+  let vues: Map<string, { t: number; h: string }>;
+  try {
+    vues = await empreintesDossier(dossier, ignorer);
+  } catch (e) {
+    return { sain: false, raison: (e as Error).message, octets: 0 };
+  }
+  const octets = [...vues.values()].reduce((s, v) => s + v.t, 0);
+  for (const [f, , h] of m.fichiers) {
+    const v = vues.get(f);
+    if (!v) return { sain: false, raison: `${f} manque`, octets };
+    if (v.h !== h) return { sain: false, raison: `${f} diffère de son empreinte`, octets };
+    vues.delete(f);
+  }
+  const enTrop = [...vues.keys()][0];
+  if (enTrop !== undefined) return { sain: false, raison: `${enTrop} en trop`, octets };
+  return { sain: true, scelle, octets };
 }

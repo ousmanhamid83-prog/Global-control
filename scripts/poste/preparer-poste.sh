@@ -24,6 +24,14 @@
 #   --recherche      moteur de recherche SearXNG du poste (Docker), pour la commande /recherche :
 #                    la requête sort alors du poste ; /recherche reste désactivée tant que le chef
 #                    de division ne l'active pas (Capteurs › Outils › Commandes du poste)
+#   --antenne LAT,LON  antenne 1090 MHz du poste, à cette position (degrés décimaux) : le récepteur
+#                    dump1090 est installé (paquet dump1090-mutability), réglé sur elle et lancé avec
+#                    la machine, sur une clé radio RTL-SDR ; le poste décode lui-même ses trames
+#                    brutes (127.0.0.1:30002). Réception seule : rien n'est émis.
+#   --recepteur-1090 HOTE:PORT  un récepteur 1090 déjà en place (trames brutes AVR) au lieu de
+#                    l'installer ici ; avec --antenne pour sa position
+#   --phonie URL     flux audio de la phonie ATC, sortie du récepteur VHF de l'opérateur
+#                    (rtl_airband, Icecast…) : le poste l'enregistre à la demande, doublé et scellé
 #   --copies DOSSIER dossier des copies du poste (AFRICONTROL_COPIES) : tout ce que le poste garde y
 #                    est doublé aussitôt. Sans --copies, un autre disque INTERNE de la machine (ni
 #                    clé ni disque USB, ni autre partition du disque du poste ; le plus de place
@@ -43,6 +51,9 @@ SEARXNG_IMAGE=searxng/searxng:2026.11.2-cccbc9e15
 
 MODELE=""
 COPIES=""
+ANTENNE=""
+RECEPTEUR_1090=""
+PHONIE=""
 ZONES=()
 ZONES_IMAGERIE=()
 BUILD=1 IA=1 RELIEF=1 IMAGERIE=0 ITINERAIRE=0 SIGNAL=0 RECHERCHE=0
@@ -56,6 +67,9 @@ while [ $# -gt 0 ]; do
     --signal) SIGNAL=1 ;;
     --recherche) RECHERCHE=1 ;;
     --copies) COPIES=${2:?--copies attend un dossier}; shift ;;
+    --antenne) ANTENNE=${2:?--antenne attend LAT,LON}; shift ;;
+    --recepteur-1090) RECEPTEUR_1090=${2:?--recepteur-1090 attend HOTE:PORT}; shift ;;
+    --phonie) PHONIE=${2:?--phonie attend une adresse de flux}; shift ;;
     --sans-build) BUILD=0 ;;
     --sans-ia) IA=0 ;;
     --sans-relief) RELIEF=0 ;;
@@ -116,12 +130,14 @@ docker_pret() { command -v docker >/dev/null && docker info >/dev/null 2>&1; }
 # Une image déjà là n'est pas retéléchargée : relancer le script hors ligne reste possible.
 image_presente() { docker image inspect "$1" >/dev/null 2>&1; }
 
-# installer_paquet <nom> : par apt (Debian, Ubuntu) ou dnf (Fedora, RHEL).
+# installer_paquet <nom> : par apt (Debian, Ubuntu) ou dnf (Fedora, RHEL). Sans question posée
+# (debconf) : le paquet prend ses réglages par défaut, le script règle ensuite ce qu'il faut.
 installer_paquet() {
   local sudo=""
   if [ "$(id -u)" != 0 ]; then sudo=sudo; fi
   if command -v apt-get >/dev/null; then
-    $sudo apt-get install -y "$1" || { $sudo apt-get update && $sudo apt-get install -y "$1"; }
+    local apt=(env DEBIAN_FRONTEND=noninteractive apt-get)
+    $sudo "${apt[@]}" install -y "$1" || { $sudo "${apt[@]}" update && $sudo "${apt[@]}" install -y "$1"; }
   elif command -v dnf >/dev/null; then
     $sudo dnf install -y "$1"
   else
@@ -417,14 +433,81 @@ FIN
   fi
 fi
 
-# disques_de CHEMIN : les disques physiques (sda, nvme0n1…) qui portent CHEMIN, un par ligne ;
-# rien quand ils ne se lisent pas (dossier réseau, ZFS, conteneur…).
-disques_de() {
-  local volume
-  volume=$(df -P "$1" 2>/dev/null | awk 'NR == 2 { print $1 }')
-  if [ -b "$volume" ]; then
-    lsblk -rsno NAME,TYPE "$volume" 2>/dev/null | awk '$2 == "disk" { print $1 }' | sort -u
+# Antenne 1090 MHz : le récepteur (dump1090) sur la clé radio, ses trames brutes lues par le poste.
+recepteur_repond() { timeout 3 bash -c "exec 3<>/dev/tcp/${RECEPTEUR_1090%:*}/${RECEPTEUR_1090##*:}" 2>/dev/null; }
+
+if [ -n "$ANTENNE$RECEPTEUR_1090" ]; then
+  etape "Antenne 1090 MHz du poste (réception seule)"
+  if ! [[ "$ANTENNE" =~ ^(-?[0-9]{1,2}(\.[0-9]+)?),(-?[0-9]{1,3}(\.[0-9]+)?)$ ]] ||
+    ! awk -v a="${BASH_REMATCH[1]}" -v o="${BASH_REMATCH[3]}" 'BEGIN { exit !(a >= -90 && a <= 90 && o >= -180 && o <= 180) }'; then
+    rate "antenne 1090 : --antenne LAT,LON attendu, sa position en degrés décimaux (ex. 12.1331,15.0339)"
+  else
+    LAT=${BASH_REMATCH[1]}
+    LON=${BASH_REMATCH[3]}
+    if [ -z "$RECEPTEUR_1090" ]; then
+      RECEPTEUR_1090=127.0.0.1:30002
+      SUDO=""
+      if [ "$(id -u)" != 0 ]; then SUDO=sudo; fi
+      if ! command -v dump1090-mutability >/dev/null; then installer_paquet dump1090-mutability || true; fi
+      if [ -f /etc/default/dump1090-mutability ]; then
+        # La clé radio libérée de son pilote de télévision (DVB-T), qui la prendrait avant dump1090.
+        printf 'blacklist dvb_usb_rtl28xxu\nblacklist rtl2832\nblacklist rtl2830\n' |
+          $SUDO tee /etc/modprobe.d/africontrol-rtl-sdr.conf >/dev/null
+        $SUDO modprobe -r dvb_usb_rtl28xxu 2>/dev/null || true
+        $SUDO usermod -aG plugdev dump1090 2>/dev/null || true
+        # Sa position, ses trames brutes sur 127.0.0.1:30002 seulement, lancé avec la machine.
+        $SUDO sed -i -e "s/^LAT=.*/LAT=\"$LAT\"/" -e "s/^LON=.*/LON=\"$LON\"/" \
+          -e 's/^START_DUMP1090=.*/START_DUMP1090="yes"/' \
+          -e 's/^RAW_OUTPUT_PORT=.*/RAW_OUTPUT_PORT="30002"/' \
+          -e 's/^NET_BIND_ADDRESS=.*/NET_BIND_ADDRESS="127.0.0.1"/' /etc/default/dump1090-mutability
+        $SUDO systemctl enable dump1090-mutability >/dev/null 2>&1 || true
+        $SUDO systemctl restart dump1090-mutability >/dev/null 2>&1 || true
+        if ! lsusb 2>/dev/null | grep -qiE '0bda:28(32|38)'; then
+          A_FAIRE+=("Antenne 1090 : aucune clé radio RTL-SDR vue (lsusb) — brancher la clé et son antenne, puis : sudo systemctl restart dump1090-mutability")
+        fi
+      else
+        rate "antenne 1090 : le récepteur dump1090-mutability n'a pas pu être installé — en installer un (readsb, dump1090-fa), puis relancer avec --recepteur-1090 127.0.0.1:30002"
+      fi
+    fi
+    regler AFRICONTROL_1090 "$RECEPTEUR_1090"
+    regler AFRICONTROL_ANTENNE "$LAT,$LON"
+    if attendre recepteur_repond 20; then
+      ok "antenne 1090 : récepteur sur $RECEPTEUR_1090, antenne à $LAT,$LON — le poste décode lui-même les trames"
+    else
+      A_FAIRE+=("Antenne 1090 : rien n'écoute encore sur $RECEPTEUR_1090 — le poste s'y raccroche seul dès qu'il répond.")
+    fi
   fi
+fi
+
+if [ -n "$PHONIE" ]; then
+  etape "Phonie ATC (flux du récepteur VHF de l'opérateur, réception seule)"
+  if ! [[ "$PHONIE" =~ ^https?://[^[:space:]]+$ ]]; then
+    rate "phonie : --phonie attend une adresse http(s):// (sortie du récepteur VHF : rtl_airband, Icecast…)"
+  else
+    regler AFRICONTROL_ATC "$PHONIE"
+    # Un flux sans fin : seul compte qu'il réponde (200) dans les 5 s.
+    if [ "$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$PHONIE" 2>/dev/null || true)" = 200 ]; then
+      ok "phonie : flux $PHONIE — enregistré à la demande, doublé et scellé comme le reste"
+    else
+      A_FAIRE+=("Phonie ATC : $PHONIE ne répond pas encore — le poste réessaie seul quand l'enregistrement est demandé.")
+    fi
+  fi
+fi
+
+# disques_de CHEMIN : les disques physiques (sda, nvme0n1…) qui portent CHEMIN, un par ligne ;
+# rien quand ils ne se lisent pas (dossier réseau, ZFS, conteneur…). Par le numéro du périphérique
+# de son montage, lu dans /sys — pas par son nom : la racine se dit souvent « /dev/root », qui
+# n'existe pas. Un montage sans périphérique propre (btrfs, « 0:… ») : celui de sa source.
+disques_de() {
+  local numero source periph
+  numero=$(findmnt -no MAJ:MIN -T "$1" 2>/dev/null) || return 0
+  periph=$(readlink -f "/sys/dev/block/$numero" 2>/dev/null) || periph=""
+  if [ -z "$periph" ] || [ ! -e "$periph" ]; then
+    source=$(findmnt -no SOURCE -T "$1" 2>/dev/null) || return 0
+    [ -b "$source" ] || return 0
+    periph=$(readlink -f "$source")
+  fi
+  lsblk -rsno NAME,TYPE "/dev/${periph##*/}" 2>/dev/null | awk '$2 == "disk" { print $1 }' | sort -u
 }
 
 # disque_interne DISQUES : chacun ni amovible ni sur USB (une clé, un disque USB s'en vont).
@@ -464,6 +547,9 @@ autre_disque() {
 }
 
 etape "Copies du poste (un autre disque que le sien)"
+# Le dossier du poste d'abord : sur une installation neuve sans IA ni relief, data/ n'existe pas
+# encore, et son disque ne se lirait pas — aucun autre disque ne serait choisi.
+mkdir -p data
 REGLEES=""
 if [ -f "$POSTE_ENV" ]; then REGLEES=$(sed -n 's/^AFRICONTROL_COPIES=//p' "$POSTE_ENV" | tail -n 1); fi
 CHOISI=""
@@ -472,9 +558,16 @@ if [ -z "$COPIES" ] && [ -z "$REGLEES" ]; then
   if [ -n "${POINT:-}" ]; then
     COPIES="$POINT/AfriControl-copies"
     CHOISI="$((LIBRE / 1048576)) Go libres"
-    # Un point de montage à root : le dossier est créé, puis rendu à l'opérateur qui lance le poste.
+    # Un point de montage à root : le dossier est créé par sudo, puis rendu à l'opérateur qui lance
+    # le poste (lui seul l'écrit). sudo refusé : dit, et les copies restent sur le disque du poste.
     if ! mkdir -p "$COPIES" 2>/dev/null; then
-      sudo mkdir -p "$COPIES" && sudo chown "$(id -u):$(id -g)" "$COPIES" || COPIES=""
+      if sudo mkdir -p "$COPIES" && sudo chown "$(id -u):$(id -g)" "$COPIES" && sudo chmod 700 "$COPIES"; then
+        ok "dossier des copies créé par sudo sur $POINT (à root), rendu à $(id -un) seul"
+      else
+        A_FAIRE+=("Le disque choisi pour les copies ($POINT) appartient à root et sudo a refusé : sudo mkdir -p $COPIES && sudo chown $(id -un) $COPIES, puis relancer le script.")
+        COPIES=""
+        CHOISI=""
+      fi
     fi
   fi
 fi

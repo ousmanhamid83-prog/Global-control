@@ -71,6 +71,28 @@ jobs:
         shell: cmd
         run: type poste.env
 
+      # Un récepteur 1090 qui écoute (trames brutes sur 30002), une phonie qui ne répond pas : le
+      # script règle les deux dans poste.env, essaie chacun, le dit ; une position fausse est refusée.
+      - name: Antenne 1090 et phonie ATC — réglées, essayées, dites ; une position fausse refusée
+        shell: pwsh
+        run: |
+          $recepteur = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 30002)
+          $recepteur.Start()
+          $sortie = & ${{ matrix.ps }} -NoProfile -ExecutionPolicy Bypass -File scripts\poste\preparer-poste.ps1 -SansBuild -SansIA -SansRelief -Antenne "37.5,14.0" -Phonie "http://127.0.0.1:9/atc.mp3"
+          $recepteur.Stop()
+          $texte = $sortie -join "`n"
+          $texte
+          if ($texte -notmatch "antenne 1090 : r.cepteur sur 127\.0\.0\.1:30002, antenne . 37\.5,14\.0") { throw "récepteur 1090 qui écoute : pas vu" }
+          if ($texte -notmatch "Phonie ATC : http://127\.0\.0\.1:9/atc\.mp3 ne r.pond pas encore") { throw "phonie muette : rien de dit" }
+          $env = Get-Content poste.env -Raw
+          foreach ($l in "AFRICONTROL_1090=127.0.0.1:30002", "AFRICONTROL_ANTENNE=37.5,14.0", "AFRICONTROL_ATC=http://127.0.0.1:9/atc.mp3") {
+            if ($env -notmatch [regex]::Escape($l)) { throw "$l manque dans poste.env" }
+          }
+          & ${{ matrix.ps }} -NoProfile -ExecutionPolicy Bypass -File scripts\poste\preparer-poste.ps1 -SansBuild -SansIA -SansRelief -Antenne "95,14" | Out-Null
+          if ($LASTEXITCODE -ne 1) { throw "une position fausse doit faire échouer le bilan ($LASTEXITCODE)" }
+          if ((Get-Content poste.env -Raw) -notmatch "AFRICONTROL_ANTENNE=37\.5,14\.0") { throw "le réglage d'avant doit rester" }
+          Write-Host "Antenne et phonie : réglées, essayées, dites ; position fausse refusée."
+
       # Le script choisit seul un autre disque INTERNE pour les copies : ici, le poste est sur D:
       # (le disque temporaire du runner) et C: (le disque du système) est un autre disque.
       - name: Copies du poste sur un autre disque que le sien

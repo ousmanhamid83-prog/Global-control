@@ -64,6 +64,10 @@ export type Integrite = {
   sansCle: boolean;
   /** Le dernier rapatriement des anciennes copies. */
   rapatriement: { de: string; vers: string; fichiers: number; octets: number; at: number } | null;
+  /** Les anciens dossiers des copies qui ne répondent pas (clé retirée, disque absent ou perdu) :
+   * depuis quand (gardé dans le registre, il survit aux redémarrages), le dernier essai, et
+   * pourquoi. Jamais abandonnés d'eux-mêmes : leurs copies attendent qu'ils reviennent. */
+  attentes: { de: string; depuis: number; dernier: number; raison: string }[];
 };
 
 const g = globalThis as typeof globalThis & {
@@ -83,6 +87,7 @@ const integrite = (): Integrite =>
     fausses: 0,
     sansCle: false,
     rapatriement: null,
+    attentes: [],
   });
 
 /** L'intégrité des fichiers gardés, pour la Division. */
@@ -267,21 +272,25 @@ export async function alignerCopies(
   return bilan.recopies;
 }
 
-/** Le dossier des copies en service, retenu pour rapatrier l'ancien quand il change. */
-type Registre = { dossier: string; precedent: string | null; archive: string | null };
+/** Un ancien dossier des copies à rapatrier : le nom de son archive dans le dossier en service
+ * (ancien-dossier-<date>), et depuis quand il ne répond pas (ms), ou null. */
+type Ancien = { de: string; archive: string; attente: number | null };
+
+/** Le dossier des copies en service, et la file des anciens à y rapatrier. Écrit par la version
+ * d'avant : un seul ancien, `precedent`, son archive en chemin entier. */
+type Registre = {
+  dossier: string;
+  anciens?: Ancien[];
+  precedent?: string | null;
+  archive?: string | null;
+};
 
 /** Préfixe des archives d'un ancien dossier des copies : copies/ancien-dossier-<date>. */
 export const ANCIEN_DOSSIER = "ancien-dossier-";
 
 const registre = () => path.join(dossierRegistres(), "copies-dossier.json");
 
-/** Deux chemins du même dossier (Windows ne distingue pas les majuscules). */
-function meme(a: string, b: string): boolean {
-  const [x, y] = [path.resolve(a), path.resolve(b)];
-  return process.platform === "win32" ? x.toLowerCase() === y.toLowerCase() : x === y;
-}
-
-/** `a` est-il `b`, ou dans `b` ? */
+/** `a` est-il `b`, ou dans `b` ? (sous Windows, sans distinguer les majuscules) */
 function dans(a: string, b: string): boolean {
   const r = path.relative(path.resolve(b), path.resolve(a));
   return !r.startsWith("..") && !path.isAbsolute(r);
@@ -308,76 +317,106 @@ async function comparerArbres(a: string, b: string): Promise<{ fichiers: number;
 }
 
 /**
- * Le dossier des copies a changé (un autre disque) : ce que l'ancien gardait — copies de la base,
- * écritures doublées, copies des fichiers, archives — est rapatrié dans le nouveau, sous
- * ancien-dossier-<date> : recopié dans un .part, forcé, comparé fichier par fichier (SHA-256),
- * renommé ; alors seulement retiré de l'ancien dossier. Coupé n'importe où, repris au contrôle
- * suivant ; l'ancien dossier injoignable (clé retirée), jette — dit, réessayé. Une archive, jamais
- * mêlée aux copies en service : la reprise ne la prend pas d'elle-même. Rend ce qui a été rapatrié,
- * ou null s'il n'y avait rien à faire.
+ * Un ancien dossier, lisible, rapatrié dans son archive : recopié dans un .part, forcé, comparé
+ * fichier par fichier (SHA-256), renommé — ou l'archive déjà là (coupé après le renommage),
+ * revérifiée ; alors seulement il se vide. Rend ce qui a été rapatrié, ou null s'il était vide.
  */
-export async function rapatrierAnciennes(
-  copies = dossierCopies(),
+async function vider(
+  de: string,
+  noms: string[],
+  archive: string,
+  copies: string,
 ): Promise<{ fichiers: number; octets: number } | null> {
-  const lu = await lireFichierPoste(registre(), (t) => JSON.parse(t) as Registre);
-  let precedent = lu?.precedent ?? null;
-  if (lu && precedent === null && !meme(lu.dossier, copies)) precedent = lu.dossier;
-  if (!lu) {
-    // Avant ce registre, les copies allaient par défaut dans data/copies.
-    const defaut = path.join(dossierRegistres(), "copies");
-    if (!meme(defaut, copies) && (await readdir(defaut).catch(() => [])).length > 0) {
-      precedent = defaut;
-    }
-  }
-  if (precedent !== null && (dans(precedent, copies) || dans(copies, precedent))) precedent = null;
-  if (precedent === null) {
-    if (!lu || !meme(lu.dossier, copies) || lu.precedent !== null || lu.archive !== null) {
-      await ecrireFichierPoste(
-        registre(),
-        `${JSON.stringify({ dossier: copies, precedent: null, archive: null })}\n`,
-      );
-    }
-    return null;
-  }
-  const archive =
-    lu?.archive ??
-    path.join(copies, `${ANCIEN_DOSSIER}${new Date().toISOString().replace(/[:.]/g, "-")}`);
-  if (!lu || lu.precedent !== precedent || lu.archive !== archive || !meme(lu.dossier, copies)) {
-    await ecrireFichierPoste(
-      registre(),
-      `${JSON.stringify({ dossier: copies, precedent, archive })}\n`,
-    );
-  }
-  const noms = await readdir(precedent); // injoignable : jette, réessayé au contrôle suivant
-  const fini = () =>
-    ecrireFichierPoste(
-      registre(),
-      `${JSON.stringify({ dossier: copies, precedent: null, archive: null })}\n`,
-    );
-  if (noms.length === 0) {
-    await fini();
-    return null;
-  }
+  if (noms.length === 0) return null;
   let bilan: { fichiers: number; octets: number };
   if (await stat(archive).catch(() => null)) {
-    // Repris après le renommage : revérifiée avant que rien ne soit retiré.
-    bilan = await comparerArbres(precedent, archive);
+    bilan = await comparerArbres(de, archive);
   } else {
     const part = `${archive}.part`;
     await rm(part, { recursive: true, force: true });
-    await cp(precedent, part, { recursive: true });
+    await cp(de, part, { recursive: true });
     await forcerArbre(part);
-    bilan = await comparerArbres(precedent, part);
+    bilan = await comparerArbres(de, part);
     await rename(part, archive);
     await forcer(copies, true);
   }
   // Tout ce que l'ancien dossier avait est dans l'archive, à l'identique : il se vide.
-  for (const n of noms) await rm(path.join(precedent, n), { recursive: true, force: true });
-  await rmdir(precedent).catch(() => undefined); // vide : retiré ; la racine d'un disque reste
-  await fini();
-  integrite().rapatriement = { de: precedent, vers: archive, ...bilan, at: Date.now() };
+  for (const n of noms) await rm(path.join(de, n), { recursive: true, force: true });
+  await rmdir(de).catch(() => undefined); // vide : retiré ; la racine d'un disque reste
+  integrite().rapatriement = { de, vers: archive, ...bilan, at: Date.now() };
   console.log(
-    `[copies] anciennes copies rapatriées de ${precedent} dans ${archive} : ${bilan.fichiers} fichier(s), ${(bilan.octets / 1e6).toFixed(1)} Mo, comparés un à un`,
+    `[copies] anciennes copies rapatriées de ${de} dans ${archive} : ${bilan.fichiers} fichier(s), ${(bilan.octets / 1e6).toFixed(1)} Mo, comparés un à un`,
   );
   return bilan;
+}
+
+/**
+ * Le dossier des copies a changé (un autre disque) : ce que l'ancien gardait — copies de la base,
+ * écritures doublées, copies des fichiers, archives — est rapatrié dans le nouveau, sous
+ * ancien-dossier-<date> (vider). Les anciens dossiers forment une file, gardée dans le registre
+ * avant d'y toucher : coupé n'importe où, repris au contrôle suivant. Un ancien dossier injoignable
+ * (clé retirée, disque absent ou perdu) y reste, la Division dit depuis quand (gardé dans le
+ * registre) et pourquoi — réessayé à chaque contrôle, jamais abandonné de lui-même, même si le
+ * dossier des copies change encore entre-temps : des copies qui pourraient revenir ne sont jamais
+ * oubliées. Une archive, jamais mêlée aux copies en service : la reprise ne la prend pas d'elle-même.
+ * Rend ce qui a été rapatrié, dossier par dossier ; jette, après avoir fait tout ce qui se pouvait,
+ * si un ancien dossier attend ou a échoué.
+ */
+export async function rapatrierAnciennes(
+  copies = dossierCopies(),
+): Promise<{ fichiers: number; octets: number }[]> {
+  const lu = await lireFichierPoste(registre(), (t) => JSON.parse(t) as Registre);
+  // Réécrit seulement s'il change : le journal des empreintes ne grossit pas toutes les 5 min.
+  const ecrit = JSON.stringify(lu);
+  let anciens: Ancien[] =
+    lu?.anciens ??
+    (lu?.precedent
+      ? [{ de: lu.precedent, archive: path.basename(lu.archive as string), attente: null }]
+      : []);
+  // Le dossier quitté ; sans registre, celui d'avant lui : data/copies, s'il garde quelque chose.
+  const quitte = lu?.dossier ?? path.join(dossierRegistres(), "copies");
+  if (lu !== null || (await readdir(quitte).catch(() => [])).length > 0) {
+    const date = new Date().toISOString().replace(/[:.]/g, "-");
+    anciens.push({ de: quitte, archive: `${ANCIEN_DOSSIER}${date}`, attente: null });
+  }
+  // Ni le dossier en service, ni celui qui le contient : jamais un dossier recopié dans lui-même.
+  anciens = anciens.filter((a) => !dans(copies, a.de));
+  const noter = async () => {
+    const texte = JSON.stringify({ dossier: copies, anciens });
+    if (texte !== ecrit) await ecrireFichierPoste(registre(), `${texte}\n`);
+  };
+  await noter(); // la file gardée avant d'y toucher : coupé, repris sous les mêmes archives
+  const attentes: Integrite["attentes"] = [];
+  const erreurs: string[] = [];
+  const faits: { fichiers: number; octets: number }[] = [];
+  for (const a of anciens) {
+    const archive = path.join(copies, a.archive);
+    const noms = await readdir(a.de).catch((e: NodeJS.ErrnoException) => e.code as string);
+    if (typeof noms === "string") {
+      if (await stat(archive).catch(() => null)) {
+        // Archivé, vérifié, vidé ; coupé avant que la file soit réécrite : rien ne manque.
+        anciens = anciens.filter((x) => x !== a);
+        console.log(`[copies] ${a.de} ne répond plus, son archive ${archive} est complète`);
+        continue;
+      }
+      a.attente ??= Date.now();
+      attentes.push({ de: a.de, depuis: a.attente, dernier: Date.now(), raison: noms });
+      erreurs.push(
+        `l'ancien dossier des copies ${a.de} ne répond pas (${noms}) : ses copies seront rapatriées dès qu'il répondra — rien n'est oublié`,
+      );
+      continue;
+    }
+    a.attente = null; // il répond
+    try {
+      const bilan = await vider(a.de, noms, archive, copies);
+      anciens = anciens.filter((x) => x !== a);
+      if (bilan) faits.push(bilan);
+    } catch (e) {
+      erreurs.push((e as Error).message);
+    }
+  }
+  await noter();
+  integrite().attentes = attentes;
+  if (erreurs.length > 0) throw new Error(erreurs.join(" ; "));
+  return faits;
 }

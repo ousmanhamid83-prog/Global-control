@@ -1,0 +1,80 @@
+# Le script de préparation du poste sur une VRAIE machine Linux (GitHub, Ubuntu), lancé par un
+# compte qui n'est pas root (runner) mais a sudo, comme un opérateur. Le disque temporaire de la
+# machine (/mnt, à root, un autre disque que celui du système) doit être choisi seul pour les
+# copies, son dossier créé par sudo puis rendu au seul compte (700). La racine s'y dit « /dev/root »,
+# qui n'existe pas : le disque se lit par /sys. Le serveur, lui, doit voir deux disques différents.
+name: Poste sous Linux
+
+on:
+  push:
+    paths:
+      - "scripts/poste/preparer-poste.sh"
+      - "scripts/poste/preparer-poste.test.mjs"
+      - "src/lib/disque-physique.server.ts"
+      - ".github/workflows/poste-linux.yml"
+  workflow_dispatch:
+
+# Un nouvel envoi sur la même branche annule l'essai encore en cours.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  copies:
+    name: copies sur l'autre disque, par sudo, compte non root
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Machine et disques
+        run: |
+          id
+          lsblk -o NAME,RM,TRAN,SIZE,FSTYPE,MOUNTPOINTS
+          findmnt -no SOURCE,MAJ:MIN,FSTYPE -T "$PWD"
+          findmnt -no SOURCE,MAJ:MIN,FSTYPE -T /mnt
+          df -h "$PWD" /mnt
+          ls -ld /mnt
+
+      - name: Le script choisit seul l'autre disque, crée le dossier par sudo et le rend au seul compte
+        run: |
+          test "$(id -u)" != 0
+          bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief | tee bilan.txt
+          grep -F "dossier des copies créé par sudo sur /mnt (à root), rendu à $(id -un) seul" bilan.txt
+          grep -F "copies du poste sur un autre disque interne, choisi seul : /mnt/AfriControl-copies" bilan.txt
+          grep -Fx "AFRICONTROL_COPIES=/mnt/AfriControl-copies" poste.env
+          test "$(stat -c '%U %a' /mnt/AfriControl-copies)" = "$(id -un) 700"
+          touch /mnt/AfriControl-copies/ecrit
+
+      - name: Le serveur voit deux disques physiques, le poste et ses copies
+        run: |
+          node --experimental-strip-types --no-warnings --input-type=module -e '
+            const { disquesPhysiques } = await import("./src/lib/disque-physique.server.ts");
+            const poste = await disquesPhysiques("data");
+            const copies = await disquesPhysiques("/mnt/AfriControl-copies");
+            console.log("Disques vus par le serveur (poste, copies) :", JSON.stringify([poste, copies]));
+            if (!poste?.length || !copies?.length || poste.some((d) => copies.includes(d))) process.exit(1);
+          '
+
+      # Pas de clé radio sur cette machine : le récepteur est installé par sudo, réglé, mis au
+      # démarrage ; le script dit qu'aucune clé n'est branchée et que rien n'écoute encore.
+      - name: Antenne 1090 — le récepteur installé par sudo, réglé sur sa position, poste.env réglé
+        run: |
+          bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief --antenne 12.1331,15.0339 | tee antenne.txt
+          grep -Fx 'LAT="12.1331"' /etc/default/dump1090-mutability
+          grep -Fx 'LON="15.0339"' /etc/default/dump1090-mutability
+          grep -Fx 'RAW_OUTPUT_PORT="30002"' /etc/default/dump1090-mutability
+          grep -Fx 'NET_BIND_ADDRESS="127.0.0.1"' /etc/default/dump1090-mutability
+          grep -Fx "blacklist dvb_usb_rtl28xxu" /etc/modprobe.d/africontrol-rtl-sdr.conf
+          grep -Fx "AFRICONTROL_1090=127.0.0.1:30002" poste.env
+          grep -Fx "AFRICONTROL_ANTENNE=12.1331,15.0339" poste.env
+          grep -F "aucune clé radio RTL-SDR vue" antenne.txt
+
+      - name: Tests des scripts
+        run: node --test scripts/poste/preparer-poste.test.mjs

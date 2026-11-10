@@ -28,6 +28,12 @@ serveur lit seul au démarrage (src/lib/config-poste.ts).
                   est doublé aussitôt. Sans -Copies, un autre disque INTERNE de la machine (pas une
                   clé USB ; le plus de place libre, 10 Go au moins), s'il y en a un ; sinon
                   data\copies, sur le disque du poste — sa panne emporterait les deux, le bilan le dit.
+  -Antenne LAT,LON  antenne 1090 MHz du poste, à cette position (degrés décimaux) : le poste lit
+                  les trames brutes de son récepteur (dump1090 sur une clé radio RTL-SDR, pilote
+                  WinUSB posé par Zadig) et les décode lui-même. Réception seule : rien n'est émis.
+  -Recepteur1090 HOTE:PORT  où le récepteur sert ses trames brutes AVR (défaut 127.0.0.1:30002)
+  -Phonie URL     flux audio de la phonie ATC, sortie du récepteur VHF de l'opérateur : le poste
+                  l'enregistre à la demande, doublé et scellé
   -SansBuild  -SansIA  -SansRelief    sauter une étape
 
 Relancer le script reprend là où il s'était arrêté : ce qui est déjà en place est gardé.
@@ -41,6 +47,9 @@ param(
   [switch]$Signal,
   [switch]$Recherche,
   [string]$Copies = "",
+  [string]$Antenne = "",
+  [string]$Recepteur1090 = "",
+  [string]$Phonie = "",
   [switch]$SansBuild,
   [switch]$SansIA,
   [switch]$SansRelief
@@ -493,6 +502,64 @@ if ($Recherche) {
       $AFaire.Add("  La requête sort alors du poste ; jamais un contact du relevé ni des coordonnées ; journalisée.")
     } else {
       Rate "recherche : le moteur ne répond pas en JSON sur 127.0.0.1:8888 (docker logs africontrol-recherche)"
+    }
+  }
+}
+
+if ($Antenne -or $Recepteur1090) {
+  Etape "Antenne 1090 MHz du poste (réception seule)"
+  $pos = [regex]::Match($Antenne, '^(-?\d{1,2}(\.\d+)?),(-?\d{1,3}(\.\d+)?)$')
+  $inv = [Globalization.CultureInfo]::InvariantCulture
+  $horsBornes = $pos.Success -and ([math]::Abs([double]::Parse($pos.Groups[1].Value, $inv)) -gt 90)
+  $horsBornes = $horsBornes -or ($pos.Success -and [math]::Abs([double]::Parse($pos.Groups[3].Value, $inv)) -gt 180)
+  if (-not $pos.Success -or $horsBornes) {
+    Rate "antenne 1090 : -Antenne LAT,LON attendu, sa position en degrés décimaux (ex. 12.1331,15.0339)"
+  } else {
+    $recepteur = if ($Recepteur1090) { $Recepteur1090 } else { "127.0.0.1:30002" }
+    $position = "$($pos.Groups[1].Value),$($pos.Groups[3].Value)"
+    Regler "AFRICONTROL_1090" $recepteur
+    Regler "AFRICONTROL_ANTENNE" $position
+    $ecoute = $false
+    $adresse = [regex]::Match($recepteur, '^\[?(.+?)\]?:(\d{1,5})$')
+    if ($adresse.Success) {
+      $client = New-Object Net.Sockets.TcpClient
+      try {
+        $ecoute = $client.ConnectAsync($adresse.Groups[1].Value, [int]$adresse.Groups[2].Value).Wait(3000) -and $client.Connected
+      } catch {
+        $ecoute = $false
+      } finally {
+        $client.Close()
+      }
+    }
+    if ($ecoute) {
+      Ok "antenne 1090 : récepteur sur $recepteur, antenne à $position — le poste décode lui-même les trames"
+    } else {
+      $AFaire.Add("Antenne 1090 : rien n'écoute sur $recepteur. Sous Windows : la clé radio RTL-SDR branchée, son pilote WinUSB posé par Zadig, un récepteur dump1090 lancé avec --net (trames brutes sur 30002) ; le poste s'y raccroche seul dès qu'il répond.")
+    }
+  }
+}
+
+if ($Phonie) {
+  Etape "Phonie ATC (flux du récepteur VHF de l'opérateur, réception seule)"
+  if ($Phonie -notmatch '^https?://\S+$') {
+    Rate "phonie : -Phonie attend une adresse http(s):// (sortie du récepteur VHF : rtl_airband, Icecast…)"
+  } else {
+    Regler "AFRICONTROL_ATC" $Phonie
+    # Un flux sans fin : seul compte qu'il réponde (200) dans les 5 s.
+    $repond = $false
+    try {
+      $requete = [Net.HttpWebRequest]::Create($Phonie)
+      $requete.Timeout = 5000
+      $reponse = $requete.GetResponse()
+      $repond = [int]$reponse.StatusCode -eq 200
+      $reponse.Close()
+    } catch {
+      $repond = $false
+    }
+    if ($repond) {
+      Ok "phonie : flux $Phonie — enregistré à la demande, doublé et scellé comme le reste"
+    } else {
+      $AFaire.Add("Phonie ATC : $Phonie ne répond pas encore — le poste réessaie seul quand l'enregistrement est demandé.")
     }
   }
 }
