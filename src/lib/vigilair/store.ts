@@ -169,7 +169,8 @@ export type RejeuState = {
 
 export const REJEU_INJECT_ID = "rejeu-reel";
 export type ClockMode = "live" | "replay";
-export type CopTool = "lock" | "mesure" | "zone";
+/** « drone » : le chef désigne sur la carte le point où envoyer un de nos drones. */
+export type CopTool = "lock" | "mesure" | "zone" | "drone";
 
 type VigilairState = {
   tracks: Track[];

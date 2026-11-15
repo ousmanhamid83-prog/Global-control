@@ -124,11 +124,12 @@ export const fetchDroneFrame = createServerFn({ method: "POST" })
 /** Ce que le poste sait de chaque drone par sa liaison, et les réglages du pilotage. Lecture seule. */
 export const dronesEtats = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .handler(async (): Promise<{ etats: EtatDrone[]; reglages: ReglagesPilotage }> => {
+  .handler(async (): Promise<{ etats: EtatDrone[]; reglages: ReglagesPilotage; a: number }> => {
     const m = await import("./drones.server");
     await m.listDronesServer(); // le registre lu, les liaisons sont ouvertes
     const l = await import("./drones-liaison.server");
-    return { etats: l.etatsDrones(), reglages: await m.lireReglagesPilotage() };
+    // `a` : l'heure du poste — la console juge l'âge d'un battement sur elle, pas sur la sienne.
+    return { etats: l.etatsDrones(), reglages: await m.lireReglagesPilotage(), a: Date.now() };
   });
 
 const nombre = (v: unknown): number | undefined =>

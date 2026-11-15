@@ -10,6 +10,7 @@ import { MetarStrip } from "@/components/vigilair/metar-strip";
 import { WatchStrip } from "@/components/vigilair/watch-strip";
 import { ZoneStrip } from "@/components/vigilair/zone-strip";
 import { Dossier } from "@/components/vigilair/dossier";
+import { DronesPilote } from "@/components/vigilair/drones-pilote";
 import { PaintFilters } from "@/components/vigilair/paint-filters";
 import { peekCopCursor, snapshotCop } from "@/components/vigilair/cop-hud";
 import { RadarMap } from "@/components/vigilair/radar-map";
@@ -318,6 +319,7 @@ export function CopView() {
               else select(null);
             }}
           />
+          <DronesPilote />
           <div
             className={cn(
               "absolute left-3 right-12 top-3 z-10 flex gap-1 overflow-x-auto transition-opacity duration-300 tall:right-auto tall:max-w-[calc(100%-8rem)] tall:flex-wrap tall:overflow-visible",

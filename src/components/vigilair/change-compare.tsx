@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { diffHeatmap } from "@/lib/vigilair/change-diff";
 import { addSensor, removeSensor, sensorsSnapshot, sensorsServerSnapshot, setSensorState, subscribeSensors, type SensorType } from "@/lib/vigilair/ground-sensors";
+import { DronesReglages } from "@/components/vigilair/drones-reglages";
 import { addDrone, discoverOnvifClient, dronesSnapshot, dronesServerSnapshot, registerCamerasClient, removeDrone, scanRangeClient, scanSourceClient, setDroneRule, setDroneZones, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
 import { addSiteNet, groupSites, hydrateSiteNets, perimeterSummaryLines, recordSiteScan, removeSiteNet, sectorHealth, siteNetsSnapshot, siteNetsServerSnapshot, subscribeSiteNets } from "@/lib/vigilair/sitenets";
 import { requestRelearn } from "@/lib/vigilair/tamper-relearn";
@@ -1249,6 +1250,7 @@ function SiteManager() {
           </ul>
         ) : null}
       </div>
+      <DronesReglages />
     </section>
   );
 }
