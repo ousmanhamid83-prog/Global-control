@@ -1,0 +1,62 @@
+# Vol d'essai des drones sur le VRAI programme de vol ArduCopter, dans son simulateur (SITL, binaire
+# officiel d'ArduPilot). À chaque changement du pilotage, le code du poste — le même que celui du
+# serveur — fait décoller, déplace, arrête, fait patrouiller, pose et ramène le drone, et refuse ce
+# qu'il doit refuser (drone posé, point hors du rayon, hauteur hors bornes). Rien n'est simulé côté
+# poste ; seul l'appareil l'est.
+name: Drones sur le vrai programme de vol
+
+on:
+  push:
+    paths:
+      - "src/lib/vigilair/mavlink.ts"
+      - "src/lib/vigilair/mavlink.test.ts"
+      - "src/lib/vigilair/drones-pilotage.ts"
+      - "src/lib/vigilair/drones-pilotage.test.ts"
+      - "src/lib/vigilair/drones-liaison.server.ts"
+      - "src/lib/vigilair/drones-liaison.test.ts"
+      - "src/lib/vigilair/drones-core.ts"
+      - "src/lib/vigilair/geo.ts"
+      - "src/lib/vigilair/reseau-poste.ts"
+      - "scripts/drones/vol-simulateur.mjs"
+      - ".github/workflows/drones-simulateur.yml"
+  workflow_dispatch:
+
+# Un nouvel envoi sur la même branche annule l'essai encore en cours.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  vol:
+    name: vol complet sur ArduCopter (SITL), en temps réel
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Programme de vol ArduCopter officiel (stable), ses réglages par défaut
+        run: |
+          mkdir -p sitl && cd sitl
+          curl -sSfL -o arducopter https://firmware.ardupilot.org/Copter/stable/SITL_x86_64_linux_gnu/arducopter
+          curl -sSfL https://firmware.ardupilot.org/Copter/stable/SITL_x86_64_linux_gnu/firmware-version.txt
+          curl -sSfL -o copter.parm https://raw.githubusercontent.com/ArduPilot/ardupilot/master/Tools/autotest/default_params/copter.parm
+          chmod +x arducopter
+
+      - name: Le drone simulé démarre à FTTJ (un quadrirotor, vitesse réelle)
+        run: |
+          cd sitl
+          nohup ./arducopter --model + --speedup 1 --defaults copter.parm --home 12.1331,15.0339,295,0 -w > sitl.log 2>&1 &
+          sleep 3
+          tail -3 sitl.log
+
+      - name: Vol d'essai — le code du poste pilote le vrai programme de vol
+        run: node --experimental-strip-types --no-warnings scripts/drones/vol-simulateur.mjs tcp://127.0.0.1:5760
+
+      - name: Tests du pilotage (codeur contre pymavlink, règles du poste, liaison)
+        run: node --experimental-strip-types --no-warnings --test src/lib/vigilair/mavlink.test.ts src/lib/vigilair/drones-pilotage.test.ts src/lib/vigilair/drones-liaison.test.ts

@@ -14,7 +14,9 @@ import dgram from "node:dgram";
 import { randomUUID } from "node:crypto";
 import { ecrireFichierPoste, lireFichierPoste, listeJson } from "../disque-poste.server.ts";
 import path from "node:path";
-import { effectiveUrl, extractFirstJpeg, normIdent, type OwnDrone, type SourceKind } from "./drones-core";
+import { effectiveUrl, extractFirstJpeg, normIdent, type OwnDrone, type Patrouille, type SourceKind } from "./drones-core";
+import { synchroniserLiaisons } from "./drones-liaison.server.ts";
+import { lireLiaison, reglagesValides, type ReglagesPilotage } from "./drones-pilotage.ts";
 import {
   CAMERA_HTTP_PORTS,
   CAMERA_HTTPS_PORTS,
@@ -37,19 +39,23 @@ export type { OwnDrone } from "./drones-core";
 
 const DIR = path.join(process.cwd(), "data");
 const FILE = path.join(DIR, "drones.json");
+const FICHIER_PILOTAGE = path.join(DIR, "drones-pilotage.json");
 const MAX = 200;
 
-const g = globalThis as unknown as { __afriDrones?: OwnDrone[] };
+const g = globalThis as unknown as { __afriDrones?: OwnDrone[]; __afriPilotage?: ReglagesPilotage };
 
 async function load(): Promise<OwnDrone[]> {
   if (g.__afriDrones) return g.__afriDrones;
   // Abîmé ou absent : sa copie (dossier des copies) ; rien de lisible : vide.
   g.__afriDrones = (await lireFichierPoste(FILE, listeJson<OwnDrone>)) ?? [];
+  // Le registre lu, les liaisons des drones s'ouvrent : au lancement du serveur, console ouverte ou non.
+  synchroniserLiaisons(g.__afriDrones);
   return g.__afriDrones;
 }
 
 async function persist(list: OwnDrone[]): Promise<void> {
   g.__afriDrones = list;
+  synchroniserLiaisons(list);
   await ecrireFichierPoste(FILE, JSON.stringify(list));
 }
 
@@ -124,6 +130,78 @@ export async function removeDroneServer(id: string): Promise<OwnDrone[]> {
   const next = (await load()).filter((d) => d.id !== id);
   await persist(next);
   return next;
+}
+
+/**
+ * Règle (ou retire, adresse vide) la liaison MAVLink d'un drone. Refusée hors du réseau du poste,
+ * pour une caméra, ou si un autre drone a déjà cette adresse : deux fiches sur une même liaison
+ * enverraient leurs ordres au même appareil.
+ */
+export async function setDroneLiaisonServer(
+  id: string,
+  adresse: string,
+): Promise<{ ok: boolean; error?: string; drones?: OwnDrone[] }> {
+  const liaison = adresse.trim();
+  const list = await load();
+  const drone = list.find((d) => d.id === id);
+  if (!drone || drone.kind === "camera") return { ok: false, error: "drone inconnu" };
+  if (liaison) {
+    const lue = lireLiaison(liaison);
+    if ("erreur" in lue) return { ok: false, error: lue.erreur };
+    const autre = list.find((d) => d.id !== id && d.liaison === liaison);
+    if (autre) return { ok: false, error: `déjà la liaison de ${autre.name}` };
+  }
+  const next = list.map((d) => (d.id === id ? { ...d, liaison: liaison || undefined } : d));
+  await persist(next);
+  return { ok: true, drones: next };
+}
+
+/** Règle (ou retire, null) le circuit de patrouille d'un drone : 2 à 20 points, hauteur, tours. */
+export async function setDronePatrouilleServer(
+  id: string,
+  brut: { points?: unknown; hauteurM?: unknown; tours?: unknown } | null,
+): Promise<{ ok: boolean; error?: string; drones?: OwnDrone[] }> {
+  let patrouille: Patrouille | undefined;
+  if (brut) {
+    const points = Array.isArray(brut.points)
+      ? brut.points.filter(
+          (p): p is { lat: number; lon: number } =>
+            !!p &&
+            Number.isFinite((p as { lat?: number }).lat) &&
+            Number.isFinite((p as { lon?: number }).lon) &&
+            Math.abs((p as { lat: number }).lat) <= 90 &&
+            Math.abs((p as { lon: number }).lon) <= 180,
+        )
+      : [];
+    if (!Array.isArray(brut.points) || points.length !== brut.points.length) {
+      return { ok: false, error: "point illisible (latitude,longitude en degrés décimaux)" };
+    }
+    if (points.length < 2 || points.length > 20) return { ok: false, error: "2 à 20 points attendus" };
+    const hauteurM = Number(brut.hauteurM);
+    const tours = Number(brut.tours);
+    if (!Number.isFinite(hauteurM)) return { ok: false, error: "hauteur attendue (m)" };
+    if (!Number.isInteger(tours) || tours < 1 || tours > 20) return { ok: false, error: "1 à 20 tours attendus" };
+    patrouille = { points: points.map((p) => ({ lat: p.lat, lon: p.lon })), hauteurM, tours };
+  }
+  const list = await load();
+  if (!list.some((d) => d.id === id && d.kind !== "camera")) return { ok: false, error: "drone inconnu" };
+  const next = list.map((d) => (d.id === id ? { ...d, patrouille } : d));
+  await persist(next);
+  return { ok: true, drones: next };
+}
+
+/** Réglages du pilotage (ordres permis, rayon, hauteurs) : ceux du chef, sinon ceux par défaut. */
+export async function lireReglagesPilotage(): Promise<ReglagesPilotage> {
+  g.__afriPilotage ??= reglagesValides(
+    await lireFichierPoste(FICHIER_PILOTAGE, (t) => JSON.parse(t) as unknown),
+  );
+  return g.__afriPilotage;
+}
+
+export async function ecrireReglagesPilotage(brut: unknown): Promise<ReglagesPilotage> {
+  g.__afriPilotage = reglagesValides(brut);
+  await ecrireFichierPoste(FICHIER_PILOTAGE, JSON.stringify(g.__afriPilotage));
+  return g.__afriPilotage;
 }
 
 /** Définit (ou efface) la zone d'intérêt polygonale d'une source. Points normalisés 0..1, max 24. */

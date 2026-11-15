@@ -6,6 +6,9 @@
 /** Une SOURCE du poste : un de nos drones, ou une de nos caméras fixes de site. Mêmes paramètres. */
 export type SourceKind = "drone" | "camera";
 
+/** Circuit de patrouille d'un drone : ses points, leur hauteur au-dessus du départ, ses tours. */
+export type Patrouille = { points: { lat: number; lon: number }[]; hauteurM: number; tours: number };
+
 export type OwnDrone = {
   id: string;
   /** drone (par défaut) ou caméra fixe. */
@@ -31,6 +34,10 @@ export type OwnDrone = {
   nightOnly?: boolean;
   armFrom?: number;
   armTo?: number;
+  /** Liaison de télémétrie et d'ordres du drone (MAVLink) : tcp://hôte:port ou udp://hôte:port,
+   *  sur le réseau du poste. Sans elle, le drone est inscrit mais ni suivi ni piloté par sa liaison. */
+  liaison?: string;
+  patrouille?: Patrouille;
   at: number;
 };
 

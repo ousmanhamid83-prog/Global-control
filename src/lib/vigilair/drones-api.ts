@@ -6,6 +6,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import type { OwnDrone } from "./drones.server";
+import { ORDRES_DRONE, type EtatDrone, type ReglagesPilotage } from "./drones-pilotage";
 
 export const dronesList = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
@@ -118,4 +119,135 @@ export const fetchDroneFrame = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ ok: boolean; dataUrl?: string; at?: number; error?: string }> => {
     const m = await import("./drones.server");
     return m.fetchDroneFrameServer(data.url);
+  });
+
+/** Ce que le poste sait de chaque drone par sa liaison, et les réglages du pilotage. Lecture seule. */
+export const dronesEtats = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async (): Promise<{ etats: EtatDrone[]; reglages: ReglagesPilotage }> => {
+    const m = await import("./drones.server");
+    await m.listDronesServer(); // le registre lu, les liaisons sont ouvertes
+    const l = await import("./drones-liaison.server");
+    return { etats: l.etatsDrones(), reglages: await m.lireReglagesPilotage() };
+  });
+
+const nombre = (v: unknown): number | undefined =>
+  typeof v === "number" && Number.isFinite(v) ? v : undefined;
+
+/**
+ * Un ordre du chef à un de nos drones. Réservé au chef de division ; un ordre qui met ou garde le
+ * drone en vol vers un but demande en plus son sceau (mot de passe retapé) — sans comptes, donc
+ * sans sceau possible, ces ordres-là ne partent jamais. Le poste vérifie avant d'envoyer, et tout
+ * va au journal : ce qui est parti, ce qui a été refusé, et pourquoi.
+ */
+export const droneOrdre = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { id?: string; ordre?: string; lat?: number; lon?: number; hauteurM?: number }) => {
+    const ordre = ORDRES_DRONE.find((o) => o.id === raw?.ordre);
+    if (!ordre) throw new Error("Ordre inconnu");
+    return {
+      id: String(raw?.id ?? ""),
+      ordre: ordre.id,
+      lat: nombre(raw.lat),
+      lon: nombre(raw.lon),
+      hauteurM: nombre(raw.hauteurM),
+    };
+  })
+  .handler(async ({ data, context }): Promise<{ ok: boolean; suite: string[] }> => {
+    const { insertOpsLog, requireSuperadmin } = await import("./staff");
+    const chef = await requireSuperadmin(context.userId);
+    const def = ORDRES_DRONE.find((o) => o.id === data.ordre)!;
+    if (def.sceau) {
+      const { requireChefSeal } = await import("./seal");
+      await requireChefSeal(context.userId);
+    }
+    const m = await import("./drones.server");
+    const drone = (await m.listDronesServer()).find((d) => d.id === data.id);
+    if (!drone) throw new Error("Drone inconnu");
+    const l = await import("./drones-liaison.server");
+    const r = await l.commander(drone.id, data.ordre, data, drone.patrouille, await m.lireReglagesPilotage());
+    const vers =
+      data.ordre === "aller"
+        ? ` vers ${data.lat?.toFixed(5)}, ${data.lon?.toFixed(5)} à ${data.hauteurM} m`
+        : data.ordre === "decoller"
+          ? ` à ${data.hauteurM} m`
+          : "";
+    await insertOpsLog({
+      userId: chef.userId,
+      actor: chef.label,
+      role: chef.role,
+      team: chef.team,
+      kind: "drone",
+      title: `Drone ${drone.name} — ${def.nom}${vers} : ${r.ok ? "envoyé" : "pas parti"}`,
+      detail: r.suite.join(" · "),
+      severity: r.ok ? "info" : "warn",
+    });
+    return r;
+  });
+
+/** Le chef règle (ou retire) la liaison d'un drone ; au journal. */
+export const droneLiaison = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { id?: string; adresse?: string }) => ({
+    id: String(raw?.id ?? ""),
+    adresse: String(raw?.adresse ?? "").slice(0, 200),
+  }))
+  .handler(async ({ data, context }): Promise<{ ok: boolean; error?: string; drones?: OwnDrone[] }> => {
+    const { insertOpsLog, requireSuperadmin } = await import("./staff");
+    const chef = await requireSuperadmin(context.userId);
+    const m = await import("./drones.server");
+    const r = await m.setDroneLiaisonServer(data.id, data.adresse);
+    if (r.ok) {
+      const drone = r.drones!.find((d) => d.id === data.id)!;
+      await insertOpsLog({
+        userId: chef.userId,
+        actor: chef.label,
+        role: chef.role,
+        team: chef.team,
+        kind: "drone",
+        title: `Drone ${drone.name} — liaison ${drone.liaison ? "réglée" : "retirée"} par le chef`,
+        detail: drone.liaison
+          ? "Le poste suit le drone par sa télémétrie et peut lui envoyer les ordres permis."
+          : "Le drone reste inscrit ; il n'est plus suivi ni piloté par sa liaison.",
+        severity: "warn",
+      });
+    }
+    return r;
+  });
+
+/** Le chef règle (ou retire, null) le circuit de patrouille d'un drone. */
+export const dronePatrouille = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { id?: string; patrouille?: { points?: unknown; hauteurM?: unknown; tours?: unknown } | null }) => ({
+    id: String(raw?.id ?? ""),
+    patrouille: raw?.patrouille ?? null,
+  }))
+  .handler(async ({ data, context }): Promise<{ ok: boolean; error?: string; drones?: OwnDrone[] }> => {
+    const { requireSuperadmin } = await import("./staff");
+    await requireSuperadmin(context.userId);
+    const m = await import("./drones.server");
+    return m.setDronePatrouilleServer(data.id, data.patrouille);
+  });
+
+/** Le chef règle le pilotage : ordres permis, rayon, hauteurs ; chaque changement va au journal. */
+export const dronesReglages = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: unknown) => raw)
+  .handler(async ({ data, context }): Promise<ReglagesPilotage> => {
+    const { insertOpsLog, requireSuperadmin } = await import("./staff");
+    const chef = await requireSuperadmin(context.userId);
+    const m = await import("./drones.server");
+    const r = await m.ecrireReglagesPilotage(data);
+    const coupes = ORDRES_DRONE.filter((o) => !r.ordres[o.id]).map((o) => o.nom);
+    await insertOpsLog({
+      userId: chef.userId,
+      actor: chef.label,
+      role: chef.role,
+      team: chef.team,
+      kind: "drone",
+      title: "Pilotage des drones réglé par le chef",
+      detail: `Ordres coupés : ${coupes.length ? coupes.join(", ") : "aucun"}. Rayon ${r.rayonKm} km, hauteurs ${r.hauteurMinM} à ${r.hauteurMaxM} m.`,
+      severity: "warn",
+    });
+    return r;
   });
