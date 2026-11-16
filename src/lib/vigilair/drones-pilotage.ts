@@ -107,23 +107,54 @@ export function reglagesValides(brut: unknown): ReglagesPilotage {
   };
 }
 
-export type AdresseLiaison = { proto: "tcp" | "udp"; hote: string; port: number };
+export type AdresseLiaison =
+  | { proto: "tcp" | "udp"; hote: string; port: number }
+  | { proto: "serie"; chemin: string; debit: number };
+
+/** Les ports série d'une radio de télémétrie (USB, carte, pont virtuel) : jamais un autre fichier. */
+const PORT_SERIE =
+  /^\/dev\/(ttyUSB\d{1,3}|ttyACM\d{1,3}|ttyS\d{1,3}|ttyAMA\d{1,3}|pts\/\d{1,4}|serial\/by-id\/[\w.:+-]{1,120})$/;
+/** Les débits d'une radio de télémétrie ; 57 600 est celui des radios SiK, par défaut. */
+const DEBITS = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600];
 
 /**
  * L'adresse de liaison d'un drone : « tcp://hôte:port » (le poste s'y connecte : pont de
- * télémétrie, routeur MAVLink) ou « udp://hôte:port » (le poste écoute ce port et n'entend que cet
- * hôte : la station sol qui lui renvoie sa télémétrie). MAVLink n'est ni chiffré ni signé ici :
- * une adresse hors du réseau du poste est refusée.
+ * télémétrie, routeur MAVLink), « udp://hôte:port » (le poste écoute ce port et n'entend que cet
+ * hôte : la station sol qui lui renvoie sa télémétrie), ou « serie:///dev/ttyUSB0?debit=57600 » :
+ * la radio de télémétrie du drone branchée au poste — c'est elle qui émet, sur sa bande à elle, que
+ * le poste ne règle pas. MAVLink n'est ni chiffré ni signé ici : une adresse réseau hors du réseau
+ * du poste est refusée.
  */
 export function lireLiaison(adresse: string): AdresseLiaison | { erreur: string } {
   let u: URL;
   try {
     u = new URL(adresse.trim());
   } catch {
-    return { erreur: "adresse illisible : tcp://hôte:port ou udp://hôte:port attendu" };
+    return {
+      erreur: "adresse illisible : tcp://hôte:port, udp://hôte:port ou serie:///dev/… attendu",
+    };
+  }
+  if (u.protocol === "serie:") {
+    if (u.hostname) {
+      return {
+        erreur:
+          "liaison série : sous Linux seulement (serie:///dev/ttyUSB0), pas encore sous Windows",
+      };
+    }
+    if (!PORT_SERIE.test(u.pathname)) {
+      return {
+        erreur:
+          "port série inconnu : /dev/ttyUSB0, /dev/ttyACM0, /dev/ttyS0, /dev/ttyAMA0 ou /dev/serial/by-id/… attendu",
+      };
+    }
+    const debit = Number(u.searchParams.get("debit") ?? 57600);
+    if (!DEBITS.includes(debit)) {
+      return { erreur: `débit ${u.searchParams.get("debit")} : ${DEBITS.join(", ")} bit/s` };
+    }
+    return { proto: "serie", chemin: u.pathname, debit };
   }
   const proto = u.protocol === "tcp:" ? "tcp" : u.protocol === "udp:" ? "udp" : null;
-  if (!proto) return { erreur: "tcp://hôte:port ou udp://hôte:port attendu" };
+  if (!proto) return { erreur: "tcp://hôte:port, udp://hôte:port ou serie:///dev/… attendu" };
   const port = Number(u.port);
   if (!(port >= 1 && port <= 65535)) return { erreur: "port manquant ou hors bornes (1 à 65535)" };
   if (!hoteSurPlace(adresse.trim())) {
@@ -176,6 +207,8 @@ export type EtatDrone = {
   /** Le drone parle MAVLink 1 ; il signe ses trames (le poste, lui, ne signe pas). */
   v1: boolean;
   signe: boolean;
+  /** Par quelle liaison le poste le tient : la principale, ou celle de secours. */
+  voie?: "principale" | "secours";
 };
 
 export function etatVide(id: string): EtatDrone {

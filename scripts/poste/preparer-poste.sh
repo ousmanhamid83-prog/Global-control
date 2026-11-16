@@ -747,6 +747,18 @@ else
   fi
 fi
 
+# Radio de télémétrie des drones branchée au poste (liaison serie:///dev/ttyUSB0, souvent celle de
+# secours) : le compte qui lance le poste doit pouvoir ouvrir son port — groupe dialout.
+if [ "$(id -u)" != 0 ] && getent group dialout >/dev/null &&
+  ! id -nG "$(id -un)" | tr ' ' '\n' | grep -qx dialout; then
+  if sudo usermod -aG dialout "$(id -un)"; then
+    ok "ports série (radio de télémétrie des drones) : $(id -un) ajouté au groupe dialout"
+    A_FAIRE+=("Groupe dialout : effectif à la prochaine session de $(id -un) (se déconnecter, ou redémarrer), avant de lancer le poste avec la radio d'un drone.")
+  else
+    A_FAIRE+=("Radio de télémétrie des drones : sudo usermod -aG dialout $(id -un), puis nouvelle session — sans quoi le poste ne peut pas ouvrir son port série.")
+  fi
+fi
+
 for ancienne in AFRICONTROL_DEEPSEEK XAI_API_KEY; do
   if [ -n "${!ancienne:-}" ] || grep -qs "^$ancienne=" "$POSTE_ENV"; then
     A_FAIRE+=("$ancienne n'est plus lue (l'IA reste sur le poste) : la retirer de l'environnement ou de poste.env.")

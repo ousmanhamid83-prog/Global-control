@@ -182,8 +182,11 @@ async function regler(
   }
 }
 
-export const reglerLiaison = (id: string, adresse: string): Promise<string | null> =>
-  regler(() => droneLiaison({ data: { id, adresse } }));
+export const reglerLiaison = (
+  id: string,
+  adresse: string,
+  secours = false,
+): Promise<string | null> => regler(() => droneLiaison({ data: { id, adresse, secours } }));
 
 export const reglerPatrouille = (
   id: string,

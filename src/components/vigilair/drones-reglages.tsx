@@ -50,6 +50,7 @@ function FicheDrone({
   maintenant: number;
 }) {
   const [liaison, setLiaison] = useState(drone.liaison ?? "");
+  const [secours, setSecours] = useState(drone.liaisonSecours ?? "");
   const [points, setPoints] = useState(
     (drone.patrouille?.points ?? []).map((p) => `${p.lat}, ${p.lon}`).join("\n"),
   );
@@ -110,6 +111,30 @@ function FicheDrone({
           }
         >
           {liaison.trim() ? "Régler la liaison" : "Retirer la liaison"}
+        </Button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          data-drone-liaison-secours
+          className="max-w-xs font-mono text-xs"
+          placeholder="secours : serie:///dev/ttyUSB0?debit=57600 (radio de télémétrie)"
+          value={secours}
+          disabled={!chef}
+          onChange={(e) => setSecours(e.target.value)}
+        />
+        <Button
+          data-drone-liaison-secours-regler
+          size="sm"
+          variant="outline"
+          disabled={!chef || occupe || secours.trim() === (drone.liaisonSecours ?? "")}
+          onClick={() =>
+            void faire(
+              secours.trim() ? "liaison de secours réglée" : "liaison de secours retirée",
+              () => reglerLiaison(drone.id, secours, true),
+            )
+          }
+        >
+          {secours.trim() ? "Régler le secours" : "Retirer le secours"}
         </Button>
       </div>
       <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">

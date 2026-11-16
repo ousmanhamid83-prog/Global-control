@@ -9,7 +9,9 @@
  *
  * `ident` = hex ICAO 24 bits (ex. 3C6DD2) OU indicatif, en MAJUSCULES, pour apparier la piste live.
  * `snapshotUrl` = URL d'une image fixe rafraîchie à chaque GET (caméra IP / station sol). Réception seule.
- * `liaison` = adresse MAVLink du drone (tcp:// ou udp://, réseau du poste) ; `patrouille` = son circuit.
+ * `liaison` = adresse MAVLink du drone (tcp:// ou udp:// sur le réseau du poste, serie:///dev/… pour
+ * sa radio de télémétrie) ; `liaisonSecours` = celle qui sert quand la principale se tait ;
+ * `patrouille` = son circuit.
  */
 
 import net from "node:net";
@@ -144,6 +146,7 @@ export async function removeDroneServer(id: string): Promise<OwnDrone[]> {
 export async function setDroneLiaisonServer(
   id: string,
   adresse: string,
+  secours = false,
 ): Promise<{ ok: boolean; error?: string; drones?: OwnDrone[] }> {
   const liaison = adresse.trim();
   const list = await load();
@@ -152,10 +155,16 @@ export async function setDroneLiaisonServer(
   if (liaison) {
     const lue = lireLiaison(liaison);
     if ("erreur" in lue) return { ok: false, error: lue.erreur };
-    const autre = list.find((d) => d.id !== id && d.liaison === liaison);
-    if (autre) return { ok: false, error: `déjà la liaison de ${autre.name}` };
+    // Une adresse, une seule liaison : ni deux drones, ni la principale et le secours d'un même drone.
+    const autre = list.find(
+      (d) =>
+        (d.id !== id && (d.liaison === liaison || d.liaisonSecours === liaison)) ||
+        (d.id === id && (secours ? d.liaison : d.liaisonSecours) === liaison),
+    );
+    if (autre) return { ok: false, error: `déjà une liaison de ${autre.name}` };
   }
-  const next = list.map((d) => (d.id === id ? { ...d, liaison: liaison || undefined } : d));
+  const champ = secours ? "liaisonSecours" : "liaison";
+  const next = list.map((d) => (d.id === id ? { ...d, [champ]: liaison || undefined } : d));
   await persist(next);
   return { ok: true, drones: next };
 }

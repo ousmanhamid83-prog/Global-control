@@ -37,8 +37,12 @@ export type OwnDrone = {
   armFrom?: number;
   armTo?: number;
   /** Liaison de télémétrie et d'ordres du drone (MAVLink) : tcp://hôte:port ou udp://hôte:port,
-   *  sur le réseau du poste. Sans elle, le drone est inscrit mais ni suivi ni piloté par sa liaison. */
+   *  sur le réseau du poste, ou serie:///dev/… (sa radio de télémétrie branchée au poste). Sans
+   *  elle, le drone est inscrit mais ni suivi ni piloté par sa liaison. */
   liaison?: string;
+  /** Liaison de secours (souvent la radio de télémétrie, en série) : elle sert quand la principale
+   *  se tait — réseau tombé, site isolé. */
+  liaisonSecours?: string;
   patrouille?: Patrouille;
   /** Le chef a confirmé que la piste 1090ES à l'adresse de ce drone est bien la sienne, jusqu'à
    *  cette heure (ms). Sans confirmation en cours, cette piste compte comme une intrusion. */

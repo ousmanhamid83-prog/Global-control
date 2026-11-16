@@ -48,10 +48,17 @@ jobs:
         run: |
           set -o pipefail
           test "$(id -u)" != 0
+          avant=$(id -nG "$(id -un)")
           bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief | tee seul.txt
           grep -F "copies du poste dans data/copies (défaut)" seul.txt
           grep -F "Copies du poste sur le même disque que lui (" seul.txt
           if grep -s "^AFRICONTROL_COPIES=" poste.env; then exit 1; fi
+          # Le port série de la radio d'un drone : le compte mis dans le groupe dialout, par sudo.
+          case " $avant " in
+            *" dialout "*) echo "déjà dans le groupe dialout" ;;
+            *) grep -F "ports série (radio de télémétrie des drones) : $(id -un) ajouté au groupe dialout" seul.txt ;;
+          esac
+          id -nG "$(id -un)" | tr ' ' '\n' | grep -qx dialout
 
       # Comme un disque monté par le système : son point de montage appartient à root.
       - name: Un second disque branché (zram de 12 Go), monté à root sur /srv/disque-copies
@@ -68,6 +75,7 @@ jobs:
         run: |
           set -o pipefail
           bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief | tee bilan.txt
+          if grep -F "dialout" bilan.txt; then exit 1; fi # déjà dans le groupe : rien à refaire
           grep -F "dossier des copies créé par sudo sur /srv/disque-copies (à root), rendu à $(id -un) seul" bilan.txt
           grep -F "copies du poste sur un autre disque interne, choisi seul : /srv/disque-copies/AfriControl-copies" bilan.txt
           grep -Fx "AFRICONTROL_COPIES=/srv/disque-copies/AfriControl-copies" poste.env
@@ -95,6 +103,7 @@ jobs:
           sudo -u sansudo env PATH="$PATH" bash -c 'cd /home/sansudo/poste && bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief' < /dev/null | tee refus.txt
           grep -F "appartient à root et sudo a refusé" refus.txt
           grep -F "copies du poste dans data/copies (défaut)" refus.txt
+          grep -F "Radio de télémétrie des drones : sudo usermod -aG dialout sansudo, puis nouvelle session" refus.txt
           test ! -e /srv/disque-copies/AfriControl-copies
 
       - name: Le dossier réglé a disparu (disque remplacé, remonté à root) — recréé par sudo au relancement

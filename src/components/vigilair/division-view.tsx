@@ -977,6 +977,16 @@ function OpsPanel() {
                 </Badge>{" "}
                 <span className="font-medium">{r.actor}</span>{" "}
                 <span className="text-muted-foreground">{r.title}</span>
+                {/* Le détail : la réponse du drone étape par étape, la liaison qui a servi, le pourquoi d'un avis. */}
+                {r.detail ? (
+                  <span
+                    data-journal-detail
+                    className="mt-0.5 line-clamp-3 block text-xs text-muted-foreground"
+                    title={r.detail}
+                  >
+                    {r.detail}
+                  </span>
+                ) : null}
               </span>
               <span className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
                 {formatDate(Date.parse(r.at) || Date.now())}

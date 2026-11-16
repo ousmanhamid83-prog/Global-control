@@ -189,27 +189,34 @@ export const droneOrdre = createServerFn({ method: "POST" })
 /** Le chef règle (ou retire) la liaison d'un drone ; au journal. */
 export const droneLiaison = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((raw: { id?: string; adresse?: string }) => ({
+  .validator((raw: { id?: string; adresse?: string; secours?: boolean }) => ({
     id: String(raw?.id ?? ""),
     adresse: String(raw?.adresse ?? "").slice(0, 200),
+    secours: raw?.secours === true,
   }))
   .handler(async ({ data, context }): Promise<{ ok: boolean; error?: string; drones?: OwnDrone[] }> => {
     const { insertOpsLog, requireSuperadmin } = await import("./staff");
     const chef = await requireSuperadmin(context.userId);
     const m = await import("./drones.server");
-    const r = await m.setDroneLiaisonServer(data.id, data.adresse);
+    const r = await m.setDroneLiaisonServer(data.id, data.adresse, data.secours);
     if (r.ok) {
       const drone = r.drones!.find((d) => d.id === data.id)!;
+      const reglee = data.secours ? drone.liaisonSecours : drone.liaison;
+      const quelle = data.secours ? "liaison de secours" : "liaison";
       await insertOpsLog({
         userId: chef.userId,
         actor: chef.label,
         role: chef.role,
         team: chef.team,
         kind: "drone",
-        title: `Drone ${drone.name} — liaison ${drone.liaison ? "réglée" : "retirée"} par le chef`,
-        detail: drone.liaison
-          ? "Le poste suit le drone par sa télémétrie et peut lui envoyer les ordres permis."
-          : "Le drone reste inscrit ; il n'est plus suivi ni piloté par sa liaison.",
+        title: `Drone ${drone.name} — ${quelle} ${reglee ? "réglée" : "retirée"} par le chef`,
+        detail: !reglee
+          ? data.secours
+            ? "Plus de liaison de secours : seule la principale sert."
+            : "Le drone reste inscrit ; il n'est plus suivi ni piloté par sa liaison principale."
+          : data.secours
+            ? "Elle sert quand la principale se tait (réseau tombé, site isolé)."
+            : "Le poste suit le drone par sa télémétrie et peut lui envoyer les ordres permis.",
         severity: "warn",
       });
     }

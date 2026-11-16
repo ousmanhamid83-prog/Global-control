@@ -481,6 +481,50 @@ describe("pilotage : réglages du chef", () => {
 });
 
 describe("pilotage : l'adresse de liaison d'un drone", () => {
+  it("serie:// : la radio de télémétrie sur un port série connu, à un débit de radio ; rien d'autre", () => {
+    assert.deepEqual(lireLiaison("serie:///dev/ttyUSB0"), {
+      proto: "serie",
+      chemin: "/dev/ttyUSB0",
+      debit: 57600,
+    });
+    assert.deepEqual(
+      lireLiaison(
+        "serie:///dev/serial/by-id/usb-FTDI_FT231X_USB_UART_D30ABC-if00-port0?debit=115200",
+      ),
+      {
+        proto: "serie",
+        chemin: "/dev/serial/by-id/usb-FTDI_FT231X_USB_UART_D30ABC-if00-port0",
+        debit: 115200,
+      },
+    );
+    for (const port of ["/dev/ttyACM1", "/dev/ttyS0", "/dev/ttyAMA0", "/dev/pts/3"]) {
+      assert.equal((lireLiaison(`serie://${port}`) as { chemin: string }).chemin, port);
+    }
+    // Jamais un disque ni un fichier : le poste écrirait ses trames dedans.
+    for (const faux of [
+      "/dev/sda",
+      "/dev/nvme0n1",
+      "/etc/passwd",
+      "/dev/ttyUSB0/../sda",
+      "/dev/ttyUSB0x",
+      "/dev/tty",
+    ]) {
+      assert.match(
+        (lireLiaison(`serie://${faux}`) as { erreur: string }).erreur,
+        /port série inconnu/,
+        faux,
+      );
+    }
+    assert.match(
+      (lireLiaison("serie:///dev/ttyUSB0?debit=12345") as { erreur: string }).erreur,
+      /débit 12345 : 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600 bit\/s/,
+    );
+    assert.match(
+      (lireLiaison("serie://COM3") as { erreur: string }).erreur,
+      /sous Linux seulement/,
+    );
+  });
+
   it("tcp:// ou udp://, hôte du réseau du poste, port donné", () => {
     assert.deepEqual(lireLiaison("tcp://192.168.1.20:5760"), {
       proto: "tcp",
@@ -529,7 +573,7 @@ describe("pilotage : l'adresse de liaison d'un drone", () => {
     };
     assert.match(
       erreur("http://192.168.1.20:5760"),
-      /tcp:\/\/hôte:port ou udp:\/\/hôte:port attendu/,
+      /tcp:\/\/hôte:port, udp:\/\/hôte:port ou serie:\/\/\/dev\/… attendu/,
     );
     assert.match(erreur("serial:///dev/ttyUSB0"), /attendu/);
     assert.match(erreur("192.168.1.20:5760"), /attendu/);

@@ -1,9 +1,19 @@
 import assert from "node:assert/strict";
+import { spawn, spawnSync } from "node:child_process";
 import dgram from "node:dgram";
+import { existsSync, mkdtempSync, readdirSync, readlinkSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import net from "node:net";
 import type { AddressInfo } from "node:net";
 import { after, describe, it } from "node:test";
-import { commander, etatDrone, synchroniserLiaisons } from "./drones-liaison.server.ts";
+import {
+  commander,
+  etatDrone,
+  etatsDrones,
+  raisonSerie,
+  synchroniserLiaisons,
+} from "./drones-liaison.server.ts";
 import { liaisonVivante, REGLAGES_DEFAUT } from "./drones-pilotage.ts";
 import { trame } from "./mavlink.ts";
 
@@ -516,5 +526,154 @@ describe("liaison d'un drone : la mission d'une patrouille", () => {
       suite: ["circuit chargé : sans réponse du drone après 4 envois"],
     });
     await d.fermer();
+  });
+});
+
+/** Un port série virtuel (socat) relié à un faux drone : ce que serait sa radio de télémétrie. */
+const SOCAT =
+  process.platform === "linux" && spawnSync("bash", ["-c", "command -v socat"]).status === 0;
+/** Les ports que ce processus tient ouverts (Linux). */
+const ouverts = (): string[] =>
+  readdirSync("/proc/self/fd").map((fd) => {
+    try {
+      return readlinkSync(`/proc/self/fd/${fd}`).replace(/ \(deleted\)$/, "");
+    } catch {
+      return "";
+    }
+  });
+
+describe("liaison série et liaison de secours", () => {
+  it("radio débranchée : dite pareil, qu'elle soit vue à la lecture (fin) ou à l'écriture (EIO)", () => {
+    const erreur = (code: string) => Object.assign(new Error(code), { code });
+    const dit = "port série /dev/ttyUSB0 fermé (radio débranchée ?)";
+    assert.equal(raisonSerie("/dev/ttyUSB0"), dit);
+    assert.equal(raisonSerie("/dev/ttyUSB0", erreur("EIO")), dit);
+    assert.equal(raisonSerie("/dev/ttyUSB0", erreur("EACCES")), "port série /dev/ttyUSB0 : EACCES");
+  });
+
+  it(
+    "radio de télémétrie sur un port série : le poste lit le drone et lui écrit ses ordres par le port",
+    { skip: !SOCAT && "socat absent" },
+    async () => {
+      const d = await fauxDrone();
+      const dossier = mkdtempSync(join(tmpdir(), "radio-"));
+      // Le port tel qu'un adaptateur USB le donne, en pire : 9600 bit/s, mode ligne, écho, contrôle de
+      // flux, fins de ligne traduites. Au poste de tout régler, sans quoi les trames s'abîment.
+      const radio = spawn("socat", [
+        `pty,link=${join(dossier, "radio")},b9600,cstopb=1,crtscts=1,clocal=0,echo=1,icanon=1,isig=1,ixon=1,icrnl=1,opost=1,onlcr=1`,
+        `tcp:127.0.0.1:${d.port}`,
+      ]);
+      aFermer.add(() => {
+        radio.kill();
+        rmSync(dossier, { recursive: true, force: true });
+      });
+      await attendre("port série créé", () => existsSync(join(dossier, "radio")));
+      const port = realpathSync(join(dossier, "radio"));
+      assert.match(port, /^\/dev\/pts\/\d+$/);
+      synchroniserLiaisons([{ id: "s1", liaison: `serie://${port}?debit=115200` }]);
+      await attendre("relié", () => d.connexions() === 1 && etatDrone("s1")?.lie === true);
+      const regle = spawnSync("stty", ["-F", port, "-a"], { encoding: "utf8" }).stdout;
+      assert.match(regle, /speed 115200 baud/);
+      for (const r of ["-cstopb", "clocal", "-crtscts", "-icanon", "-echo", "-isig", "-ixon"]) {
+        assert.match(regle, new RegExp(`(^|\\s)${r}(\\s|$)`), r);
+      }
+      for (const r of ["-icrnl", "-opost"]) assert.match(regle, new RegExp(`\\s${r}\\s`), r);
+      d.dire(0, BATTEMENT_EN_VOL);
+      d.dire(33, position(40));
+      d.dire(242, depart());
+      d.dire(24, gps3d());
+      await attendre("état lu par le port", () => etatDrone("s1")?.gps?.fix === 3);
+      assert.deepEqual([etatDrone("s1")?.lie, etatDrone("s1")?.voie], [true, "principale"]);
+      // Ce que le poste écrit passe par le port : son battement, ses demandes de télémétrie.
+      await attendre("battement du poste reçu", () =>
+        d.recues.some((t) => t.id === 0 && t.sys === 254),
+      );
+      d.repondre((t) => {
+        if (t.id === 76 && t.v.getUint16(28, true) === 20) d.dire(77, accuse(20, 0));
+      });
+      assert.deepEqual(await ordre("s1", "retour"), {
+        ok: true,
+        suite: ["retour à la base : accepté"],
+      });
+      // Le chef retire la liaison : le port est lâché aussitôt ; il la remet : le poste le reprend.
+      synchroniserLiaisons([]);
+      await attendre("port lâché au retrait", () => !ouverts().includes(port));
+      synchroniserLiaisons([{ id: "s1", liaison: `serie://${port}?debit=115200` }]);
+      await attendre("repris", () => etatDrone("s1")?.lie === true && ouverts().includes(port));
+      // La radio débranchée : dite, le port lâché (rien ne fuit d'un débranchement à l'autre), et le
+      // poste réessaie seul — tant qu'elle manque, il le dit.
+      radio.kill();
+      await attendre("coupée", () => etatDrone("s1")?.lie === false, 6000);
+      assert.equal(etatDrone("s1")!.erreur, `port série ${port} fermé (radio débranchée ?)`);
+      await attendre("port lâché", () => !ouverts().includes(port));
+      await attendre(
+        "réessayé",
+        () => /absent ou refusé \(radio débranchée/.test(etatDrone("s1")!.erreur!),
+        6000,
+      );
+      synchroniserLiaisons([]);
+      await d.fermer();
+    },
+  );
+
+  it("la principale se tait : le poste tient le drone par le secours, ses ordres y passent, et c'est dit", async () => {
+    const principale = await fauxDrone();
+    const secours = await fauxDrone();
+    synchroniserLiaisons([
+      {
+        id: "f1",
+        liaison: `tcp://127.0.0.1:${principale.port}`,
+        liaisonSecours: `tcp://127.0.0.1:${secours.port}`,
+      },
+    ]);
+    await attendre(
+      "deux liaisons",
+      () => principale.connexions() === 1 && secours.connexions() === 1,
+    );
+    let principaleParle = true;
+    const battre = setInterval(() => {
+      for (const [d, parle] of [
+        [principale, principaleParle],
+        [secours, true],
+      ] as const) {
+        if (!parle) continue;
+        d.dire(0, BATTEMENT_EN_VOL);
+        d.dire(33, position(40));
+        d.dire(242, depart());
+        d.dire(24, gps3d());
+      }
+    }, 500);
+    aFermer.add(() => clearInterval(battre));
+    await attendre(
+      "tenu par la principale",
+      () => etatDrone("f1")?.voie === "principale" && etatDrone("f1")?.gps?.fix === 3,
+    );
+    assert.equal(etatsDrones().filter((e) => e.id === "f1").length, 1, "un drone, un état");
+    principaleParle = false;
+    await attendre("passé au secours", () => etatDrone("f1")?.voie === "secours", 8000);
+    secours.repondre((t) => {
+      if (t.id === 76 && t.v.getUint16(28, true) === 21) secours.dire(77, accuse(21, 0));
+    });
+    assert.deepEqual(await ordre("f1", "atterrir"), {
+      ok: true,
+      suite: ["par la liaison de secours", "atterrissage : accepté"],
+    });
+    assert.equal(principale.ordres().length, 0, "rien par la principale muette");
+    assert.equal(secours.ordres().length, 1);
+    principaleParle = true;
+    await attendre("revenu à la principale", () => etatDrone("f1")?.voie === "principale", 4000);
+    // Les deux muettes : l'état dit est celui de la principale, qui dira pourquoi.
+    clearInterval(battre);
+    await attendre(
+      "les deux muettes",
+      () => {
+        const e = etatDrone("f1")!;
+        return e.voie === "principale" && !liaisonVivante(e, Date.now());
+      },
+      8000,
+    );
+    synchroniserLiaisons([]);
+    await principale.fermer();
+    await secours.fermer();
   });
 });

@@ -1407,7 +1407,9 @@ Base du poste et journal d'activité — Division
   dossier des copies (copies/sauvegarde-version-precedente), compressée (57,9 → 4,8 Mo mesuré),
   jamais effacée : rien à faire à la main.
 - JOURNAL D'ACTIVITÉ, EFFAÇABLE PAR LE CHEF (Division, panneau du journal d'activité). Lu par pages
-  de 120, des plus récentes aux plus anciennes (« Plus anciennes »), filtrable par genre. Le chef
+  de 120, des plus récentes aux plus anciennes (« Plus anciennes »), filtrable par genre. Chaque
+  entrée montre son détail sous son titre : la réponse d'un drone étape par étape, la liaison qui a
+  servi, la raison d'un avis (il était gardé sans être montré). Le chef
   efface une entrée (corbeille, confirmée dans la ligne) ou tout un genre (« Effacer les N
   entrées … », confirmé) ; connexion multi-agents active, le sceau est exigé (mot de passe
   retapé). Chaque effacement laisse au journal une trace de genre « effacement », au nom du chef :
@@ -1562,7 +1564,10 @@ Nos drones ET CAMÉRAS — suivi, pilotage par le chef, imagerie en SOURCE D'ANA
   confirmer », relayée sur Telegram / Signal. Confirmée, la piste devient AMIE (affiliation « drone »)
   pour 2 h. Si le drone a une liaison, le poste recoupe : une piste à plus de 2 km de la position que
   donne sa télémétrie est dite CRITIQUE (« adresse copiée ? ») et reste une intrusion, même confirmée.
-  Retirer le drone du registre rend à la piste sa pleine évaluation au relevé suivant.
+  Retirer le drone du registre rend à la piste sa pleine évaluation au relevé suivant. Cette veille
+  tourne DANS LE SERVEUR du poste, toutes les 5 s, console ouverte ou non : l'avis part au chef
+  (Telegram / Signal) et au journal de la Division (« Veille du poste »), une fois par épisode —
+  redit si le niveau change, ou si la piste revient après 10 min d'absence.
 - LIAISON MAVLINK (réglée par le chef) : « tcp://hôte:port » (le poste se connecte : pont de
   télémétrie, routeur) ou « udp://IPv4:port » (le poste écoute ce port et n'entend que cette station).
   MAVLink n'est ni chiffré ni signé ici : une adresse hors du réseau du poste est refusée. Le poste lit
@@ -1570,6 +1575,31 @@ Nos drones ET CAMÉRAS — suivi, pilotage par le chef, imagerie en SOURCE D'ANA
   et les textes du drone ; il demande la télémétrie lui-même et se rebranche seul si la liaison tombe.
   Le drone apparaît sur la carte : symbole ami, cap, départ, circuit. Sans battement depuis 5 s, la
   liaison est dite muette et plus aucun ordre ne part.
+- LIAISON PAR LA RADIO DU DRONE : « serie:///dev/ttyUSB0?debit=57600 » — sa radio de télémétrie
+  (SiK, RFD900…) branchée en USB au poste. C'est ELLE qui émet, sur sa bande et à sa puissance à
+  elle, réglées dans la radio : le poste ne règle aucune fréquence. Ports acceptés : /dev/ttyUSB*,
+  /dev/ttyACM*, /dev/ttyS*, /dev/ttyAMA* et /dev/serial/by-id/… (le plus sûr : ce nom ne change pas
+  d'un branchement à l'autre) — jamais un disque ni un fichier. Débits : 9600 à 921600 bit/s (57600
+  par défaut, celui des radios SiK). Le poste règle le port lui-même (débit, 8N1, mode brut, sans
+  écho ni contrôle de flux) ; radio débranchée, c'est dit, et il la reprend seul quand elle revient.
+  Le compte qui lance le poste doit être du groupe dialout : le script de préparation l'y met
+  (effectif à sa session suivante). Sous Linux seulement pour l'instant, pas encore sous Windows.
+- LIAISON DE SECOURS (Réglages du drone, « Liaison de secours ») : chaque drone peut en avoir deux.
+  La principale sert tant qu'elle vit ; muette (réseau du poste tombé, site isolé en désert ou en
+  forêt), le poste passe aussitôt par celle de secours, souvent la radio du drone : télémétrie et
+  ordres y passent, le panneau du drone l'affiche et chaque ordre l'écrit au journal (« par la
+  liaison de secours »). La principale revenue, elle reprend la main. Essai réel sur le vrai
+  programme de vol ArduCopter (simulateur officiel), le réseau du poste coupé en plein vol : drone
+  tenu par la radio de secours en 0,2 s, puis redécollé, envoyé à 200 m et rappelé à la base par
+  elle seule — refait à chaque changement du pilotage (CI « Drones sur le vrai programme de vol »).
+  Essayé aussi dans la console du chef, sur le serveur construit : coupure à 25 m, l'avis sur le
+  panneau du drone en 1,3 s, retour à la base envoyé par la radio et accepté, posé 41 s plus tard,
+  au journal « par la liaison de secours » ; le réseau revenu, la principale a repris la main.
+- CE QUE LE POSTE N'ÉMET PAS : une clé RTL-SDR ne sait pas émettre (récepteur seul), et le poste ne
+  pilote aucun émetteur radio logiciel. Il n'émet jamais sur les bandes de l'aviation (1090 MHz,
+  118 à 137 MHz). Ses ordres ne vont qu'à NOS drones inscrits au registre, sur ordre du chef, par
+  leur propre liaison. La bande et la puissance de la radio du drone relèvent de l'autorisation de
+  l'autorité des télécommunications (au Tchad, l'ARCEP) : à obtenir par l'exploitant.
 - ORDRES DU CHEF (panneau « Nos drones · liaison », à côté de la carte) : six ordres, chacun coupable
   dans les réglages — retour à la base, stationnaire, atterrir sur place, aller à un point désigné sur
   la carte, décoller, patrouille (circuit réglé, nombre de tours, puis retour seul). Décoller, aller et

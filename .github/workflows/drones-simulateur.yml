@@ -1,8 +1,9 @@
 # Vol d'essai des drones sur le VRAI programme de vol ArduCopter, dans son simulateur (SITL, binaire
 # officiel d'ArduPilot). À chaque changement du pilotage, le code du poste — le même que celui du
 # serveur — fait décoller, déplace, arrête, fait patrouiller, pose et ramène le drone, et refuse ce
-# qu'il doit refuser (drone posé, point hors du rayon, hauteur hors bornes). Rien n'est simulé côté
-# poste ; seul l'appareil l'est.
+# qu'il doit refuser (drone posé, point hors du rayon, hauteur hors bornes). Puis le réseau du poste
+# tombe en plein vol : la radio de télémétrie du drone (port série) prend le relais, et le drone est
+# redécollé, envoyé et rappelé par elle seule. Rien n'est simulé côté poste ; seul l'appareil l'est.
 name: Drones sur le vrai programme de vol
 
 on:
@@ -48,17 +49,23 @@ jobs:
           curl -sSfL -o copter.parm https://raw.githubusercontent.com/ArduPilot/ardupilot/master/Tools/autotest/default_params/copter.parm
           chmod +x arducopter
 
+      - name: Ports série virtuels (socat) — la radio de télémétrie du drone
+        run: sudo apt-get install -y socat
+
       # Le simulateur et le vol dans la même étape : lancé dans une étape à part, le simulateur
       # n'écoutait plus à la suivante (connexion refusée). S'il tombe, son journal est montré.
-      - name: Vol d'essai — le code du poste pilote le vrai programme de vol (quadrirotor à FTTJ, vitesse réelle)
+      - name: Vol d'essai — le code du poste pilote le vrai programme de vol (quadrirotor à FTTJ, vitesse réelle), réseau coupé en vol, radio en secours
         run: |
           (cd sitl && exec ./arducopter --model + --speedup 1 --defaults copter.parm --home 12.1331,15.0339,295,0 -w < /dev/null > sitl.log 2>&1) &
+          # La radio du drone : un port série relié au 2e port MAVLink du simulateur (SERIAL1), ouvert
+          # seulement une fois le simulateur démarré — socat réessaie jusque-là.
+          socat pty,link="$PWD/radio" tcp:127.0.0.1:5762,forever,interval=1 &
           sleep 3
-          node --experimental-strip-types --no-warnings scripts/drones/vol-simulateur.mjs tcp://127.0.0.1:5760 || {
+          node --experimental-strip-types --no-warnings scripts/drones/vol-simulateur.mjs tcp://127.0.0.1:5760 "serie://$(readlink -f radio)?debit=57600" || {
             echo "--- journal du simulateur"
             tail -40 sitl/sitl.log
             exit 1
           }
 
-      - name: Tests du pilotage (codeur contre pymavlink, règles du poste, liaison)
+      - name: Tests du pilotage (codeur contre pymavlink, règles du poste, liaisons réseau et série)
         run: node --experimental-strip-types --no-warnings --test src/lib/vigilair/mavlink.test.ts src/lib/vigilair/drones-pilotage.test.ts src/lib/vigilair/drones-liaison.test.ts

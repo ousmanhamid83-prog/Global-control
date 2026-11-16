@@ -3,10 +3,16 @@
 // ramène le drone, et refuse ce qu'il doit refuser. Rien n'est simulé côté poste.
 //
 //   arducopter --model + --defaults copter.parm --home 12.1331,15.0339,295,0 -w &
-//   node --experimental-strip-types scripts/drones/vol-simulateur.mjs tcp://127.0.0.1:5760
+//   node --experimental-strip-types scripts/drones/vol-simulateur.mjs tcp://127.0.0.1:5760 [SECOURS]
+//
+// Avec une liaison de SECOURS (la radio de télémétrie sur un port série, serie:///dev/…) : la
+// principale passe par un relais réseau que le vol coupe avant le dernier circuit — le réseau du
+// poste qui tombe. Le drone est alors redécollé, envoyé et rappelé par la seule liaison de secours.
 import assert from "node:assert/strict";
+import net from "node:net";
 
 const liaison = process.argv[2] ?? "tcp://127.0.0.1:5760";
+const secours = process.argv[3];
 const { commander, etatDrone, synchroniserLiaisons } =
   await import("../../src/lib/vigilair/drones-liaison.server.ts");
 const { liaisonVivante, nomMode, REGLAGES_DEFAUT } =
@@ -41,12 +47,38 @@ async function attendre(quoi, vrai, maxS) {
 const ordre = async (nom, p = {}) => {
   const r = await commander(ID, nom, p, CIRCUIT, REGLAGES_DEFAUT);
   dire(`${nom} →`, r.ok ? "envoyé :" : "PAS parti :", r.suite.join(" | "));
+  // Passé par le secours, c'est dit ; tenu par la principale, rien n'est dit.
+  if (r.ok) assert.equal(r.suite[0] === "par la liaison de secours", parSecours, r.suite[0]);
   return r;
 };
 const pose = (e) => !e.arme;
 const enVolA = (h) => (e) => e.arme && Math.abs(e.position.hauteurM - h) < 1.5;
 
-synchroniserLiaisons([{ id: ID, liaison }]);
+/** Le réseau du poste coupé en vol (avec une liaison de secours seulement). */
+let couperReseau = null;
+let principale = liaison;
+if (secours) {
+  const cible = new URL(liaison);
+  assert.equal(cible.protocol, "tcp:", "le relais coupé en vol est pour une principale tcp://");
+  const ouvertes = new Set();
+  const relais = net.createServer((poste) => {
+    const drone = net.connect(Number(cible.port), cible.hostname);
+    for (const s of [poste, drone]) {
+      ouvertes.add(s);
+      s.on("error", () => undefined);
+      s.on("close", () => (poste.destroy(), drone.destroy(), ouvertes.delete(s)));
+    }
+    poste.pipe(drone).pipe(poste);
+  });
+  await new Promise((ok) => relais.listen(0, "127.0.0.1", ok));
+  principale = `tcp://127.0.0.1:${relais.address().port}`;
+  couperReseau = () => {
+    relais.close();
+    for (const s of ouvertes) s.destroy();
+  };
+}
+let parSecours = false;
+synchroniserLiaisons([{ id: ID, liaison: principale, liaisonSecours: secours }]);
 await attendre(
   "liaison vivante, position, départ et GPS 3D reçus",
   (e) => liaisonVivante(e, Date.now()) && e.position && e.depart && e.gps?.fix >= 3,
@@ -155,6 +187,18 @@ await attendre("posé, moteurs coupés", pose, 120);
   const ecart = metres(e.position, e.depart.lat, e.depart.lon);
   dire(`posé à ${ecart.toFixed(0)} m de son départ (sur place, pas rentré)`);
   assert.ok(ecart > 55);
+}
+
+if (couperReseau) {
+  dire("— LE RÉSEAU DU POSTE TOMBE : la principale coupée, la radio de télémétrie prend le relais");
+  assert.equal(etat().voie, "principale");
+  couperReseau();
+  parSecours = true;
+  await attendre(
+    "tenu par la liaison de secours",
+    (e) => e.voie === "secours" && liaisonVivante(e, Date.now()),
+    15,
+  );
 }
 
 dire("— RETOUR À LA BASE : redécollé, parti à 200 m, rappelé");

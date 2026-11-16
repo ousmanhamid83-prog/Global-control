@@ -130,6 +130,11 @@ function Fiche({
           essayé.
         </p>
       ) : null}
+      {e.voie === "secours" ? (
+        <p data-drone-voie-secours className="text-warn">
+          Liaison principale muette : le poste tient ce drone par sa liaison de secours.
+        </p>
+      ) : null}
       {e.signe ? (
         <p className="text-warn">
           Ce drone signe ses trames : il peut refuser les ordres du poste, qui ne signe pas.
