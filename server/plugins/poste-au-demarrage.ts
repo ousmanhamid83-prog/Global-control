@@ -14,6 +14,7 @@ import { filetArretUtile } from "../../src/lib/arret-serveur";
 import { chargerEtAnnoncer } from "../../src/lib/config-poste";
 import { assurerBot, suspendreBot } from "../../src/lib/vigilair/bot-signal.server";
 import { listDronesServer } from "../../src/lib/vigilair/drones.server";
+import { veillerEnContinu } from "../../src/lib/vigilair/drones-veille.server";
 import { enregistrerEnContinu } from "../../src/lib/vigilair/rejeu.server";
 import { ecouterAntenne } from "../../src/lib/vigilair/rx1090.server";
 
@@ -22,8 +23,10 @@ export default definePlugin(() => {
   ecouterAntenne();
   enregistrerEnContinu();
   void assurerBot();
-  // Le registre des drones lu, leurs liaisons s'ouvrent sans attendre une console.
+  // Le registre des drones lu, leurs liaisons s'ouvrent sans attendre une console ; la veille de
+  // leurs pistes 1090ES tourne de même, et prévient le chef console fermée.
   void listDronesServer();
+  veillerEnContinu();
   // Le serveur qui s'arrête en douceur ne relève plus le relais Signal (voir suspendreBot). Là
   // seulement où srvx retient déjà les signaux : ailleurs (CI, tests), un écouteur de plus
   // empêcherait Node de s'arrêter sur SIGTERM.

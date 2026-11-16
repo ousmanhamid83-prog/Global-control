@@ -624,9 +624,18 @@ describe("bot Signal : relais en mode native (relève continue)", () => {
       if (n === 2) return { ok: true, commande: "aide", lignes: null, ms: 0 } as unknown as ResultatCommande;
       return { ok: true, commande: "meteo", lignes: ["METAR FTTJ"], ms: 1 };
     });
-    relais.file.push(enveloppe(CHEF, "/situation"), enveloppe(CHEF, "/aide"), enveloppe(CHEF, "/meteo"));
+    // Les relèves suivantes sont retenues : une relève réussie efface la dernière erreur, et sous
+    // charge elle passait parfois avant la lecture de l'état — l'erreur n'était plus là.
+    relais.retenir = true;
     await basculerBot(true, f.poste);
+    await attendreQue(() => relais.retenues.length === 1);
+    json(relais.retenues.shift()!, 200, [
+      enveloppe(CHEF, "/situation"),
+      enveloppe(CHEF, "/aide"),
+      enveloppe(CHEF, "/meteo"),
+    ]);
     await attendreQue(() => relais.envois.length === 2);
+    await attendreQue(async () => (await etat()).echanges.length === 2);
     assert.match(
       relais.envois[0]!.message,
       /^La commande n'a pas abouti au poste \(base indisponible\) : la passer à la console\.\n— poste AfriControl/,
@@ -986,6 +995,8 @@ describe("bot Signal : appairage d'un téléphone par un code du chef", () => {
     assert.deepEqual(a.etat.appairage, { numero: "+235•••••003", expireA: a.expireA }, "sans le code");
     relais.file.push(enveloppe(null, `Appairer ${a.code.slice(0, 3)} ${a.code.slice(3)}`));
     await attendreQue(() => relais.envois.length === 1);
+    // La réponse part avant que l'échange et le journal soient notés : on attend aussi ceux-là.
+    await attendreQue(() => f.journal.some((l) => l.includes("appairé à un compte Signal")));
     assert.deepEqual(relais.envois[0]!.recipients, [COMPTE]);
     assert.equal(
       relais.envois[0]!.message,
