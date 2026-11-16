@@ -42,6 +42,7 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  readSync,
   renameSync,
   rmSync,
   unlinkSync,
@@ -208,8 +209,10 @@ class Ecritures {
    * Recopie les segments du journal de la base (`pgWal`, à partir de `depuis`, tous si null) et
    * reprend le doublement. Sans panne notée, seuls les segments absents sont recopiés : le miroir,
    * écrit en même temps que le journal, n'en sait jamais moins que lui, et un journal abîmé
-   * n'écrase pas des écritures saines. Synchrone : Postgres tourne dans le même fil, aucune
-   * écriture ne peut s'y glisser.
+   * n'écrase pas des écritures saines. Un segment que Postgres a recyclé pour plus tard ne l'est
+   * jamais : rien d'utile n'y est écrit (16 Mio recopiés pour rien figeaient le serveur, à chaque
+   * démarrage, le temps de les écrire sur une clé lente). Synchrone : Postgres tourne dans le même
+   * fil, aucune écriture ne peut s'y glisser.
    */
   realigner(pgWal: string, depuis: string | null): void {
     try {
@@ -218,6 +221,13 @@ class Ecritures {
       for (const nom of readdirSync(pgWal)) {
         if (!SEGMENT_WAL.test(nom) || (depuis !== null && nom < depuis)) continue;
         const cible = path.join(this.dossier, nom);
+        if (!segmentEcrit(path.join(pgWal, nom), nom)) {
+          // Le miroir le prendra page par page quand Postgres y écrira ; celui d'une vie passée
+          // sous ce nom n'est pas lui : retiré.
+          this.fermer(nom);
+          rmSync(cible, { force: true });
+          continue;
+        }
         if (!panne && existsSync(cible)) continue;
         this.fermer(nom);
         copyFileSync(path.join(pgWal, nom), cible);
@@ -237,6 +247,29 @@ class Ecritures {
       this.actif = false;
       noterDefautCopie("écritures doublées de la base", e);
     }
+  }
+}
+
+/**
+ * Le segment `nom` du journal tient-il ses propres écritures ? Postgres recycle un vieux segment en
+ * le renommant pour plus tard : son premier en-tête de page porte encore l'adresse de son ancienne
+ * vie (ou rien, s'il est neuf), jusqu'à ce que Postgres le reprenne et le réécrive depuis le début.
+ */
+export function segmentEcrit(chemin: string, nom: string): boolean {
+  const fd = openSync(chemin, "r");
+  try {
+    // L'en-tête long de la première page : son adresse (8 octets à 8), la taille des segments
+    // (4 octets à 32) — lue là, pas sur le disque : un miroir ne tient que les pages écrites.
+    // Un fichier vide ou trop court laisse des zéros : taille nulle, pas écrit.
+    const entete = Buffer.alloc(40);
+    readSync(fd, entete, 0, 40, 0);
+    const taille = BigInt(entete.readUInt32LE(32));
+    if (taille === 0n) return false;
+    const parFichier = 0x1_0000_0000n / taille;
+    const numero = BigInt(`0x${nom.slice(8, 16)}`) * parFichier + BigInt(`0x${nom.slice(16, 24)}`);
+    return entete.readBigUInt64LE(8) === numero * taille;
+  } finally {
+    closeSync(fd);
   }
 }
 

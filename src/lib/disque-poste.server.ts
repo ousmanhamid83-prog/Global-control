@@ -152,6 +152,7 @@ const g = globalThis as typeof globalThis & {
   __afriManquees?: Map<string, Set<string>>;
   __afriFiles?: Map<string, Promise<void>>;
   __afriEnEcriture?: Set<string>;
+  __afriEnRecopie?: Set<string>;
   /** Par dossier du serveur (les essais en changent) : ses empreintes, relues une fois. */
   __afriEmpreintes?: { racine: string; etat: Promise<EtatEmpreintes> };
 };
@@ -282,6 +283,54 @@ export async function recopierDurable(source: string, cible: string): Promise<vo
   await forcer(path.dirname(cible), true);
 }
 
+/** Les journaux dont la copie se refait hors de leur file (recopierJournal). */
+const enRecopie = () => (g.__afriEnRecopie ??= new Set());
+
+/**
+ * Recopie un journal ouvert (trafic, relevé) sur sa copie SANS retenir ses lignes : sa longueur
+ * prise dans sa file, ces octets recopiés hors d'elle — une clé lente n'arrête plus le poste, ses
+ * lignes continuent d'aller sur son disque —, puis, de retour dans sa file, ce qui est arrivé
+ * pendant ajouté à la copie, relue entière. Jette si elle ne relit pas le journal : rien n'est cru
+ * fait, le contrôle suivant recommence.
+ */
+export async function recopierJournal(fichier: string, copie: string): Promise<void> {
+  let n = 0;
+  await enFile(fichier, async () => {
+    enRecopie().add(fichier);
+    n = (await stat(fichier)).size;
+  });
+  let echec: unknown = null;
+  try {
+    await mkdir(path.dirname(copie), { recursive: true });
+    const part = `${copie}.part`;
+    const f = await open(part, "w");
+    await f.close();
+    if (n > 0) {
+      await pipeline(createReadStream(fichier, { end: n - 1 }), createWriteStream(part));
+    }
+    await forcer(part, false);
+    await rename(part, copie);
+    await forcer(path.dirname(copie), true);
+  } catch (e) {
+    echec = e;
+  }
+  await enFile(fichier, async () => {
+    try {
+      if (echec) throw echec;
+      const fin = (await stat(fichier)).size;
+      if (fin > n) {
+        const suite = createReadStream(fichier, { start: n, end: fin - 1 });
+        await pipeline(suite, createWriteStream(copie, { flags: "a" }));
+        await forcer(copie, false);
+      }
+      const [p, c] = await Promise.all([hacherFichier(fichier), hacherFichier(copie)]);
+      if (p.h !== c.h) throw new Error(`${copie} : relue différente du journal`);
+    } finally {
+      enRecopie().delete(fichier);
+    }
+  });
+}
+
 /**
  * La copie remarche : chaque fichier manqué pendant le défaut est recopié en entier, puis le défaut
  * s'efface — pas avant. `enCours` : un fichier encore en train de s'écrire (segment de phonie),
@@ -330,6 +379,8 @@ export function ecrireFichierPoste(fichier: string, contenu: string): Promise<vo
 export function ajouterFichierPoste(fichier: string, ligne: string, quoi: string): Promise<void> {
   return enFile(fichier, async () => {
     await ajouterDurable(fichier, ligne);
+    // Sa copie se refait hors de sa file (recopierJournal) : la ligne l'y rejoint à la fin.
+    if (enRecopie().has(fichier)) return;
     try {
       await ajouterDurable(copieDe(fichier), ligne);
     } catch (e) {

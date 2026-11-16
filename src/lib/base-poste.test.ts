@@ -34,6 +34,7 @@ import {
   copierBase,
   etatCopies,
   secretDuPoste,
+  segmentEcrit,
 } from "./base-poste.server.ts";
 import { defautsCopies } from "./disque-poste.server.ts";
 import { manifesteDossier } from "./empreintes-poste.server.ts";
@@ -894,6 +895,43 @@ describe("base du poste : écritures doublées, copies à chaud, reprise", () =>
     try {
       assert.match((etatBase() as { reprise?: string }).reprise ?? "", REPRISE);
       assert.deepEqual((await pg.query<{ i: number }>("select i from t order by i")).rows.map((x) => x.i), de(1, 30));
+    } finally {
+      await pg.close();
+    }
+  });
+
+  it("SEGMENT RECYCLÉ PAR POSTGRES POUR PLUS TARD : pas recopié à l'ouverture (16 Mio pour rien), son miroir d'une vie passée retiré ; repris par Postgres, doublé page par page — rien de perdu", async () => {
+    const { poste, dossier, copies, registres } = nouveauPoste();
+    let pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    await pg.exec("create table t (i int primary key)");
+    await inserer(pg, 1, 10);
+    await copierBase(pg, dossier, copies, "jour-1", registres);
+    const { nom } = (await pg.query<{ nom: string }>("select pg_walfile_name(pg_current_wal_lsn()) as nom")).rows[0]!;
+    await pg.close();
+    rmSync(`${dossier}.verrou`);
+    // Comme Postgres à un point de contrôle : un vieux segment renommé pour plus tard, son contenu d'avant.
+    const plusTard = nom.slice(0, 16) + (Number.parseInt(nom.slice(16), 16) + 2).toString(16).toUpperCase().padStart(8, "0");
+    fs.copyFileSync(path.join(dossier, "pg_wal", nom), path.join(dossier, "pg_wal", plusTard));
+    writeFileSync(path.join(copies, "ecritures", plusTard), "le miroir d'une vie passée");
+    assert.equal(segmentEcrit(path.join(dossier, "pg_wal", nom), nom), true);
+    assert.equal(segmentEcrit(path.join(dossier, "pg_wal", plusTard), plusTard), false);
+    pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    assert.ok(!existsSync(path.join(copies, "ecritures", plusTard)), "ni recopié, ni gardé d'une vie passée");
+    // Postgres le reprend, deux segments plus loin : le miroir le prend page par page.
+    await inserer(pg, 11, 20);
+    await pg.query("select pg_switch_wal()");
+    await inserer(pg, 21, 30);
+    await pg.query("select pg_switch_wal()");
+    await inserer(pg, 31, 40);
+    const courant = (await pg.query<{ nom: string }>("select pg_walfile_name(pg_current_wal_lsn()) as nom")).rows[0]!.nom;
+    assert.equal(courant, plusTard, "Postgres écrit dans le segment recyclé");
+    assert.equal(segmentEcrit(path.join(copies, "ecritures", plusTard), plusTard), true, "son miroir est à lui");
+    await pg.close();
+    abimer(dossier);
+    pg = await ouvrirBase(ouvrirAvecCopies(copies), undefined, poste);
+    try {
+      assert.match((etatBase() as { reprise?: string }).reprise ?? "", REPRISE);
+      assert.deepEqual((await pg.query<{ i: number }>("select i from t order by i")).rows.map((x) => x.i), de(1, 40));
     } finally {
       await pg.close();
     }

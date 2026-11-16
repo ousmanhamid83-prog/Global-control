@@ -36,6 +36,7 @@ import {
   noterDefautCopie,
   noterEmpreinte,
   recopierDurable,
+  recopierJournal,
   relatif,
 } from "./disque-poste.server.ts";
 
@@ -116,6 +117,8 @@ type Bilan = {
   abimees: string[];
   reparees: string[];
   rescellees: string[];
+  /** Journaux ouverts dont la copie diffère : recopiés hors de leur file (recopierJournal). */
+  journaux: string[];
 };
 
 /** Recopie `source` sur `cible`, puis la relit : un disque qui écrit faux ne passe pas. */
@@ -141,11 +144,9 @@ async function controler(
   const lus = hp.t + (hc?.t ?? 0);
   const rel = relatif(f);
   if (f.endsWith(".jsonl")) {
-    // Journal ouvert : le poste y écrit encore, il fait foi.
-    if (hc?.h !== hp.h) {
-      await recopierRelu(f, copie, hp.h);
-      bilan.recopies++;
-    }
+    // Journal ouvert : le poste y écrit encore, il fait foi. Recopié hors de sa file, ensuite :
+    // ses lignes n'attendent pas la copie (recopierJournal).
+    if (hc?.h !== hp.h) bilan.journaux.push(f);
     return lus;
   }
   let versions = etat.index.get(rel);
@@ -196,7 +197,14 @@ export async function alignerCopies(
   if (lue !== null && lue.id === g.__afriControle?.id && jour === g.__afriControle.jour) return 0;
   const debut = Date.now();
   const etat = await empreintes();
-  const bilan: Bilan = { relus: 0, recopies: 0, abimees: [], reparees: [], rescellees: [] };
+  const bilan: Bilan = {
+    relus: 0,
+    recopies: 0,
+    abimees: [],
+    reparees: [],
+    rescellees: [],
+    journaux: [],
+  };
   const gros: string[] = [];
   const relusDeja = new Set<string>();
   for (const f of await fichiersGardes()) {
@@ -215,6 +223,10 @@ export async function alignerCopies(
       relusDeja.add(f);
       await controler(f, copies, etat, bilan);
     });
+    if (bilan.journaux.includes(f)) {
+      await recopierJournal(f, copieDe(f, copies));
+      bilan.recopies++;
+    }
   }
   // Le contrôle progressif des gros fichiers, une fois par jour, repris après le dernier relu.
   let curseur = lue?.curseur ?? "";

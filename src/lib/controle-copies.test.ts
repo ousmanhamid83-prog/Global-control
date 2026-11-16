@@ -110,30 +110,96 @@ describe("contrôle des copies : un dossier changé reçoit tout ce qui était g
     assert.equal(await alignerCopies("2026-11-10", autre()), 1, "le lendemain : rattrapée");
   });
 
-  it("UNE LIGNE AJOUTÉE PENDANT LA RECOPIE de son fichier : après elle, jamais perdue entre l'ancienne copie et la nouvelle", async () => {
+  it(
+    "DES LIGNES AJOUTÉES PENDANT LA RECOPIE de leur journal (avant la copie, pendant, après le renommage) : sur le disque du poste aussitôt — elles n'attendent pas la copie —, puis dans la copie, chacune une fois, à sa place",
+    { timeout: 20_000 },
+    async () => {
+      await garder();
+      process.env.AFRICONTROL_COPIES = autre();
+      await ajouterFichierPoste(trafic(), "d\n", quoi); // la copie n'a que « d » : à recopier
+      const part = `${copieDe(trafic(), autre())}.part`;
+      const vraiOpen = fs.promises.open;
+      const vraiRename = fs.promises.rename;
+      const auPoste: string[] = [];
+      const arrive = async (ligne: string) => {
+        await ajouterFichierPoste(trafic(), ligne, quoi);
+        auPoste.push(texte(trafic()));
+      };
+      let ouvert = false;
+      let forcee = 0;
+      fs.promises.open = (async (f: fs.PathLike, ...reste: unknown[]) => {
+        // La copie rouverte pour être forcée sur la clé (après la suite ajoutée).
+        if (String(f) === copieDe(trafic(), autre()) && reste[0] === "r+") forcee++;
+        // Sa première ouverture (la seconde est son fsync) : longueur prise, rien encore recopié.
+        if (String(f) === part && !ouvert) {
+          ouvert = true;
+          await arrive("e\n");
+        }
+        return (vraiOpen as (...a: unknown[]) => Promise<fs.promises.FileHandle>)(f, ...reste);
+      }) as typeof fs.promises.open;
+      fs.promises.rename = async (de, vers) => {
+        if (String(de) !== part) return vraiRename(de, vers);
+        await arrive("f\n"); // recopié, pas encore renommé sur l'ancienne copie
+        await vraiRename(de, vers);
+        await arrive("g\n"); // renommé, la suite pas encore ajoutée
+      };
+      syncBuiltinESMExports();
+      try {
+        await alignerCopies("2026-11-09", autre());
+      } finally {
+        fs.promises.open = vraiOpen;
+        fs.promises.rename = vraiRename;
+        syncBuiltinESMExports();
+      }
+      assert.deepEqual(auPoste, ["a\nb\nc\nd\ne\n", "a\nb\nc\nd\ne\nf\n", "a\nb\nc\nd\ne\nf\ng\n"]);
+      assert.equal(texte(copieDe(trafic(), autre())), "a\nb\nc\nd\ne\nf\ng\n");
+      assert.equal(forcee, 1, "la suite ajoutée est forcée sur la clé");
+      // La recopie finie, ses lignes vont de nouveau à la copie aussitôt.
+      await ajouterFichierPoste(trafic(), "h\n", quoi);
+      assert.equal(texte(copieDe(trafic(), autre())), "a\nb\nc\nd\ne\nf\ng\nh\n");
+    },
+  );
+
+  it("RECOPIE D'UN JOURNAL : une clé qui écrit faux est vue à la relecture ; une recopie qui échoue est dite telle quelle — les lignes vont de nouveau à la copie, refaite au contrôle suivant", async () => {
     await garder();
     process.env.AFRICONTROL_COPIES = autre();
-    await ajouterFichierPoste(trafic(), "d\n", quoi); // la copie n'a que « d » : à recopier
-    const vrai = fs.promises.copyFile;
-    let ajout: Promise<void> | null = null;
-    fs.promises.copyFile = async (de, vers, mode) => {
-      await vrai(de, vers, mode);
-      if (String(de) === trafic() && !ajout) {
-        // Copié, pas encore renommé sur l'ancienne copie : une ligne arrive.
-        ajout = ajouterFichierPoste(trafic(), "e\n", quoi);
-        await new Promise((r) => setTimeout(r, 100));
-      }
+    await ajouterFichierPoste(trafic(), "d\n", quoi);
+    const copie = copieDe(trafic(), autre());
+    const vraiRename = fs.promises.rename;
+    fs.promises.rename = async (de, vers) => {
+      await vraiRename(de, vers);
+      if (String(vers) === copie) writeFileSync(copie, "a\nb\nX\nd\n"); // la clé écrit faux
     };
     syncBuiltinESMExports();
     try {
-      await alignerCopies("2026-11-09", autre());
+      await assert.rejects(alignerCopies("2026-11-09", autre()), /relue différente du journal/);
     } finally {
-      fs.promises.copyFile = vrai;
+      fs.promises.rename = vraiRename;
       syncBuiltinESMExports();
     }
-    await ajout;
-    assert.equal(texte(trafic()), "a\nb\nc\nd\ne\n");
-    assert.equal(texte(copieDe(trafic(), autre())), "a\nb\nc\nd\ne\n");
+    const vraiOpen = fs.promises.open;
+    fs.promises.open = (async (f: fs.PathLike, ...reste: unknown[]) => {
+      if (String(f) === `${copie}.part`) {
+        throw Object.assign(new Error("ENOSPC: plus de place"), { code: "ENOSPC" });
+      }
+      return (vraiOpen as (...a: unknown[]) => Promise<fs.promises.FileHandle>)(f, ...reste);
+    }) as typeof fs.promises.open;
+    syncBuiltinESMExports();
+    try {
+      await assert.rejects(alignerCopies("2026-11-09", autre()), /ENOSPC/);
+    } finally {
+      fs.promises.open = vraiOpen;
+      syncBuiltinESMExports();
+    }
+    await ajouterFichierPoste(trafic(), "e\n", quoi);
+    assert.equal(
+      texte(copie),
+      "a\nb\nX\nd\ne\n",
+      "la ligne va de nouveau à la copie (encore fausse)",
+    );
+    assert.ok((await alignerCopies("2026-11-09", autre())) >= 1, "refaite au contrôle suivant");
+    assert.equal(texte(copie), "a\nb\nc\nd\ne\n");
+    assert.equal(await alignerCopies("2026-11-09", autre()), 0, "plus rien à refaire");
   });
 
   it("DOSSIER DES COPIES INJOIGNABLE (clé retirée) : rien de faux, une erreur — refait en entier quand il répond", async () => {

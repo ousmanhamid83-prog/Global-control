@@ -1391,6 +1391,25 @@ Base du poste et journal d'activité — Division
   copie. Arrêt net (kill -9) avec 1291 entrées, base abîmée : reprise depuis l'autre disque, 1291
   retrouvées, copie de remise en route en 0,5 s. Le programme des copies (toutes les 5 min)
   s'arrête avec sa base : rien n'est tenté sur une base fermée. Mutants : 49 sur 49 attrapés.
+- UN JOURNAL OUVERT SE RECOPIE SANS RETENIR SES LIGNES. Sa longueur prise dans sa file, ces octets
+  sont recopiés hors d'elle ; puis ce qui est arrivé pendant est ajouté à la copie, relue entière.
+  Une clé lente n'arrête plus le poste : une ligne qui arrive pendant la recopie va sur son disque
+  aussitôt, puis dans la copie, à sa place. Avant, elle attendait en mémoire la fin de la recopie.
+  Essai réel, serveur construit, vrai signal 1090 d'antenne décodé par dump1090 et relevé Internet
+  allumé : le vrai script (--copies) passe les copies sur une autre clé ; tout y est recopié
+  (8 fichiers en 26 ms, la base en 1,1 s, 75 Mo d'anciennes copies rapatriés), le trafic du jour
+  identique au poste (91 lignes, SHA-256). Puis sa copie abîmée sur la clé (un octet, même taille)
+  et la clé bridée par le noyau à 24 Kio/s, comme une très vieille clé : recopiée en 31,6 s ; les
+  images d'antenne arrivées à 21:12:38 et 21:12:58 sont sur le disque du poste 3 et 9 ms plus tard,
+  puis dans la copie, une fois chacune, à leur place ; copie identique (152 lignes, SHA-256) ; le
+  poste répond en 0,2 s pendant la recopie. Avant ce correctif, mesuré : 27 et 12 s d'attente.
+- LE MIROIR DE LA BASE NE RECOPIE PLUS UN SEGMENT RECYCLÉ. Postgres renomme un vieux segment de
+  son journal pour plus tard ; à l'ouverture, le miroir le recopiait en entier (16 Mio pour rien,
+  d'un seul tenant, le serveur figé jusqu'à ce qu'ils soient écrits). Sur la clé lente de
+  l'essai : 11 min sans rien enregistrer. Le segment est reconnu à son en-tête (l'adresse de son
+  ancienne vie) : le miroir le prend page par page quand Postgres y écrit, et son miroir périmé
+  est retiré ; le poste démarre en 1 s. Une base abîmée se reprend toujours entière de ce miroir
+  (essayé).
 - UNE FUITE CORRIGÉE, trouvée par un mutant : chaque copie illisible essayée à la reprise laissait
   en mémoire tout le Postgres raté (≈ 180 Mo ; une minuterie de 10 s de Postgres le gardait en
   vie) — six essais montaient le serveur à 1,1 Go. Postgres est lancé sans ce suivi du démarrage.
