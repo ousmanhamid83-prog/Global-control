@@ -32,6 +32,12 @@
 #                    l'installer ici ; avec --antenne pour sa position
 #   --phonie URL     flux audio de la phonie ATC, sortie du récepteur VHF de l'opérateur
 #                    (rtl_airband, Icecast…) : le poste l'enregistre à la demande, doublé et scellé
+#   --phonie-radio MHZ[,MHZ…]  la phonie reçue par le poste lui-même : une clé radio RTL-SDR (la 2e
+#                    si l'antenne 1090 a la sienne) à l'écoute de ces fréquences de la bande
+#                    aéronautique (118 à 136,975 MHz, AM). rtl-sdr et lame sont installés, le pont
+#                    phonie (scripts/poste/phonie-vhf.mjs) lancé avec la machine ; le poste
+#                    l'enregistre à la demande. Réception seule : une clé RTL-SDR n'émet pas.
+#   --phonie-cle N|SÉRIE  la clé de la phonie, quand le choix automatique ne convient pas
 #   --copies DOSSIER dossier des copies du poste (AFRICONTROL_COPIES) : tout ce que le poste garde y
 #                    est doublé aussitôt. Sans --copies, un autre disque INTERNE de la machine (ni
 #                    clé ni disque USB, ni autre partition du disque du poste ; le plus de place
@@ -54,6 +60,8 @@ COPIES=""
 ANTENNE=""
 RECEPTEUR_1090=""
 PHONIE=""
+PHONIE_RADIO=""
+PHONIE_CLE=""
 ZONES=()
 ZONES_IMAGERIE=()
 BUILD=1 IA=1 RELIEF=1 IMAGERIE=0 ITINERAIRE=0 SIGNAL=0 RECHERCHE=0
@@ -70,6 +78,8 @@ while [ $# -gt 0 ]; do
     --antenne) ANTENNE=${2:?--antenne attend LAT,LON}; shift ;;
     --recepteur-1090) RECEPTEUR_1090=${2:?--recepteur-1090 attend HOTE:PORT}; shift ;;
     --phonie) PHONIE=${2:?--phonie attend une adresse de flux}; shift ;;
+    --phonie-radio) PHONIE_RADIO=${2:?--phonie-radio attend des fréquences en MHz, ex. 118.1}; shift ;;
+    --phonie-cle) PHONIE_CLE=${2:?--phonie-cle attend un numéro ou un numéro de série de clé}; shift ;;
     --sans-build) BUILD=0 ;;
     --sans-ia) IA=0 ;;
     --sans-relief) RELIEF=0 ;;
@@ -443,16 +453,44 @@ trames_1090() {
     grep -m 20 -aE '^\*[0-9A-Fa-f]+;' | wc -l; } || true
 }
 
-# cle_rtl_sdr [DOSSIER] : une clé radio RTL2832U branchée (0bda:2832 ou 0bda:2838), lue dans /sys —
-# lsusb manque sur bien des postes, et l'aurait dite absente.
-cle_rtl_sdr() {
-  local d
+# cles_rtl_sdr [DOSSIER] : les clés radio RTL2832U branchées (0bda:2832 ou 0bda:2838), lues dans
+# /sys — lsusb manque sur bien des postes, et les aurait dites absentes. Une ligne par clé : son
+# numéro de série, ou « ? » s'il ne se lit pas.
+cles_rtl_sdr() {
+  local d s
   for d in "${1:-/sys/bus/usb/devices}"/*; do
     [ "$(cat "$d/idVendor" 2>/dev/null)" = 0bda ] || continue
-    case "$(cat "$d/idProduct" 2>/dev/null)" in 2832 | 2838) return 0 ;; esac
+    case "$(cat "$d/idProduct" 2>/dev/null)" in 2832 | 2838) ;; *) continue ;; esac
+    s=$(cat "$d/serial" 2>/dev/null || true)
+    echo "${s:-?}"
   done
-  return 1
 }
+cle_rtl_sdr() { [ -n "$(cles_rtl_sdr "$@")" ]; }
+
+# Deux clés, deux antennes : la 1re à l'antenne 1090 (dump1090), la 2e à la phonie. Par leur numéro
+# de série quand ils diffèrent (l'ordre USB peut changer d'un démarrage à l'autre) ; sinon par leur
+# rang, et le bilan le dit.
+CLES=()
+CLE_1090=""
+CLE_PHONIE=$PHONIE_CLE
+if [ -n "$PHONIE_RADIO" ]; then
+  mapfile -t CLES < <(cles_rtl_sdr)
+  if [ -z "$PHONIE_CLE" ]; then
+    if [ -n "$ANTENNE" ] && [ -z "$RECEPTEUR_1090" ]; then
+      if [ ${#CLES[@]} -ge 2 ] && [ "${CLES[0]}" != "${CLES[1]}" ] && [ "${CLES[0]}" != "?" ] && [ "${CLES[1]}" != "?" ]; then
+        CLE_1090=${CLES[0]}
+        CLE_PHONIE=${CLES[1]}
+      else
+        CLE_1090=0
+        CLE_PHONIE=1
+      fi
+    elif [ ${#CLES[@]} -ge 1 ] && [ "${CLES[0]}" != "?" ]; then
+      CLE_PHONIE=${CLES[0]}
+    else
+      CLE_PHONIE=0
+    fi
+  fi
+fi
 
 if [ -n "$ANTENNE$RECEPTEUR_1090" ]; then
   etape "Antenne 1090 MHz du poste (réception seule)"
@@ -480,6 +518,10 @@ if [ -n "$ANTENNE$RECEPTEUR_1090" ]; then
           -e 's/^START_DUMP1090=.*/START_DUMP1090="yes"/' \
           -e 's/^RAW_OUTPUT_PORT=.*/RAW_OUTPUT_PORT="30002"/' \
           -e 's/^NET_BIND_ADDRESS=.*/NET_BIND_ADDRESS="127.0.0.1"/' /etc/default/dump1090-mutability
+        # La phonie a la sienne : dump1090 prend la clé de l'antenne 1090, pas la première venue.
+        if [ -n "$CLE_1090" ]; then
+          $SUDO sed -i "s/^DEVICE=.*/DEVICE=\"$CLE_1090\"/" /etc/default/dump1090-mutability
+        fi
         $SUDO systemctl enable dump1090-mutability >/dev/null 2>&1 || true
         # Sans systemd (conteneur, installation minimale) : par son script de démarrage.
         $SUDO systemctl restart dump1090-mutability >/dev/null 2>&1 ||
@@ -519,6 +561,75 @@ if [ -n "$PHONIE" ]; then
       ok "phonie : flux $PHONIE — enregistré à la demande, doublé et scellé comme le reste"
     else
       A_FAIRE+=("Phonie ATC : $PHONIE ne répond pas encore — le poste réessaie seul quand l'enregistrement est demandé.")
+    fi
+  fi
+fi
+
+if [ -n "$PHONIE_RADIO" ]; then
+  etape "Phonie ATC reçue par le poste (clé radio, bande aéronautique, réception seule)"
+  ARGS_PHONIE=()
+  IFS=',' read -ra FREQUENCES <<<"$PHONIE_RADIO"
+  for f in "${FREQUENCES[@]}"; do ARGS_PHONIE+=(--frequence "$f"); done
+  # Plusieurs fréquences : rtl_fm les balaie, ce qui demande un seuil de silence.
+  if [ ${#FREQUENCES[@]} -gt 1 ]; then ARGS_PHONIE+=(--silence 30); fi
+  ARGS_PHONIE+=(--cle "$CLE_PHONIE" --port 8001)
+  if [ -n "$PHONIE" ]; then
+    rate "phonie : --phonie (le flux d'un récepteur déjà en place) ou --phonie-radio (la clé du poste), pas les deux"
+  elif ! verdict=$(node scripts/poste/phonie-vhf.mjs --verifier "${ARGS_PHONIE[@]}" 2>&1); then
+    rate "$verdict"
+  else
+    command -v rtl_fm >/dev/null || installer_paquet rtl-sdr || true
+    command -v lame >/dev/null || installer_paquet lame || true
+    SUDO=""
+    if [ "$(id -u)" != 0 ]; then SUDO=sudo; fi
+    # La clé libérée de son pilote de télévision, et le pont autorisé sur les clés radio (plugdev).
+    printf 'blacklist dvb_usb_rtl28xxu\nblacklist rtl2832\nblacklist rtl2830\n' |
+      $SUDO tee /etc/modprobe.d/africontrol-rtl-sdr.conf >/dev/null 2>&1 || true
+    $SUDO modprobe -r dvb_usb_rtl28xxu 2>/dev/null || true
+    $SUDO usermod -aG plugdev "$(id -un)" 2>/dev/null || true
+    PONT=("$(command -v node)" "$RACINE/scripts/poste/phonie-vhf.mjs" "${ARGS_PHONIE[@]}")
+    if [ -d /run/systemd/system ]; then
+      {
+        printf '[Unit]\nDescription=AfriControl : phonie VHF du poste (clé radio, réception seule)\n'
+        printf 'After=network.target\n\n[Service]\nUser=%s\nExecStart=' "$(id -un)"
+        printf '"%s" ' "${PONT[@]}"
+        printf '\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\n'
+      } | $SUDO tee /etc/systemd/system/africontrol-phonie.service >/dev/null
+      $SUDO systemctl daemon-reload || true
+      $SUDO systemctl enable africontrol-phonie >/dev/null 2>&1 || true
+      $SUDO systemctl restart africontrol-phonie || true
+    else
+      # Sans systemd (conteneur, installation minimale) : lancé maintenant, pas avec la machine. Le
+      # pont d'un lancement précédent est arrêté d'abord (par son PID, s'il est bien le pont).
+      if [ -f data/phonie-vhf.pid ] && grep -qs phonie-vhf.mjs "/proc/$(cat data/phonie-vhf.pid)/cmdline"; then
+        kill "$(cat data/phonie-vhf.pid)" 2>/dev/null || true
+        sleep 1
+      fi
+      mkdir -p data
+      nohup "${PONT[@]}" >>data/phonie-vhf.log 2>&1 &
+      echo $! >data/phonie-vhf.pid
+      A_FAIRE+=("Phonie : sans systemd, le pont est lancé mais ne repartira pas avec la machine — le relancer : nohup ${PONT[*]} &")
+    fi
+    regler AFRICONTROL_ATC "http://127.0.0.1:8001/phonie.mp3"
+    ETAT_PHONIE=""
+    phonie_ecoute() {
+      ETAT_PHONIE=$(curl -s -m 2 http://127.0.0.1:8001/etat 2>/dev/null || true)
+      [[ "$ETAT_PHONIE" == *'"actif":true'* ]]
+    }
+    if attendre phonie_ecoute 15; then
+      ok "phonie : $PHONIE_RADIO MHz sur la clé $CLE_PHONIE — à l'écoute, servie au poste (127.0.0.1:8001), enregistrée à la demande"
+    else
+      raison=$(sed -n 's/.*"erreur":"\([^"]*\)".*/\1/p' <<<"$ETAT_PHONIE")
+      if [ ${#CLES[@]} -eq 0 ]; then
+        A_FAIRE+=("Phonie : aucune clé radio RTL-SDR vue${raison:+ ($raison)} — brancher la clé et son antenne VHF : le pont la prend seul.")
+      elif [ -n "$CLE_1090" ] && [ ${#CLES[@]} -lt 2 ]; then
+        A_FAIRE+=("Phonie : une seule clé radio vue, laissée à l'antenne 1090 — brancher une 2e clé et son antenne VHF : le pont la prend seul.")
+      else
+        A_FAIRE+=("Phonie : la clé $CLE_PHONIE n'écoute pas encore${raison:+ ($raison)} — le pont réessaie seul.")
+      fi
+    fi
+    if [ "$CLE_1090" = 0 ] && [ ${#CLES[@]} -ge 2 ]; then
+      A_FAIRE+=("Clés radio : leurs numéros de série ne les distinguent pas (${CLES[0]}) — leur rang USB décide (1090 : la 0, phonie : la 1), et peut changer. Les distinguer une fois pour toutes, dump1090 arrêté : rtl_eeprom -d 1 -s 00000002")
     fi
   fi
 fi

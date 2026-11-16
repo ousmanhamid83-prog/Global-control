@@ -12,6 +12,8 @@ on:
     paths:
       - "scripts/poste/preparer-poste.sh"
       - "scripts/poste/preparer-poste.test.mjs"
+      - "scripts/poste/phonie-vhf.mjs"
+      - "scripts/poste/phonie-vhf.test.mjs"
       - "src/lib/disque-physique.server.ts"
       - ".github/workflows/poste-linux.yml"
   workflow_dispatch:
@@ -148,5 +150,23 @@ jobs:
           systemctl is-active dump1090-mutability
           { timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/30002 && cat <&3' || true; } | grep -m 1 '^\*8D4D2023'
 
+      # La phonie reçue par le poste : rtl-sdr et lame installés par apt, le pont lancé par systemd
+      # tel que le script le règle. Pas de clé radio ici : le vrai rtl_fm le dit, le pont le répète
+      # sur /etat, le script le met au bilan — et le service reste en place pour la clé.
+      - name: Phonie reçue par le poste — paquets, service systemd, sans clé radio ici
+        run: |
+          set -o pipefail
+          bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief --phonie-radio 118.1 | tee phonie.txt
+          grep -F 'Phonie : aucune clé radio RTL-SDR vue (No supported devices found.)' phonie.txt
+          grep -Fx "AFRICONTROL_ATC=http://127.0.0.1:8001/phonie.mp3" poste.env
+          systemctl is-active africontrol-phonie
+          grep -F '"--frequence" "118.1" "--cle" "0" "--port" "8001"' /etc/systemd/system/africontrol-phonie.service
+          curl -s http://127.0.0.1:8001/etat | tee etat.json
+          grep -F '"erreur":"No supported devices found."' etat.json
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8001/phonie.mp3)" = 503
+          ! curl -s -m 2 "http://$(hostname -I | cut -d' ' -f1):8001/etat"
+
       - name: Tests des scripts
-        run: node --test scripts/poste/preparer-poste.test.mjs
+        run: |
+          node --test scripts/poste/preparer-poste.test.mjs
+          node --test scripts/poste/phonie-vhf.test.mjs

@@ -406,19 +406,25 @@ test("script Linux --antenne / --recepteur-1090 / --phonie : réglés dans poste
   }
 });
 
-test("script Linux : la clé radio RTL-SDR reconnue dans /sys (0bda:2832, 0bda:2838), sans lsusb", async () => {
+test("script Linux : les clés radio RTL-SDR reconnues dans /sys (0bda:2832, 0bda:2838), sans lsusb, avec leur numéro de série", async () => {
   const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
-  const fonction = SH.match(/^cle_rtl_sdr\(\) \{\n[\s\S]*?\n\}$/m)?.[0];
-  assert.ok(fonction, "cle_rtl_sdr dans le script");
+  const fonctions = [
+    SH.match(/^cles_rtl_sdr\(\) \{\n[\s\S]*?\n\}$/m)?.[0],
+    SH.match(/^cle_rtl_sdr\(\) \{.*\}$/m)?.[0],
+  ];
+  assert.ok(fonctions.every(Boolean), "cles_rtl_sdr et cle_rtl_sdr dans le script");
   const usb = mkdtempSync(join(tmpdir(), "usb-"));
-  const branche = (nom, vendeur, produit) => {
+  const branche = (nom, vendeur, produit, serie) => {
     mkdirSync(join(usb, nom), { recursive: true });
     writeFileSync(join(usb, nom, "idVendor"), `${vendeur}\n`);
     writeFileSync(join(usb, nom, "idProduct"), `${produit}\n`);
+    if (serie !== undefined) writeFileSync(join(usb, nom, "serial"), `${serie}\n`);
   };
-  const vue = () =>
-    spawnSync("bash", ["-c", `${fonction}\ncle_rtl_sdr "$1"`, "essai", usb]).status === 0;
+  const appel = (f) =>
+    spawnSync("bash", ["-c", `${fonctions.join("\n")}\n${f} "$1"`, "essai", usb]);
+  const vue = () => appel("cle_rtl_sdr").status === 0;
+  const cles = () => String(appel("cles_rtl_sdr").stdout);
   try {
     branche("1-1", "046d", "c52b"); // une souris
     branche("1-2", "0bda", "8153"); // un autre périphérique Realtek (réseau)
@@ -429,8 +435,52 @@ test("script Linux : la clé radio RTL-SDR reconnue dans /sys (0bda:2832, 0bda:2
     rmSync(join(usb, "1-3"), { recursive: true });
     branche("2-1", "0bda", "2832");
     assert.equal(vue(), true, "RTL2832U 0bda:2832");
+    // Deux clés : leurs numéros de série, dans l'ordre ; « ? » pour une clé sans numéro lisible.
+    assert.equal(cles(), "?\n");
+    branche("1-3", "0bda", "2838", "00001090");
+    assert.equal(cles(), "00001090\n?\n");
+    branche("2-1", "0bda", "2832", "00000002");
+    assert.equal(cles(), "00001090\n00000002\n");
   } finally {
     rmSync(usb, { recursive: true, force: true });
+  }
+});
+
+test("script Linux --phonie-radio : une fréquence hors de la bande refusée par le pont lui-même, rien installé ni réglé", async () => {
+  const { mkdtempSync, mkdirSync, copyFileSync, rmSync, existsSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const poste = mkdtempSync(join(tmpdir(), "poste-phonie-"));
+  mkdirSync(join(poste, "scripts", "poste"), { recursive: true });
+  for (const f of ["preparer-poste.sh", "phonie-vhf.mjs"]) {
+    copyFileSync(join(ICI, f), join(poste, "scripts", "poste", f));
+  }
+  const lancer = (...options) =>
+    spawnSync(
+      "bash",
+      [
+        join(poste, "scripts", "poste", "preparer-poste.sh"),
+        "--sans-build",
+        "--sans-ia",
+        "--sans-relief",
+        "--copies",
+        join(poste, "copies"),
+        ...options,
+      ],
+      { env: { PATH: process.env.PATH }, encoding: "utf8" },
+    );
+  try {
+    let r = lancer("--phonie-radio", "145.5");
+    assert.match(
+      r.stdout + r.stderr,
+      /✗ phonie : fréquence 145\.5 hors de la bande aéronautique \(118 à 136,975 MHz\)/,
+    );
+    assert.doesNotMatch(readFileSync(join(poste, "poste.env"), "utf8"), /AFRICONTROL_ATC/);
+    assert.ok(!existsSync(join(poste, "data", "phonie-vhf.pid")), "aucun pont lancé");
+    r = lancer("--phonie-radio", "118.1", "--phonie", "http://127.0.0.1:9/atc.mp3");
+    assert.match(r.stdout + r.stderr, /✗ phonie : --phonie .* ou --phonie-radio .*, pas les deux/);
+    assert.ok(!existsSync(join(poste, "data", "phonie-vhf.pid")), "aucun pont lancé");
+  } finally {
+    rmSync(poste, { recursive: true, force: true });
   }
 });
 

@@ -65,8 +65,9 @@ Préparer le poste en une commande (une fois, en ligne)
     (number = le numéro inscrit, recipients = qui reçoit les alertes). La console reconnaît le
     relais et lui envoie le détail, que Signal chiffre de bout en bout jusqu'aux téléphones ;
     Division affiche « Relais Signal du poste · détail chiffré » ;
-  · sur demande, --antenne LAT,LON et --phonie URL (Windows -Antenne, -Phonie) : voir
-    « Antenne 1090 du poste » et « Phonie ATC » ;
+  · sur demande, --antenne LAT,LON et --phonie URL (Windows -Antenne, -Phonie), ou la phonie par
+    la clé radio du poste, --phonie-radio MHZ (Linux) : voir « Antenne 1090 du poste » et
+    « Phonie ATC » ;
   · écrit AFRICONTROL_IA, AFRICONTROL_IA_MODELE et AFRICONTROL_ITINERAIRE dans poste.env (et les
     réglages des options demandées).
 - Ensuite, même hors ligne : PORT=8080 node .output/server/index.mjs
@@ -1463,6 +1464,21 @@ Phonie ATC — réception seule (Capteurs > Phonie ATC)
   activable/désactivable. Il n'accorde aucune radio, ne décode pas la parole, n'émet jamais.
   Segments téléchargeables. Pas d'écoute d'autre chose que l'aéronautique en clair.
 - Le script de préparation la règle et essaie le flux : --phonie URL (Windows -Phonie URL).
+- OU LA CLÉ RADIO DU POSTE (Linux, --phonie-radio 118.1[,119.7…]) : le script installe rtl-sdr et
+  lame, libère la clé de son pilote de télévision et lance avec la machine le pont phonie
+  (scripts/poste/phonie-vhf.mjs, service africontrol-phonie) : rtl_fm démodule l'AM (12 kHz,
+  porteuse filtrée), lame en fait du MP3 16 kHz à 32 kbit/s, servi au seul poste
+  (http://127.0.0.1:8001/phonie.mp3, état sur /etat), réglé dans AFRICONTROL_ATC. Plusieurs
+  fréquences : balayées avec un seuil de silence, les blancs comblés pour que le flux continue.
+  Avec l'antenne 1090 : deux clés, la 1re à dump1090, la 2e à la phonie, par leur numéro de série
+  quand ils diffèrent (--phonie-cle pour choisir). Clé absente ou débranchée : dit (503, /etat,
+  bilan), et le pont la reprend seul (essais espacés de 2 à 30 s). Une clé RTL-SDR n'émet pas.
+- Essayé : le pont avec le vrai lame et un rtl_fm d'essai qui sort la vraie phonie de Dublin au
+  rythme du direct — le son servi est celui d'origine (enveloppe corrélée à 0,986 ; 0,156 pour un
+  autre passage) ; le VRAI rtl_fm sans clé : « No supported devices found. », dit tel quel ; le
+  script relancé remplace le pont précédent ; sur une vraie machine Linux (GitHub Actions) :
+  paquets installés, service systemd actif, clé absente dite. Le script Windows ne règle pas la
+  clé : -Phonie URL seulement.
 - Essayé avec une VRAIE phonie VHF : l'enregistrement brut de la tour et du sol de Dublin
   (archive.org « dublinatc101023 », Elderpaa / TheRadioBunker, licence CC BY-NC-SA 4.0, gardé
   hors du dépôt) ; 10 min ramenées au format d'un récepteur de bande aéro (MP3 32 kbit/s, 75 à
@@ -1473,8 +1489,9 @@ Phonie ATC — réception seule (Capteurs > Phonie ATC)
   flux et le disent joignable ; sur un vrai Windows (GitHub Actions), une phonie muette dite.
 - Après un redémarrage du poste, la console compte tous les segments gardés sur le disque et les
   date de leur début, lu dans leur nom (avant : « 0 », et datés de leur fin).
-- PAS ESSAYÉ : un vrai récepteur VHF branché ici (aucun matériel). LiveATC n'a pas servi : sa
-  vérification de navigateur Cloudflare n'a pas été contournée.
+- PAS ESSAYÉ : une vraie clé radio branchée (aucun matériel ici) ; sur place, le bilan du script
+  le dit (« à l'écoute », ou la raison). LiveATC n'a pas servi : sa vérification de navigateur
+  Cloudflare n'a pas été contournée, et ses conditions interdisent de reprendre ses flux.
 
 Alertes feu (FIRMS) — ce que le capteur peut, honnêtement
 - Détection thermique VIIRS : foyers groupés, puissance FRP (MW), confiance, jour/nuit, ville la
