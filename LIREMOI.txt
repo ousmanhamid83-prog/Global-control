@@ -1529,7 +1529,7 @@ Détection auto pour les sites (Capteurs > Changement > Sites surveillés)
   Deux raisons : l'imagerie est archivée (pas du direct, donc pas de suivi temps réel), et c'est du
   ciblage, pas de la sûreté de site. Le temps réel au sol passe par des capteurs sol, pas l'image.
 
-Nos drones ET CAMÉRAS — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs > Changement > « Nos drones et caméras »)
+Nos drones ET CAMÉRAS — suivi, pilotage par le chef, imagerie en SOURCE D'ANALYSE et en fond de carte (Capteurs > Changement > « Nos drones et caméras »)
 - REGISTRE PARTAGÉ MULTI-SOURCES : l'opérateur inscrit ses DRONES et ses CAMÉRAS FIXES de site, chacun
   avec TOUS ses paramètres de liaison : Type (drone/caméra), Nom, Identifiant (hex ICAO/indicatif pour
   un drone ; repère libre pour une caméra), Site, et le FLUX soit par Hôte + Port + Chemin, soit par URL
@@ -1539,14 +1539,44 @@ Nos drones ET CAMÉRAS — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs
   mouvement %, nb de pistes, ou la raison de l'échec). L'état de liaison « en ligne / injoignable » est
   affiché par source, et le journal se déplie d'un clic — le port et la santé de chaque caméra/drone
   sont ainsi intégrés et visibles dans AfriControl.
-- SUIVI AMI : une piste 1090ES (si le drone émet l'ADS-B) dont le hex/indicatif correspond à un drone
-  inscrit devient AMI (affiliation « drone ») : elle n'est PLUS comptée comme intrusion dans les
-  bulles, et au lieu d'une alerte « UAS B6 » le poste pose une info « notre drone en vol ». Retirer le
-  drone du registre lui rend sa pleine évaluation au relevé suivant.
-- IMAGERIE = SOURCE D'ANALYSE, PAS UN FOND : si le drone expose une image fixe (station sol / nacelle),
+- PISTE 1090ES À L'ADRESSE D'UN DE NOS DRONES : une adresse se copie. Une piste dont le hex/indicatif
+  correspond à un drone inscrit COMPTE DONC COMME UNE INTRUSION tant que le chef ne l'a pas confirmée
+  (« Confirmer (2 h) », au journal), et le chef en est averti : alerte élevée « piste 1090ES à
+  confirmer », relayée sur Telegram / Signal. Confirmée, la piste devient AMIE (affiliation « drone »)
+  pour 2 h. Si le drone a une liaison, le poste recoupe : une piste à plus de 2 km de la position que
+  donne sa télémétrie est dite CRITIQUE (« adresse copiée ? ») et reste une intrusion, même confirmée.
+  Retirer le drone du registre rend à la piste sa pleine évaluation au relevé suivant.
+- LIAISON MAVLINK (réglée par le chef) : « tcp://hôte:port » (le poste se connecte : pont de
+  télémétrie, routeur) ou « udp://IPv4:port » (le poste écoute ce port et n'entend que cette station).
+  MAVLink n'est ni chiffré ni signé ici : une adresse hors du réseau du poste est refusée. Le poste lit
+  le battement, la position, la hauteur au-dessus du départ, la batterie, le GPS, le point de départ
+  et les textes du drone ; il demande la télémétrie lui-même et se rebranche seul si la liaison tombe.
+  Le drone apparaît sur la carte : symbole ami, cap, départ, circuit. Sans battement depuis 5 s, la
+  liaison est dite muette et plus aucun ordre ne part.
+- ORDRES DU CHEF (panneau « Nos drones · liaison », à côté de la carte) : six ordres, chacun coupable
+  dans les réglages — retour à la base, stationnaire, atterrir sur place, aller à un point désigné sur
+  la carte, décoller, patrouille (circuit réglé, nombre de tours, puis retour seul). Décoller, aller et
+  patrouille demandent le SCEAU du chef (mot de passe retapé). Le poste vérifie AVANT d'envoyer :
+  liaison vivante ; multirotor ArduPilot ; pour décoller, moteurs coupés, GPS 3D, batterie à 30 % au
+  moins ; pour aller ou patrouiller, drone déjà en l'air, départ connu, chaque point dans le rayon
+  permis (3 km par défaut) et la hauteur dans les bornes (15 à 120 m). Un bouton qui ne mènerait à
+  rien est grisé, avec sa raison. Chaque ordre, envoyé ou refusé, va au journal de la Division avec la
+  réponse du drone, étape par étape ; un ordre sans accusé est redit (4 envois). Il N'EXISTE AUCUN
+  ordre de charge utile (servo, relais, pince, largage, parachute) ni de désarmement : le poste ne
+  sait pas les écrire.
+- IMAGERIE = SOURCE D'ANALYSE : si le drone expose une image fixe (station sol / nacelle),
   la « Veille mouvement (imagerie drone) » récupère une trame (proxy serveur, pour lire les pixels),
   la compare à la précédente, et SONNE si une part du cadre a bougé au-delà du seuil réglable (% du
   cadre). C'est de la détection de MOUVEMENT / PRÉSENCE — jamais une identification de personne.
+- IMAGE EN FOND DE CARTE (carte du poste, colonne de droite, « Images en fond de carte ») : la
+  dernière image d'une source est tendue sous les pistes, à sa place au sol. Deux calages, réservés au
+  chef et notés au journal : QUATRE COINS cliqués sur la carte dans l'ordre de l'image (haut gauche,
+  haut droit, puis les deux du dessous, dans le sens des aiguilles d'une montre) — l'image s'y tend à
+  l'essai avant d'être enregistrée, et des coins croisés, confondus ou à plus de 20 km sont refusés ;
+  ou EMPRISE CALCULÉE pour un drone relié : caméra à la verticale, champ réglable (10 à 150°), hauteur
+  et cap pris de sa télémétrie à l'heure de l'image. Au sol ou sans cap, l'image n'est pas posée, et
+  c'est dit. Une caméra de site n'a pas de télémétrie : quatre coins seulement. L'image se renouvelle
+  avec la veille mouvement, ou d'un clic. Le poste n'y cherche personne : c'est une image de terrain.
 - NATURE DE LA PRÉSENCE (sans identité) : le poste regroupe les pixels qui ont bougé en ZONES connexes
   et lit leur géométrie — nombre de zones, taille, où dans le cadre — pour en tirer un INDICE prudent
   (« silhouette compacte / piéton possible », « masse large / véhicule possible », « indéterminée »).
@@ -1708,13 +1738,14 @@ Nos drones ET CAMÉRAS — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs
   secteur tombée juste avant la présence captée). C'est une pièce transmissible à une autorité ou à la
   hiérarchie. Elle décrit CE QUI A ÉTÉ VU (mouvement, gabarit, heure), pas QUI — l'œil humain qui recevra
   le PDF fait l'identification, comme pour une photo de vidéosurveillance.
-- CE QU'ON NE FAIT PAS : AfriControl SUIT et ANALYSE ; il ne PILOTE pas le drone, ne lui commande rien,
-  n'est pas une arme. Il dit « ça a bougé là, ça va vers la droite, plutôt tel gabarit » — jamais
-  « c'est untel ». PAS de reconnaissance de VISAGE, PAS de lecture de PLAQUE, PAS de ciblage :
+- CE QU'ON NE FAIT PAS : AfriControl suit, analyse, et ne pilote un drone que par les six ordres du
+  chef ci-dessus ; il ne porte ni ne commande aucune charge, n'est pas une arme. Il dit « ça a bougé
+  là, ça va vers la droite, plutôt tel gabarit » — jamais « c'est untel ». PAS de reconnaissance de VISAGE, PAS de lecture de PLAQUE, PAS de ciblage :
   l'identité reste à l'œil humain sur la capture. Le proxy n'accepte qu'une URL déjà inscrite au
   registre (pas un proxy ouvert), et seulement une image ou un flux d'images.
-- LIMITES ASSUMÉES : le marquage ami sur la carte suppose que le drone ÉMET l'ADS-B avec un hex/
-  indicatif qui matche (un drone muet reste au registre et à l'analyse d'image, sans piste air) ; la
+- LIMITES ASSUMÉES : le marquage ami par la piste 1090ES suppose que le drone ÉMET l'ADS-B avec un hex/
+  indicatif qui matche, et que le chef l'a confirmée (un drone sans ADS-B reste au registre, à sa
+  liaison et à l'analyse d'image, sans piste 1090ES) ; la
   veille/suivi suppose une URL d'image ou de flux jointe — sinon le drone est juste suivi/inscrit ;
   l'indice piéton/véhicule est une aide, pas une certitude — l'œil tranche. La détection reste fondée
   sur le MOUVEMENT (fond médiane multi-trames), pas sur un détecteur d'objets entraîné — mais avec les
@@ -1725,6 +1756,12 @@ Nos drones ET CAMÉRAS — suivi ami + imagerie comme SOURCE D'ANALYSE (Capteurs
   signale. Pour le lever complètement, un FLUX vidéo continu (MJPEG en place ; RTSP via passerelle) et,
   le jour venu, un détecteur embarqué sur VOS caméras — AfriControl reste côté réception/analyse, sans
   identité.
+- LIMITES DU PILOTAGE : il n'a été essayé que sur un multirotor ArduPilot (le vrai programme de vol
+  ArduCopter 4.7.2, en simulation). Un drone PX4 ou à aile fixe est suivi par sa télémétrie, pas
+  piloté ; un DJI ou un drone d'armée à station propre ne parle pas MAVLink : il reste au registre, à
+  la piste 1090ES et à l'image. L'emprise calculée suppose une caméra à la verticale et un sol plat à
+  la hauteur du départ ; une nacelle inclinée ou un relief marqué la faussent — les quatre coins posés
+  à la main n'ont pas cette limite.
 
 Comparateur avant/après — Capteurs > onglet « Changement »
 - Pas de direct : un satellite ne repasse que tous les quelques jours. On ne traque pas une voiture

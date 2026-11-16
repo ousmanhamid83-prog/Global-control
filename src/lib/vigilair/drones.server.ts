@@ -1,12 +1,15 @@
 /**
- * Registre de NOS drones — partagé par le poste (data/drones.json). AfriControl SUIT et ANALYSE ;
- * il ne pilote rien, ne commande rien, n'arme rien. Un drone inscrit ici est reconnu AMI : sa piste
- * 1090ES (si le drone émet) n'est plus comptée comme intrusion, et son imagerie (image fixe de la
- * station sol / nacelle) devient une SOURCE D'ANALYSE de mouvement — pas un fond de carte, pas de
- * l'identification de personnes.
+ * Registre de NOS drones — partagé par le poste (data/drones.json). AfriControl les SUIT, ANALYSE
+ * leur imagerie et, par leur liaison, les PILOTE pour le chef de division : six ordres de vol,
+ * tous permis par défaut, que le chef peut couper un à un ; rien n'est armé hors les moteurs au
+ * décollage, et aucun ordre de charge utile n'existe (voir drones-pilotage). Un drone inscrit ici
+ * est reconnu comme NÔTRE, suivi par sa télémétrie sans émission d'AfriControl sur les ondes. Son
+ * imagerie (image fixe de la station sol / nacelle) est une SOURCE D'ANALYSE de mouvement — jamais
+ * de l'identification de personnes.
  *
  * `ident` = hex ICAO 24 bits (ex. 3C6DD2) OU indicatif, en MAJUSCULES, pour apparier la piste live.
  * `snapshotUrl` = URL d'une image fixe rafraîchie à chaque GET (caméra IP / station sol). Réception seule.
+ * `liaison` = adresse MAVLink du drone (tcp:// ou udp://, réseau du poste) ; `patrouille` = son circuit.
  */
 
 import net from "node:net";
@@ -15,8 +18,9 @@ import { randomUUID } from "node:crypto";
 import { ecrireFichierPoste, lireFichierPoste, listeJson } from "../disque-poste.server.ts";
 import path from "node:path";
 import { effectiveUrl, extractFirstJpeg, normIdent, type OwnDrone, type Patrouille, type SourceKind } from "./drones-core";
+import { lireCalage, type Calage } from "./drones-fond.ts";
 import { synchroniserLiaisons } from "./drones-liaison.server.ts";
-import { lireLiaison, reglagesValides, type ReglagesPilotage } from "./drones-pilotage.ts";
+import { CONFIRMATION_1090_MS, lireLiaison, reglagesValides, type ReglagesPilotage } from "./drones-pilotage.ts";
 import {
   CAMERA_HTTP_PORTS,
   CAMERA_HTTPS_PORTS,
@@ -186,6 +190,47 @@ export async function setDronePatrouilleServer(
   const list = await load();
   if (!list.some((d) => d.id === id && d.kind !== "camera")) return { ok: false, error: "drone inconnu" };
   const next = list.map((d) => (d.id === id ? { ...d, patrouille } : d));
+  await persist(next);
+  return { ok: true, drones: next };
+}
+
+/**
+ * Le chef confirme (pour le temps d'un vol) ou retire la confirmation que la piste 1090ES à
+ * l'adresse de ce drone est bien la sienne. Sans elle, cette piste compte comme une intrusion.
+ */
+export async function setDroneConfirme1090Server(
+  id: string,
+  confirmer: boolean,
+): Promise<{ ok: boolean; error?: string; drones?: OwnDrone[] }> {
+  const list = await load();
+  if (!list.some((d) => d.id === id && d.kind !== "camera")) return { ok: false, error: "drone inconnu" };
+  const ami1090Jusqua = confirmer ? Date.now() + CONFIRMATION_1090_MS : undefined;
+  const next = list.map((d) => (d.id === id ? { ...d, ami1090Jusqua } : d));
+  await persist(next);
+  return { ok: true, drones: next };
+}
+
+/**
+ * Le chef pose (ou retire, null) l'image d'une source en fond de carte. Une caméra de site n'a pas
+ * de télémétrie : seuls ses quatre coins posés à la main la calent.
+ */
+export async function setDroneFondServer(
+  id: string,
+  brut: unknown,
+): Promise<{ ok: boolean; error?: string; drones?: OwnDrone[] }> {
+  const list = await load();
+  const source = list.find((d) => d.id === id);
+  if (!source) return { ok: false, error: "source inconnue" };
+  let fond: Calage | undefined;
+  if (brut !== null) {
+    const lu = lireCalage(brut);
+    if ("erreur" in lu) return { ok: false, error: lu.erreur };
+    if (lu.mode === "drone" && source.kind === "camera") {
+      return { ok: false, error: "une caméra de site n'a pas de télémétrie : poser ses quatre coins" };
+    }
+    fond = lu;
+  }
+  const next = list.map((d) => (d.id === id ? { ...d, fond } : d));
   await persist(next);
   return { ok: true, drones: next };
 }

@@ -337,7 +337,7 @@ export const LAKE_CHAD: { lat: number; lon: number }[] = [
   { lat: 12.65, lon: 14.45 },
 ];
 
-const KM_PER_DEG_LAT = 110.574;
+export const KM_PER_DEG_LAT = 110.574;
 
 export function kmPerDegLon(lat: number): number {
   return 111.32 * Math.cos((lat * Math.PI) / 180);

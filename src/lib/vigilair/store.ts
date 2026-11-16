@@ -74,6 +74,8 @@ import { mineZoneRows } from "./mines";
 import type { NavRoute } from "./nav";
 import { nearestWatchSite, watchZoneRows } from "./watch-sites";
 import { dronesPeek, matchOwnDrone } from "./drones";
+import { constat1090 } from "./drones-pilotage";
+import { telemetriePour } from "./drones-suivi";
 
 /** Dernier relevé de la veille drone : mouvement %, zones, indice de présence, et capture figée. */
 export type DroneMotion = {
@@ -170,7 +172,7 @@ export type RejeuState = {
 export const REJEU_INJECT_ID = "rejeu-reel";
 export type ClockMode = "live" | "replay";
 /** « drone » : le chef désigne sur la carte le point où envoyer un de nos drones. */
-export type CopTool = "lock" | "mesure" | "zone" | "drone";
+export type CopTool = "lock" | "mesure" | "zone" | "drone" | "coins";
 
 type VigilairState = {
   tracks: Track[];
@@ -1879,21 +1881,23 @@ export function ingestLivePicture(pic: LivePicture) {
   for (const t of liveTracks) {
     if (t.feed === "adsb") t.cpa = sampleCpa(t);
   }
-  // NOS drones : une piste live appariée au registre devient AMI (friendKind "drone") — elle n'est
-  // plus comptée comme intrusion (isFriend l'exclut). AfriControl la SUIT, il ne la pilote pas.
+  // NOS drones : une piste 1090ES à l'adresse d'un drone inscrit n'est AMIE (friendKind "drone",
+  // que isFriend exclut des intrusions) qu'une fois confirmée par le chef — une adresse se copie.
+  // D'ici là elle garde sa pleine évaluation, et le poste la recoupe avec la télémétrie du drone.
   const drones = dronesPeek();
-  if (drones.length > 0) {
-    for (const t of liveTracks) {
-      if (t.feed !== "adsb") continue;
-      const hit = matchOwnDrone(drones, t.id.slice(5), t.callsign);
-      if (hit) {
-        t.friendKind = "drone";
-        t.ownDrone = hit.name;
-      } else if (t.friendKind === "drone") {
-        // Drone retiré du registre entre deux relevés : on rend sa pleine évaluation.
-        t.friendKind = undefined;
-        t.ownDrone = undefined;
-      }
+  const constats = new Map<string, ReturnType<typeof constat1090>>();
+  for (const t of liveTracks) {
+    if (t.feed !== "adsb") continue;
+    const hit = matchOwnDrone(drones, t.id.slice(5), t.callsign);
+    if (hit) {
+      const c = constat1090(hit, t, hit.liaison ? telemetriePour(hit.id, now) : null, now);
+      constats.set(t.id, c);
+      t.friendKind = c.ami ? "drone" : undefined;
+      t.ownDrone = hit.name;
+    } else if (t.ownDrone) {
+      // Drone retiré du registre entre deux relevés : on rend sa pleine évaluation.
+      t.friendKind = undefined;
+      t.ownDrone = undefined;
     }
   }
   const alerts: AlertItem[] = [];
@@ -1910,16 +1914,8 @@ export function ingestLivePicture(pic: LivePicture) {
   }
   for (const tr of born) {
     const d = haversineKm(tr.lat, tr.lon, AO.centerLat, AO.centerLon);
-    if (tr.friendKind === "drone") {
-      alerts.push({
-        id: `al-owndrone-${tr.id}`,
-        trackId: tr.id,
-        at: now,
-        level: "faible",
-        title: `${tr.ownDrone ?? tr.callsign} · notre drone en vol`,
-        body: `Drone du poste (${tr.callsign ?? tr.id.slice(5)}) · ${Math.round(d)} km de FTTJ · suivi ami, pas une intrusion. AfriControl n'émet pas.`,
-        acked: false,
-      });
+    if (constats.has(tr.id)) {
+      // Piste à l'adresse d'un de nos drones : son alerte est dite plus bas, à chaque constat.
     } else if (tr.category?.toUpperCase() === "B6") {
       alerts.push({
         id: `al-uav-${tr.id}`,
@@ -1941,6 +1937,22 @@ export function ingestLivePicture(pic: LivePicture) {
         acked: false,
       });
     }
+  }
+  // Piste 1090ES à l'adresse d'un de nos drones : dite quand le constat apparaît, et redite s'il
+  // change de niveau (confirmée par le chef ; adresse copiée découverte quand la télémétrie arrive).
+  // Élevée ou critique, elle est relayée au chef (Telegram / Signal) par le relais d'alertes.
+  for (const [id, constat] of constats) {
+    const alerte = `al-owndrone-${id}-${constat.niveau}`;
+    if (useVigilair.getState().alerts.some((a) => a.id === alerte)) continue;
+    alerts.push({
+      id: alerte,
+      trackId: id,
+      at: now,
+      level: constat.niveau,
+      title: constat.titre,
+      body: constat.corps,
+      acked: false,
+    });
   }
   applyZoneAlerts(liveTracks, now, alerts);
   for (const tr of liveTracks) {

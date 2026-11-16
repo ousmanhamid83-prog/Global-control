@@ -44,8 +44,8 @@ import { MINES } from "@/lib/vigilair/mines";
 import { HYDRO, hydroKm, waterAt } from "@/lib/vigilair/hydro";
 import { isFriend } from "@/lib/vigilair/friends";
 import { dronesPeek } from "@/lib/vigilair/drones";
-import { dessinerNosDrones } from "@/lib/vigilair/drones-dessin";
-import { designerPoint, suiviSnapshot } from "@/lib/vigilair/drones-suivi";
+import { dessinerFonds, dessinerNosDrones } from "@/lib/vigilair/drones-dessin";
+import { designerPoint, poserCoin, suiviSnapshot } from "@/lib/vigilair/drones-suivi";
 import { affiliationColorVar, affiliationOf, drawApp6Air } from "@/lib/vigilair/app6";
 import { m4Short } from "@/lib/vigilair/iff";
 import type { Origin, Track } from "@/lib/vigilair/types";
@@ -474,6 +474,17 @@ function draw(
               : "rgba(6,10,18,0.05)";
     ctx.fillRect(0, 0, w, h);
   }
+
+  // L'image de NOS sources calées : posée sur le fond de carte, sous tout le reste.
+  const suivi = suiviSnapshot();
+  dessinerFonds(ctx, pj, dronesPeek(), {
+    w,
+    h,
+    finesse: dpr,
+    trait: fg,
+    texte: fg,
+    essai: suivi.calage,
+  });
 
   const city = pj(AO.city.lat, AO.city.lon);
   const rCity = (AO.city.rKm / sizeKm) * w;
@@ -1241,7 +1252,6 @@ function draw(
   }
 
   // NOS drones, par leur liaison : au-dessus des pistes, pour que le chef les voie d'abord.
-  const suivi = suiviSnapshot();
   if (suivi.etats.length > 0) {
     dessinerNosDrones(ctx, pj, suivi, dronesPeek(), {
       ami: ok,
@@ -1612,6 +1622,10 @@ export function RadarMap({
         }
         if (copToolRef.current === "drone") {
           designerPoint(geo);
+          return;
+        }
+        if (copToolRef.current === "coins") {
+          poserCoin(geo);
           return;
         }
         if (stNow.marine) {

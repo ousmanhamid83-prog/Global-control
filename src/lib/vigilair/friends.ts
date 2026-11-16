@@ -111,7 +111,7 @@ export function friendBlurb(kind: FriendKind): string {
     return "Trafic civil 1090ES hors zone ASECNA — coopératif, affiliation neutre. Pas une piste C-UAS.";
   }
   if (kind === "drone") {
-    return "Un de NOS drones (registre du poste). Suivi comme ami : pas une intrusion. AfriControl le suit et analyse son imagerie, il ne le pilote pas.";
+    return "Un de NOS drones (registre du poste), sa piste 1090ES confirmée par le chef : suivi comme ami, pas une intrusion.";
   }
   return kind === "fatl"
     ? "Force aérienne tchadienne — IFF Mode 4 (crypto clé du jour). Affiliation amie, pas une piste C-UAS."

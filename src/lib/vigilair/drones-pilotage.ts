@@ -8,7 +8,7 @@
  * hauteur dans les bornes). Aucun ordre de charge utile n'existe, et les moteurs ne sont armés que
  * par « décoller ».
  */
-import type { Patrouille } from "./drones-core.ts";
+import type { OwnDrone, Patrouille } from "./drones-core.ts";
 import { haversineKm } from "./geo.ts";
 import { ORDRE, type Cible, type MessageMav, type PointMission } from "./mavlink.ts";
 import { hoteSurPlace, RESEAU_POSTE_EXEMPLES } from "./reseau-poste.ts";
@@ -226,15 +226,19 @@ export function appliquer(e: EtatDrone, m: MessageMav, maintenant: number): void
   if (!e.cible || m.sys !== e.cible.sys || m.comp !== e.cible.comp) return;
   switch (m.nom) {
     case "GLOBAL_POSITION_INT":
-      e.position = {
-        lat: m.lat,
-        lon: m.lon,
-        altM: m.altM,
-        hauteurM: m.hauteurM,
-        vitesseMs: m.vitesseMs,
-        cap: m.cap,
-        a: maintenant,
-      };
+      // Tant qu'il n'a pas estimé sa position, l'autopilote envoie 0, 0 : ce n'en est pas une.
+      e.position =
+        m.lat === 0 && m.lon === 0
+          ? null
+          : {
+              lat: m.lat,
+              lon: m.lon,
+              altM: m.altM,
+              hauteurM: m.hauteurM,
+              vitesseMs: m.vitesseMs,
+              cap: m.cap,
+              a: maintenant,
+            };
       break;
     case "HOME_POSITION":
       e.depart = { lat: m.lat, lon: m.lon, altM: m.altM };
@@ -493,4 +497,52 @@ export function resultatEnClair(code: number): string {
       "annulé",
     ][code] ?? `résultat ${code}`
   );
+}
+
+/** Une confirmation du chef vaut le temps d'un vol. */
+export const CONFIRMATION_1090_MS = 2 * 3600_000;
+/** Au-delà de cet écart entre la piste 1090ES et la télémétrie du drone, ce n'est pas lui. */
+const ECART_MAX_KM = 2;
+
+/**
+ * Une piste 1090ES porte l'adresse d'un de NOS drones. Une adresse se copie : la piste compte
+ * comme une INTRUSION tant que le chef ne l'a pas confirmée, et il en est averti. Le poste la
+ * recoupe avec la télémétrie du drone quand il l'a : si elle le situe ailleurs, la piste n'est pas
+ * lui — même confirmée.
+ */
+export function constat1090(
+  drone: OwnDrone,
+  piste: { lat: number; lon: number },
+  telemetrie: { lat: number; lon: number } | null,
+  maintenant: number,
+): { ami: boolean; niveau: "faible" | "elevee" | "critique"; titre: string; corps: string } {
+  const ecartKm = telemetrie
+    ? haversineKm(piste.lat, piste.lon, telemetrie.lat, telemetrie.lon)
+    : null;
+  if (ecartKm !== null && ecartKm > ECART_MAX_KM) {
+    return {
+      ami: false,
+      niveau: "critique",
+      titre: `${drone.name} · piste 1090ES à ${ecartKm.toFixed(1)} km de notre drone`,
+      corps: `Une piste porte l'adresse de notre drone, mais sa télémétrie le situe à ${ecartKm.toFixed(1)} km de là : adresse copiée ? Traitée comme une intrusion.`,
+    };
+  }
+  const recoupe =
+    ecartKm === null
+      ? "Pas de télémétrie du drone pour la recouper."
+      : `Sa télémétrie concorde (écart ${Math.round(ecartKm * 1000)} m).`;
+  if ((drone.ami1090Jusqua ?? 0) > maintenant) {
+    return {
+      ami: true,
+      niveau: "faible",
+      titre: `${drone.name} · notre drone en vol`,
+      corps: `Piste 1090ES confirmée par le chef jusqu'à ${new Date(drone.ami1090Jusqua!).toISOString().slice(11, 16)} Z : suivie comme amie. ${recoupe}`,
+    };
+  }
+  return {
+    ami: false,
+    niveau: "elevee",
+    titre: `${drone.name} · piste 1090ES à confirmer`,
+    corps: `Une piste porte l'adresse de notre drone. Une adresse se copie : elle compte comme une intrusion tant que le chef ne l'a pas confirmée (Capteurs > Nos drones). ${recoupe}`,
+  };
 }

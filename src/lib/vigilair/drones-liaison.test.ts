@@ -72,6 +72,12 @@ type Faux = {
   connexions: () => number;
 };
 
+/**
+ * Tout ce qu'un essai ouvre est refermé à la fin du fichier, qu'il ait réussi ou non : un faux
+ * drone resté ouvert après un échec garderait le processus en vie, et l'échec ne serait jamais dit.
+ */
+const aFermer = new Set<() => Promise<void> | void>();
+
 async function fauxDrone(): Promise<Faux> {
   let prise: net.Socket | null = null;
   let seq = 0;
@@ -90,6 +96,13 @@ async function fauxDrone(): Promise<Faux> {
     });
   });
   await new Promise<void>((ok) => serveur.listen(0, "127.0.0.1", ok));
+  const fermer = () =>
+    new Promise<void>((ok) => {
+      aFermer.delete(fermer);
+      prise?.destroy();
+      serveur.close(() => ok());
+    });
+  aFermer.add(fermer);
   return {
     port: (serveur.address() as AddressInfo).port,
     recues,
@@ -100,11 +113,7 @@ async function fauxDrone(): Promise<Faux> {
       surTrame = f;
     },
     couper: () => prise?.destroy(),
-    fermer: () =>
-      new Promise((ok) => {
-        prise?.destroy();
-        serveur.close(() => ok());
-      }),
+    fermer,
     connexions: () => nb,
   };
 }
@@ -141,7 +150,10 @@ const CIRCUIT = {
 const ordre = (id: string, nom: Parameters<typeof commander>[1], p = {}) =>
   commander(id, nom, p, CIRCUIT, REGLAGES_DEFAUT);
 
-after(() => synchroniserLiaisons([]));
+after(async () => {
+  synchroniserLiaisons([]);
+  for (const f of [...aFermer]) await f();
+});
 
 describe("liaison d'un drone : le poste se branche, suit, et demande la télémétrie", () => {
   it("au premier battement de l'autopilote : cible retenue, télémétrie demandée à lui seul, par le système 254", async () => {
@@ -231,6 +243,10 @@ describe("liaison d'un drone : le poste se branche, suit, et demande la télém�
     synchroniserLiaisons([{ id: "u", liaison: `udp://127.0.0.1:${port}` }]);
     const station = dgram.createSocket("udp4");
     const intrus = dgram.createSocket("udp4");
+    aFermer.add(() => {
+      station.close();
+      intrus.close();
+    });
     const recues: Recue[] = [];
     const chezIntrus: Recue[] = [];
     station.on("message", (m) => recues.push(...trames(m)));
@@ -261,8 +277,6 @@ describe("liaison d'un drone : le poste se branche, suit, et demande la télém�
     );
     assert.equal(chezIntrus.length, 0);
     synchroniserLiaisons([]);
-    station.close();
-    intrus.close();
   });
 });
 

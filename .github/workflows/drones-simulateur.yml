@@ -48,15 +48,17 @@ jobs:
           curl -sSfL -o copter.parm https://raw.githubusercontent.com/ArduPilot/ardupilot/master/Tools/autotest/default_params/copter.parm
           chmod +x arducopter
 
-      - name: Le drone simulé démarre à FTTJ (un quadrirotor, vitesse réelle)
+      # Le simulateur et le vol dans la même étape : lancé dans une étape à part, le simulateur
+      # n'écoutait plus à la suivante (connexion refusée). S'il tombe, son journal est montré.
+      - name: Vol d'essai — le code du poste pilote le vrai programme de vol (quadrirotor à FTTJ, vitesse réelle)
         run: |
-          cd sitl
-          nohup ./arducopter --model + --speedup 1 --defaults copter.parm --home 12.1331,15.0339,295,0 -w > sitl.log 2>&1 &
+          (cd sitl && exec ./arducopter --model + --speedup 1 --defaults copter.parm --home 12.1331,15.0339,295,0 -w < /dev/null > sitl.log 2>&1) &
           sleep 3
-          tail -3 sitl.log
-
-      - name: Vol d'essai — le code du poste pilote le vrai programme de vol
-        run: node --experimental-strip-types --no-warnings scripts/drones/vol-simulateur.mjs tcp://127.0.0.1:5760
+          node --experimental-strip-types --no-warnings scripts/drones/vol-simulateur.mjs tcp://127.0.0.1:5760 || {
+            echo "--- journal du simulateur"
+            tail -40 sitl/sitl.log
+            exit 1
+          }
 
       - name: Tests du pilotage (codeur contre pymavlink, règles du poste, liaison)
         run: node --experimental-strip-types --no-warnings --test src/lib/vigilair/mavlink.test.ts src/lib/vigilair/drones-pilotage.test.ts src/lib/vigilair/drones-liaison.test.ts

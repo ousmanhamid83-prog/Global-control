@@ -68,6 +68,16 @@ const ECRITS = {
     "fd2500000bfebe4900000000000000000000000000000000000000000000000000000000000004001400010102000136ac",
   reprendre:
     "fd2500000cfebe4900000000803f0000004000000000000000000000000000000000000000000300b10001010200013461",
+  // Les mêmes vers un drone 7/42 : système et composant ne se confondent plus.
+  rtlAutreCible:
+    "fd20000001febe4c0000000000000000000000000000000000000000000000000000000000001400072a135c",
+  allerAutreCible:
+    "fd21000008febe4b0000000080bf0000803f000000000000c07fc06a3c0700ecf60800002042c000072a06e57d",
+  nombreAutreCible: "fd04000009febe2c00000500072ac1a3",
+  passageAutreCible:
+    "fd2500000afebe49000000000000000000000000000000000000c06a3c0700ecf6080000204201001000072a0600010562",
+  // MISSION_CURRENT 0 : une charge toute à zéro garde un octet.
+  courantZero: "fd01000009febe2a000000cd15",
 };
 
 const octets = (hex: string) => Uint8Array.from(Buffer.from(hex, "hex"));
@@ -211,6 +221,19 @@ describe("MAVLink : lire ce que le drone envoie (trames de pymavlink)", () => {
     assert.equal(l.refusees, 0);
   });
 
+  it("la signature n'est jamais lue comme une trame, même quand elle en a la forme", () => {
+    // Treize octets de signature qui forment, à eux seuls, un battement au CRC juste.
+    const fausse = trame(0, 1, 1, 0, Uint8Array.of(5));
+    assert.equal(fausse.length, 13);
+    const signee = octets(LUS.battementSigne);
+    signee.set(fausse, signee.length - 13);
+    const l = new LecteurMavlink();
+    assert.deepEqual(
+      l.lire(Uint8Array.from([...signee, ...octets(LUS.accuse)])).map((x) => x.nom),
+      ["HEARTBEAT", "COMMAND_ACK"],
+    );
+  });
+
   it("flux coupé n'importe où, bruit entre les trames, message non lu sauté d'un bloc", () => {
     const flux = octets(
       `0055${LUS.battement}${LUS.attitudeInconnue}aa${LUS.position}7f7f${LUS.accuse}`,
@@ -304,6 +327,21 @@ describe("MAVLink : écrire, octet pour octet comme pymavlink", () => {
       ecrire(12, missionPoint(DRONE, 3, { quoi: "reprendre", aSeq: 1, fois: 2 })),
       ECRITS.reprendre,
     );
+  });
+
+  it("la cible est écrite à sa place, système puis composant (drone 7/42)", () => {
+    const AUTRE = { sys: 7, comp: 42 };
+    assert.equal(ecrire(1, ordreLong(AUTRE, ORDRE.RTL, [])), ECRITS.rtlAutreCible);
+    assert.equal(ecrire(8, ordreAller(AUTRE, 12.14, 15.04, 40)), ECRITS.allerAutreCible);
+    assert.equal(ecrire(9, missionNombre(AUTRE, 5)), ECRITS.nombreAutreCible);
+    assert.equal(
+      ecrire(10, missionPoint(AUTRE, 1, { quoi: "passage", lat: 12.14, lon: 15.04, hauteurM: 40 })),
+      ECRITS.passageAutreCible,
+    );
+  });
+
+  it("charge toute à zéro : un octet gardé, comme pymavlink", () => {
+    assert.equal(hex(trame(9, 254, 190, 42, new Uint8Array(2))), ECRITS.courantZero);
   });
 
   it("ce que le poste écrit, il le relit : numéro de suite au-delà de 255 ramené sur un octet", () => {

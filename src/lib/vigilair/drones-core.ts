@@ -3,6 +3,8 @@
  * server fn) pour rester testable sous `node --test`. Le client et le serveur s'appuient dessus.
  */
 
+import type { Calage } from "./drones-fond.ts";
+
 /** Une SOURCE du poste : un de nos drones, ou une de nos caméras fixes de site. Mêmes paramètres. */
 export type SourceKind = "drone" | "camera";
 
@@ -38,6 +40,11 @@ export type OwnDrone = {
    *  sur le réseau du poste. Sans elle, le drone est inscrit mais ni suivi ni piloté par sa liaison. */
   liaison?: string;
   patrouille?: Patrouille;
+  /** Le chef a confirmé que la piste 1090ES à l'adresse de ce drone est bien la sienne, jusqu'à
+   *  cette heure (ms). Sans confirmation en cours, cette piste compte comme une intrusion. */
+  ami1090Jusqua?: number;
+  /** Son image posée en fond de carte : quatre coins au sol, ou emprise calculée de sa télémétrie. */
+  fond?: Calage;
   at: number;
 };
 

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   appliquer,
+  CONFIRMATION_1090_MS,
+  constat1090,
   etapes,
   etatVide,
   liaisonVivante,
@@ -17,7 +19,7 @@ import {
   type EtatDrone,
   type OrdreDrone,
 } from "./drones-pilotage.ts";
-import type { Patrouille } from "./drones-core.ts";
+import type { OwnDrone, Patrouille } from "./drones-core.ts";
 import type { MessageMav } from "./mavlink.ts";
 
 const T = 1_800_000_000_000;
@@ -85,6 +87,8 @@ describe("pilotage : l'état d'un drone, lu de sa liaison", () => {
   it("battement d'autopilote : cible, famille, mode, moteurs ; une station sol ou une nacelle ne comptent pas", () => {
     const e = etatVide("d1");
     appliquer(e, battement({ sys: 255, comp: 190, type: 6, autopilote: 8 }), T);
+    // Une station sol qui s'annonce « autopilote générique » reste une station sol.
+    appliquer(e, battement({ sys: 255, comp: 190, type: 6, autopilote: 0 }), T);
     appliquer(e, battement({ comp: 154, type: 26, autopilote: 8 }), T);
     assert.equal(e.cible, null);
     assert.equal(e.battementA, null);
@@ -111,6 +115,18 @@ describe("pilotage : l'état d'un drone, lu de sa liaison", () => {
     const e = etatVide("d1");
     appliquer(e, position(40), T);
     assert.equal(e.position, null);
+  });
+
+  it("sans position estimée l'autopilote envoie 0, 0 : le poste n'y voit pas une position", () => {
+    const lue = (lat: number, lon: number) => {
+      const e = enVol();
+      appliquer(e, position(40, lat, lon), T + 1000);
+      return e.position && [e.position.lat, e.position.lon];
+    };
+    assert.equal(lue(0, 0), null);
+    // Une seule coordonnée nulle est une vraie position (équateur, méridien d'origine).
+    assert.deepEqual(lue(0, 15.0339), [0, 15.0339]);
+    assert.deepEqual(lue(12.1331, 0), [12.1331, 0]);
   });
 
   it("position, départ, batterie, GPS, point de mission ; six textes gardés, le plus récent d'abord", () => {
@@ -527,5 +543,61 @@ describe("pilotage : l'adresse de liaison d'un drone", () => {
     assert.ok("erreur" in r && /adresse IPv4 de la station sol/.test(r.erreur));
     const v6 = lireLiaison("udp://[::1]:14550");
     assert.ok("erreur" in v6 && /adresse IPv4/.test(v6.erreur));
+  });
+});
+
+describe("piste 1090ES à l'adresse d'un de nos drones", () => {
+  const drone = (ami1090Jusqua?: number): OwnDrone => ({
+    id: "d1",
+    name: "Aile-01",
+    ident: "3C6DD2",
+    site: "FTTJ",
+    ami1090Jusqua,
+    at: 0,
+  });
+  const ICI = { lat: 12.1331, lon: 15.0339 };
+
+  it("PAS CONFIRMÉE : une intrusion, niveau élevé (relayé au chef) ; sans télémétrie, c'est dit", () => {
+    const c = constat1090(drone(), ICI, null, T);
+    assert.deepEqual(
+      [c.ami, c.niveau, c.titre],
+      [false, "elevee", "Aile-01 · piste 1090ES à confirmer"],
+    );
+    assert.match(
+      c.corps,
+      /intrusion tant que le chef ne l'a pas confirmée.*Pas de télémétrie du drone/,
+    );
+    assert.equal(
+      constat1090(drone(T), ICI, null, T).ami,
+      false,
+      "confirmation échue à l'instant même",
+    );
+  });
+
+  it("pas confirmée mais la télémétrie concorde : toujours une intrusion, l'écart est donné au chef", () => {
+    const c = constat1090(drone(), ICI, { lat: 12.1331 + 0.001, lon: 15.0339 }, T);
+    assert.deepEqual([c.ami, c.niveau], [false, "elevee"]);
+    assert.match(c.corps, /Sa télémétrie concorde \(écart 111 m\)/);
+  });
+
+  it("CONFIRMÉE par le chef : amie, niveau faible, jusqu'à l'heure dite — pas au-delà", () => {
+    const jusqua = Date.UTC(2026, 10, 15, 14, 30);
+    const c = constat1090(drone(jusqua), ICI, null, jusqua - 1);
+    assert.deepEqual([c.ami, c.niveau, c.titre], [true, "faible", "Aile-01 · notre drone en vol"]);
+    assert.match(c.corps, /confirmée par le chef jusqu'à 14:30 Z/);
+    assert.equal(constat1090(drone(jusqua), ICI, null, jusqua + 1).ami, false);
+    assert.equal(CONFIRMATION_1090_MS, 7_200_000);
+  });
+
+  it("ADRESSE COPIÉE : la télémétrie situe notre drone à plus de 2 km — critique, même confirmée", () => {
+    // 0,0181° de latitude ≈ 2,01 km ; 0,0179° ≈ 1,99 km.
+    const loin = constat1090(drone(T + 3600_000), ICI, { lat: 12.1331 + 0.0181, lon: 15.0339 }, T);
+    assert.deepEqual(
+      [loin.ami, loin.niveau, loin.titre],
+      [false, "critique", "Aile-01 · piste 1090ES à 2.0 km de notre drone"],
+    );
+    assert.match(loin.corps, /adresse copiée \?/);
+    const pres = constat1090(drone(T + 3600_000), ICI, { lat: 12.1331 + 0.0179, lon: 15.0339 }, T);
+    assert.deepEqual([pres.ami, pres.niveau], [true, "faible"]);
   });
 });

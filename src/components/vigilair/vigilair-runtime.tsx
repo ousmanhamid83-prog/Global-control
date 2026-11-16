@@ -26,6 +26,8 @@ import { confirmedTracks, detectOcclusions, isStationary, stepTracker, type Trac
 import { inArmWindow, pointInPolygon } from "@/lib/vigilair/zones2d";
 import { fetchChangePair } from "@/lib/vigilair/live-feeds";
 import { fetchDroneFrame } from "@/lib/vigilair/drones-api";
+import { chargerImage } from "@/lib/vigilair/drones-dessin";
+import { imagePourFond } from "@/lib/vigilair/drones-suivi";
 import { dronesSnapshot, dronesServerSnapshot, effectiveUrl, hydrateDrones, scanRangeClient, sourceArmRule, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
 import { hydrateSiteNets, recordSiteScan, siteNetsSnapshot, siteNetsServerSnapshot, subscribeSiteNets } from "@/lib/vigilair/sitenets";
 import { MINES } from "@/lib/vigilair/mines";
@@ -228,8 +230,10 @@ function DroneWatch() {
           pushDroneLog(drone.id, { at: Date.now(), ok: false, msg: res.error ?? "trame indisponible" });
           return;
         }
-        const img = await loadImage(res.dataUrl);
+        const img = await chargerImage(res.dataUrl);
         if (dead) return;
+        // La même image sert de fond de carte, si le chef a calé cette source.
+        void imagePourFond(drone, img);
         const off = document.createElement("canvas");
         off.width = PX;
         off.height = PX;
@@ -606,20 +610,11 @@ function SensorWatch() {
   return null;
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("image illisible"));
-    img.src = src;
-  });
-}
-
 /** Scanne un site : % du cadre qui a changé entre deux passages Sentinel-2. null si clé absente / échec. */
 async function scanSiteChange(lat: number, lon: number, radiusKm: number): Promise<number | null> {
   const pair = await fetchChangePair({ data: { lat, lon, radiusKm } });
   if (!pair.ok) return null;
-  const [before, after] = await Promise.all([loadImage(pair.before.dataUrl), loadImage(pair.after.dataUrl)]);
+  const [before, after] = await Promise.all([chargerImage(pair.before.dataUrl), chargerImage(pair.after.dataUrl)]);
   const px = pair.px;
   const off = document.createElement("canvas");
   off.width = px;

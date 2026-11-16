@@ -137,7 +137,7 @@ function SiteManager() {
         ...corps,
         m.note ? `Note : ${m.note}` : "",
         "Détection de mouvement/présence, sans identité. L'identité reste à l'œil de l'opérateur.",
-        "AfriControl : réception + analyse. Ne pilote pas, n'arme rien.",
+        "Constat fait par réception et analyse de l'image, sans action sur la source.",
         ...perim,
       ].filter(Boolean);
       const pdf = buildCapturePdf(bytes, img.naturalWidth, img.naturalHeight, lines);
@@ -569,8 +569,8 @@ function SiteManager() {
           <strong> journal de connexion</strong>. Un drone est reconnu <strong>ami</strong> (sa piste 1090ES
           n'est plus une intrusion). L'image (flux) devient une source d'analyse : la veille signale un
           <strong> mouvement/présence</strong> et <strong>suit plusieurs pistes</strong> (cap + vitesse,
-          id par piste) — jamais une identification de personne. AfriControl <strong>suit et analyse</strong>,
-          il ne pilote pas, n'arme rien. Flux accepté : image fixe (snapshot JPEG) ou <strong>MJPEG</strong> ;
+          id par piste) — jamais une identification de personne. AfriControl <strong>suit et analyse</strong> ;
+          le pilotage d'un drone par sa liaison est réglé plus bas, par le chef. Flux accepté : image fixe (snapshot JPEG) ou <strong>MJPEG</strong> ;
           le RTSP demande une passerelle.
         </p>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">

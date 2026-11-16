@@ -14,6 +14,7 @@ import {
 } from "@/lib/vigilair/drones";
 import { ORDRES_DRONE, type ReglagesPilotage } from "@/lib/vigilair/drones-pilotage";
 import {
+  confirmerPiste1090,
   reglerLiaison,
   reglerPatrouille,
   reglerPilotage,
@@ -39,7 +40,15 @@ function lirePoints(texte: string): { lat: number; lon: number }[] | null {
   return points;
 }
 
-function FicheDrone({ drone, chef }: { drone: OwnDrone; chef: boolean }) {
+function FicheDrone({
+  drone,
+  chef,
+  maintenant,
+}: {
+  drone: OwnDrone;
+  chef: boolean;
+  maintenant: number;
+}) {
   const [liaison, setLiaison] = useState(drone.liaison ?? "");
   const [points, setPoints] = useState(
     (drone.patrouille?.points ?? []).map((p) => `${p.lat}, ${p.lon}`).join("\n"),
@@ -48,6 +57,8 @@ function FicheDrone({ drone, chef }: { drone: OwnDrone; chef: boolean }) {
   const [tours, setTours] = useState(String(drone.patrouille?.tours ?? 1));
   const [dit, setDit] = useState<{ ok: boolean; texte: string } | null>(null);
   const [occupe, setOccupe] = useState(false);
+  // L'heure du poste, comme pour les battements ; avant le premier relevé, celle de la console.
+  const confirmee = (drone.ami1090Jusqua ?? 0) > (maintenant || Date.now());
 
   const faire = async (quoi: string, appel: () => Promise<string | null>) => {
     setOccupe(true);
@@ -145,6 +156,34 @@ function FicheDrone({ drone, chef }: { drone: OwnDrone; chef: boolean }) {
             Régler le circuit
           </Button>
         </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+        <span data-drone-1090>
+          Piste 1090ES à son adresse ({drone.ident}) :{" "}
+          {confirmee ? (
+            <span className="text-ok">
+              confirmée par le chef jusqu'à{" "}
+              {new Date(drone.ami1090Jusqua!).toISOString().slice(11, 16)} Z — amie
+            </span>
+          ) : (
+            <span className="text-warn">
+              non confirmée — elle compte comme une intrusion, et le chef est averti
+            </span>
+          )}
+        </span>
+        <Button
+          data-drone-1090-confirmer
+          size="sm"
+          variant="outline"
+          disabled={!chef || occupe}
+          onClick={() =>
+            void faire(confirmee ? "confirmation retirée" : "piste confirmée pour 2 h", () =>
+              confirmerPiste1090(drone.id, !confirmee),
+            )
+          }
+        >
+          {confirmee ? "Retirer la confirmation" : "Confirmer (2 h)"}
+        </Button>
       </div>
       {dit ? (
         <p
@@ -285,7 +324,7 @@ export function DronesReglages() {
       </div>
       <ul className="divide-y divide-border border-t border-border">
         {nos.map((d) => (
-          <FicheDrone key={`${d.id}:${d.liaison ?? ""}`} drone={d} chef={isSuperadmin} />
+          <FicheDrone key={d.id} drone={d} chef={isSuperadmin} maintenant={suivi.a} />
         ))}
       </ul>
       {suivi.reglages ? <Pilotage reglages={suivi.reglages} chef={isSuperadmin} /> : null}

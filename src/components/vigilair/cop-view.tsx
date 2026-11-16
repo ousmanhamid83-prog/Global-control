@@ -10,6 +10,7 @@ import { MetarStrip } from "@/components/vigilair/metar-strip";
 import { WatchStrip } from "@/components/vigilair/watch-strip";
 import { ZoneStrip } from "@/components/vigilair/zone-strip";
 import { Dossier } from "@/components/vigilair/dossier";
+import { DronesFond } from "@/components/vigilair/drones-fond";
 import { DronesPilote } from "@/components/vigilair/drones-pilote";
 import { PaintFilters } from "@/components/vigilair/paint-filters";
 import { peekCopCursor, snapshotCop } from "@/components/vigilair/cop-hud";
@@ -319,7 +320,6 @@ export function CopView() {
               else select(null);
             }}
           />
-          <DronesPilote />
           <div
             className={cn(
               "absolute left-3 right-12 top-3 z-10 flex gap-1 overflow-x-auto transition-opacity duration-300 tall:right-auto tall:max-w-[calc(100%-8rem)] tall:flex-wrap tall:overflow-visible",
@@ -597,8 +597,15 @@ export function CopView() {
             </div>
           </div>
         </section>
-        <aside className="min-h-0">
-          <Dossier />
+        {/* Nos drones et leurs images : à côté de la carte, jamais dessus — un point ou un coin s'y
+            désigne sans rien cacher. Trop longue, la colonne défile d'un bloc : rien ne s'y chevauche,
+            aucun bouton n'y est coupé, et le dossier garde sa hauteur sous les panneaux. */}
+        <aside className="flex min-h-0 flex-col overflow-y-auto">
+          <DronesPilote />
+          <DronesFond />
+          <div className="min-h-[24rem] flex-1">
+            <Dossier />
+          </div>
         </aside>
       </div>
       <WorldPhenomPanel />

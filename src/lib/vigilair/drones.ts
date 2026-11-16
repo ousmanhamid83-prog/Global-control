@@ -1,7 +1,7 @@
 /**
  * Registre « nos drones » côté client — cache serveur + miroir local (comme routes/sites/capteurs).
  * `dronesPeek()` est une lecture SYNCHRONE : le store s'en sert pour marquer AMI la piste live d'un
- * drone inscrit, sans attendre le réseau. AfriControl suit et analyse ; il ne pilote pas.
+ * drone inscrit, sans attendre le réseau. Le pilotage par la liaison vit à part (drones-suivi).
  */
 
 import { droneAdd, droneRemove, droneSetRoi, droneSetRule, droneSetZones, dronesList, onvifDiscover, registerCameras, scanRange, scanSource } from "./drones-api";

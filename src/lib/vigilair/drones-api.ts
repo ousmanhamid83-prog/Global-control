@@ -216,6 +216,72 @@ export const droneLiaison = createServerFn({ method: "POST" })
     return r;
   });
 
+/** Le chef confirme (2 h) ou retire : « la piste 1090ES à l'adresse de ce drone est la sienne ». */
+export const droneConfirmer1090 = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { id?: string; confirmer?: boolean }) => ({
+    id: String(raw?.id ?? ""),
+    confirmer: raw?.confirmer === true,
+  }))
+  .handler(
+    async ({ data, context }): Promise<{ ok: boolean; error?: string; drones?: OwnDrone[] }> => {
+      const { insertOpsLog, requireSuperadmin } = await import("./staff");
+      const chef = await requireSuperadmin(context.userId);
+      const m = await import("./drones.server");
+      const r = await m.setDroneConfirme1090Server(data.id, data.confirmer);
+      if (r.ok) {
+        const drone = r.drones!.find((d) => d.id === data.id)!;
+        await insertOpsLog({
+          userId: chef.userId,
+          actor: chef.label,
+          role: chef.role,
+          team: chef.team,
+          kind: "drone",
+          title: `Drone ${drone.name} — piste 1090ES ${data.confirmer ? "confirmée" : "plus confirmée"} par le chef`,
+          detail: data.confirmer
+            ? "Pendant 2 h, la piste à l'adresse de ce drone est suivie comme amie — sauf si sa télémétrie le situe ailleurs."
+            : "La piste à l'adresse de ce drone compte de nouveau comme une intrusion.",
+          severity: "warn",
+        });
+      }
+      return r;
+    },
+  );
+
+/** Le chef pose (ou retire, null) l'image d'une source en fond de carte ; au journal. */
+export const droneFond = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { id?: string; fond?: unknown }) => ({
+    id: String(raw?.id ?? ""),
+    fond: raw?.fond ?? null,
+  }))
+  .handler(
+    async ({ data, context }): Promise<{ ok: boolean; error?: string; drones?: OwnDrone[] }> => {
+      const { insertOpsLog, requireSuperadmin } = await import("./staff");
+      const chef = await requireSuperadmin(context.userId);
+      const m = await import("./drones.server");
+      const r = await m.setDroneFondServer(data.id, data.fond);
+      if (r.ok) {
+        const source = r.drones!.find((d) => d.id === data.id)!;
+        await insertOpsLog({
+          userId: chef.userId,
+          actor: chef.label,
+          role: chef.role,
+          team: chef.team,
+          kind: "drone",
+          title: `${source.name} — image en fond de carte ${source.fond ? "posée" : "retirée"} par le chef`,
+          detail: !source.fond
+            ? "Son image n'est plus dessinée sur la carte."
+            : source.fond.mode === "coins"
+              ? `Quatre coins posés à la main : ${source.fond.coins.map((c) => `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`).join(" · ")}.`
+              : `Emprise calculée de la télémétrie du drone, caméra à la verticale, champ de ${source.fond.champDeg}°.`,
+          severity: "info",
+        });
+      }
+      return r;
+    },
+  );
+
 /** Le chef règle (ou retire, null) le circuit de patrouille d'un drone. */
 export const dronePatrouille = createServerFn({ method: "POST" })
   .middleware([authMiddleware])

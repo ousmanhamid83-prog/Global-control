@@ -223,10 +223,7 @@ export function DronesPilote() {
   if (lies.length === 0 || !suivi.reglages) return null;
   const reglages = suivi.reglages;
   return (
-    <div
-      data-drones-pilote
-      className="absolute bottom-3 left-3 z-20 max-h-[55%] w-[26rem] max-w-[calc(100%-1.5rem)] overflow-y-auto rounded-md border border-border bg-bg/90 font-mono hud"
-    >
+    <div data-drones-pilote className="shrink-0 border-b border-border font-mono">
       <button
         type="button"
         className="flex w-full items-center justify-between px-3 py-1.5 text-left text-[11px] uppercase tracking-[0.06em] text-muted-foreground hover:text-fg"
