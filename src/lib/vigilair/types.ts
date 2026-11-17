@@ -5,9 +5,8 @@ export type Origin = "CN" | "TR" | "RU" | "IR" | "XX";
 /** fatl / asecna : affiliation amie ; civil : trafic 1090ES coopératif hors zone ASECNA (neutre) ; drone : un de NOS drones inscrits. */
 export type FriendKind = "fatl" | "asecna" | "civil" | "drone";
 
-export type IffMode = "3/A" | "S" | "ADS-B" | "4";
-
-export type IffM4State = "absent" | "valid" | "invalid" | "timeout" | "demande";
+/** ADS-B : position émise par l'appareil (DF17) ; S : transpondeur Mode S localisé par le réseau (MLAT). */
+export type IffMode = "S" | "ADS-B";
 
 export type ModeSDf =
   | "DF0"
@@ -19,7 +18,8 @@ export type ModeSDf =
   | "DF20"
   | "DF21";
 
-export type ModeSSurveillance = "none" | "els" | "ehs" | "adsb";
+/** adsb : position émise (DF17) ; modes : Mode S sans position émise, localisé par le réseau. */
+export type ModeSSurveillance = "adsb" | "modes";
 
 export type ModeSReply = {
   id: string;
@@ -34,37 +34,15 @@ export type ModeSReply = {
   solicited: boolean;
 };
 
-export type MlatFix = {
-  lat: number;
-  lon: number;
-  quality: number;
-  nSites: number;
-  sites: string[];
-  residualKm: number;
-  adsbDeltaKm: number | null;
-  spoofSuspect: boolean;
-  at: number;
-  note: string;
-};
-
 export type IffFix = {
   mode: IffMode;
   squawk: string;
   icao24: string | null;
   flightId: string;
-  source: "iff-fatl" | "adsb-asecna" | "iff-ssr";
-  /** Mode 4 crypto — réponse à un interrogateur externe, pas une émission AfriControl. */
-  m4: IffM4State;
-  m4At: number | null;
-  m4Site: string | null;
-  m4Note: string;
-  /** Couche Mode S (ELS / EHS / ADS-B). Absent = pas de transpondeur 1090. */
-  surveillance?: ModeSSurveillance;
-  replies?: ModeSReply[];
-  mlat?: MlatFix | null;
-  /** Position revendiquée par DF17 — pour détecter une usurpation ADS-B. */
-  adsbClaim?: { lat: number; lon: number } | null;
-  lastReplyAt?: number | null;
+  /** Couche Mode S entendue : ADS-B (DF17) ou Mode S sans position émise. */
+  surveillance: ModeSSurveillance;
+  /** Dernières trames réellement entendues pour cette adresse (pas de réponse fabriquée). */
+  replies: ModeSReply[];
 };
 
 
@@ -102,33 +80,11 @@ export type IdState =
   | "hors-mandat"
   | "perdu";
 
-export type SensorKind = "rf" | "radar" | "eoir" | "acoustic";
-
-export type AudioChannel = "acoustic" | "analog-fpv" | "blocked-crypto" | "none";
-
-export type AcousticBearing = {
-  siteId: string;
-  deg: number;
-  quality: number;
-};
-
-export type AcousticState = {
-  snrDb: number;
-  bpfHz: number;
-  harmonics: [number, number, number];
-  bearings: AcousticBearing[];
-  channel: AudioChannel;
-  channelNote: string;
-  splDb: number;
-  locked: boolean;
-};
-
-export type PilotFix = {
-  lat: number;
-  lon: number;
-  quality: number;
-  method: string;
-};
+/**
+ * D'où vient la piste : l'antenne 1090 du poste, le relevé 1090 du réseau, ou la liaison MAVLink
+ * d'un de nos drones (piste d'exercice).
+ */
+export type SensorKind = "antenne" | "reseau" | "liaison";
 
 export type SiteCpa = {
   siteId: string;
@@ -147,58 +103,15 @@ export type ProtectedSite = {
   radiusKm: number;
 };
 
-export type AudioClip = {
-  id: string;
-  at: number;
-  trackId: string;
-  callsign: string;
-  bpfHz: number;
-  channel: AudioChannel;
-  durationS: number;
-  note: string;
-};
-
+/** Premier relevé d'une piste : où et quand le poste l'a entendue la première fois. */
 export type TraceFix = {
   lat: number;
   lon: number;
   at: number;
-  quality: number;
   method: string;
-  predicted: boolean;
-};
-
-export type SigintStream = {
-  id: string;
-  label: string;
-  state: "lock" | "scan" | "denied";
-  detail: string;
-};
-
-export type EvidencePack = {
-  satScene: string;
-  satCredit: string;
-  sarNote: string;
-  sceneNote: string;
-  launch: TraceFix;
-  stop: TraceFix;
-  c2: PilotFix | null;
-  path: { lat: number; lon: number }[];
-  sensors: SensorKind[];
-  method: string;
-  launchTile: string;
-  c2Tile: string | null;
-  stopTile: string;
 };
 
 export type DefensePosture = "veille" | "alerte" | "menace";
-
-export type EwState = "idle" | "demande" | "effet" | "refuse";
-
-export type EwRequest = {
-  state: EwState;
-  at: number;
-  note: string;
-};
 
 export type Platform = {
   id: string;
@@ -267,20 +180,11 @@ export type Track = {
   lastUpdate: number;
   dwellS: number;
   confirmedAt: number | null;
-  motion: "transit" | "loiter" | "ingress";
-  loiterCx: number;
-  loiterCy: number;
-  loiterR: number;
-  turnRate: number;
-  acoustic: AcousticState | null;
-  pilotFix: PilotFix | null;
   cpa: SiteCpa | null;
   siteWarned: boolean;
   launchFix: TraceFix | null;
-  stopFix: TraceFix | null;
   locked: boolean;
   corridor: string | null;
-  ew: EwRequest | null;
   /** Piste créée par un inject de formation (AAR). */
   injected?: boolean;
   /** FATL / ASECNA — affiliation amie, distincte de l'origine constructeur. */
@@ -321,8 +225,13 @@ export type Track = {
   /** Messages reçus de l'adresse par la source au dernier relevé (réseau ou notre décodeur). */
   messages?: number | null;
   iff?: IffFix | null;
-  /** Origine de la piste : sim COP, 1090ES live, Remote ID, ou rejeu de 1090ES réellement reçu. */
-  feed?: "sim" | "adsb" | "rid" | "rejeu";
+  /**
+   * Origine de la piste : 1090ES reçu en direct, rejeu de 1090ES réellement reçu, ou EXERCICE — la
+   * vraie télémétrie d'un de nos drones, joué comme un intrus.
+   */
+  feed: "adsb" | "rejeu" | "exercice";
+  /** Piste d'EXERCICE : le drone qui vole pour de vrai, et la plateforme du catalogue qu'il joue. */
+  exercice?: { drone: string; plateforme: string };
   /** Piste de REJEU RÉEL : heure d'origine de la position et bande d'où elle vient. Jamais live. */
   rejeu?: { posAt: number; kind: "poste" | "archive"; source: string; trailAt: number };
   icaoType?: string | null;
@@ -352,16 +261,6 @@ export type Track = {
   nation?: string | null;
 };
 
-export type SensorSite = {
-  id: string;
-  name: string;
-  kind: SensorKind;
-  lat: number;
-  lon: number;
-  rangeKm: number;
-  online: boolean;
-};
-
 export type AlertItem = {
   id: string;
   trackId: string;
@@ -389,15 +288,11 @@ export type JournalEntry = {
   lat: number;
   lon: number;
   altM: number;
-  sensors: SensorKind[];
+  /** Lu en base : un ancien bulletin peut porter des valeurs d'avant la version réelle. */
+  sensors: string[];
   method: string;
   launchLat?: number;
   launchLon?: number;
-  stopLat?: number;
-  stopLon?: number;
-  c2Lat?: number;
-  c2Lon?: number;
-  ewNote?: string;
   filedBy?: string;
   contentSha256?: string;
   prevSha256?: string | null;

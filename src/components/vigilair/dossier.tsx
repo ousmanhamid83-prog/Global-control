@@ -8,23 +8,15 @@ import {
   threatLabel,
 } from "@/lib/vigilair/catalog";
 import { methodBlurb } from "@/lib/vigilair/engine";
-import { canRequestEw, STEALTH_NOTE } from "@/lib/vigilair/ew";
 import { getEvidencePdf } from "@/lib/vigilair/evidence-store";
 import { formatCoord } from "@/lib/vigilair/geo";
 import { formatHash, originTone, threatTone } from "@/lib/vigilair/format";
 import { friendBlurb, friendLabel, isFriend } from "@/lib/vigilair/friends";
-import {
-  canRequestM4,
-  iffModeRows,
-  m4Label,
-  m4Tone,
-  M4_STEALTH,
-} from "@/lib/vigilair/iff";
-import { inferSurveillance, surveillanceLabel } from "@/lib/vigilair/mode-s";
+import { iffModeRows } from "@/lib/vigilair/iff";
+import { surveillanceLabel } from "@/lib/vigilair/mode-s";
 import type { Track } from "@/lib/vigilair/types";
 import { rejeuClock } from "@/lib/vigilair/rejeu";
 import { treatContact } from "@/lib/vigilair/treat";
-import { useStaff } from "@/lib/vigilair/staff-context";
 import { threatOf, useVigilair } from "@/lib/vigilair/store";
 import { askAssistant } from "@/lib/vigilair/live-feeds";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { ReponseIa } from "@/components/vigilair/reponse-ia";
-import { Crosshair, EyeOff, FilePlus2, FileText, Fingerprint, Mic, RadioTower, Sparkles } from "lucide-react";
+import { Crosshair, EyeOff, FilePlus2, FileText, Sparkles } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
@@ -40,18 +32,14 @@ export function Dossier() {
   const selectedId = useVigilair((s) => s.selectedId);
   const track = useVigilair((s) => s.tracks.find((t) => t.id === selectedId));
   const fileBulletin = useVigilair((s) => s.fileBulletin);
-  const requestEw = useVigilair((s) => s.requestEw);
-  const requestM4 = useVigilair((s) => s.requestM4);
   const lockTrack = useVigilair((s) => s.lockTrack);
   const lockLive = useVigilair((s) => s.lockLive);
   const liveN = useVigilair((s) => s.tracks.filter((t) => t.feed === "adsb").length);
-  const ewArmed = useVigilair((s) => s.ewArmed);
   const journal = useVigilair((s) => s.journal);
   const autoPick = useVigilair((s) => s.autoPick);
   const autoLockOn = useVigilair((s) => s.autoLockOn);
   const setAutoLockOn = useVigilair((s) => s.setAutoLockOn);
   const select = useVigilair((s) => s.select);
-  const { isSuperadmin } = useStaff();
 
   if (!track) {
     return (
@@ -60,8 +48,8 @@ export function Dossier() {
         <p className="text-sm font-medium">Veille réelle</p>
         <p className="text-xs text-muted-foreground">
           {autoLockOn
-            ? "Aucun transpondeur entendu pour l'instant. Seules les pistes 1090ES ont besoin d'un transpondeur ; le METAR, le SIGMET et le GNSS tournent en continu (Capteurs > Météo / GNSS), même sans piste. Dès qu'une piste réelle est reçue, le verrou auto l'ouvre ici et la croise avec ces trois sources. Un inject n'est qu'un exercice."
-            : "Verrou auto coupé, aucune piste choisie. Cliquer une piste sur la carte ou le radar pour l'ouvrir ici. Un inject n'est qu'un exercice."}
+            ? "Aucun transpondeur entendu pour l'instant. Seules les pistes 1090ES ont besoin d'un transpondeur ; le METAR, le SIGMET et le GNSS tournent en continu (Capteurs > Météo / GNSS), même sans piste. Dès qu'une piste réelle est reçue, le verrou auto l'ouvre ici et la croise avec ces trois sources. Un rejeu ou un exercice est toujours marqué comme tel."
+            : "Verrou auto coupé, aucune piste choisie. Cliquer une piste sur la carte ou le radar pour l'ouvrir ici. Un rejeu ou un exercice est toujours marqué comme tel."}
         </p>
         {!autoLockOn ? (
           <Button size="sm" variant="outline" className="mt-2" onClick={() => setAutoLockOn(true)}>
@@ -78,25 +66,34 @@ export function Dossier() {
   // Données transpondeur réelles : live, ou rejouées depuis une bande enregistrée.
   const heard = track.feed === "adsb" || track.feed === "rejeu";
 
-  const topId = track.hypotheses[0]?.platformId ?? (track.idState === "hors-mandat" ? track.truePlatformId : undefined);
+  const topId = track.hypotheses[0]?.platformId;
   const plat = topId ? PLATFORM_BY_ID[topId] : undefined;
   const threat = threatOf(track);
   const already = journal.find((j) => j.trackId === track.id);
   const sealed = Boolean(already?.contentSha256);
   const pendingFile = Boolean(already?.pending);
   const alreadyFiled = sealed || pendingFile;
-  const canFile =
-    (track.idState === "confirme" || track.idState === "hors-mandat" || track.idState === "candidat") &&
-    Boolean(plat);
-  const ew = canRequestEw(track, ewArmed);
-  const ewBusy = track.ew?.state === "demande" || track.ew?.state === "effet";
+  const canFile = (track.idState === "confirme" || track.idState === "candidat") && Boolean(plat);
   const ami = isFriend(track);
-  const m4 = canRequestM4(track);
-  const m4Busy = track.iff?.m4 === "demande";
   const modes = track.iff ? iffModeRows(track.iff) : [];
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
+      {track.exercice ? (
+        <div className="space-y-1 border-b border-border bg-warn/10 px-4 py-3" data-testid="exercice-dossier">
+          <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-warn">
+            Exercice · pas un contact réel
+          </p>
+          <p className="text-xs text-fg">
+            Vol réel de notre drone <span className="font-medium">{track.exercice.drone}</span>, joué
+            comme intrus{plat ? ` (${plat.manufacturer} ${plat.name})` : ""}.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Position, altitude, vitesse et cap : la télémétrie MAVLink de son autopilote. Alertes jamais
+            relayées par Signal.
+          </p>
+        </div>
+      ) : null}
       {rej ? (
         <div className="space-y-1 border-b border-border bg-primary/10 px-4 py-3" data-testid="rejeu-dossier">
           <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-primary">
@@ -145,7 +142,7 @@ export function Dossier() {
           </h2>
           <div className="mt-2 flex flex-wrap gap-1">
             {track.feed === "adsb" ? (
-              <Badge tone="ok">1090ES live</Badge>
+              <Badge tone="ok">{track.sensors.includes("antenne") ? "1090ES antenne" : "1090ES réseau"}</Badge>
             ) : null}
             {rej ? <Badge tone="warn">REJEU RÉEL</Badge> : null}
             {ami && track.friendKind ? (
@@ -158,12 +155,7 @@ export function Dossier() {
             <Badge tone={threatTone(threat)}>{threatLabel(threat)}</Badge>
             <Badge>{idStateLabel(track.idState)}</Badge>
             {track.locked ? <Badge tone="ok">Traj. verrouillée</Badge> : null}
-            {track.ew?.state === "effet" ? <Badge tone="crit">Effet RF</Badge> : null}
-            {track.iff ? (
-              <Badge tone={m4Tone(track.iff.m4)}>{m4Label(track.iff.m4)}</Badge>
-            ) : (
-              <Badge>sans IFF</Badge>
-            )}
+            {track.iff ? <Badge>{surveillanceLabel(track.iff.surveillance)}</Badge> : null}
             <Badge tone="ok">
               <EyeOff className="mr-1 size-3" />
               Silencieux
@@ -197,13 +189,7 @@ export function Dossier() {
         />
         <Item
           label="Capteurs"
-          value={
-            track.feed === "adsb"
-              ? "1090ES réseau (passif)"
-              : rej
-                ? "1090ES enregistré (rejeu)"
-                : track.sensors.map(sensorLabel).join(" · ") || "—"
-          }
+          value={rej ? "1090ES enregistré (rejeu)" : track.sensors.map(sensorLabel).join(" · ")}
         />
         <Item label="Couloir" value={track.corridor ?? "—"} />
         {heard ? (
@@ -230,35 +216,10 @@ export function Dossier() {
           }
         />
         <Item
-          label="Acoustique"
-          value={
-            track.acoustic?.locked
-              ? `Lock ${track.acoustic.bpfHz} Hz · SNR ${track.acoustic.snrDb} dB`
-              : "Hors ACO"
-          }
-        />
-        <Item
-          label="Gonio TEL"
-          value={
-            track.pilotFix
-              ? `${Math.round(track.pilotFix.quality)} % · ${track.pilotFix.method}`
-              : "—"
-          }
-        />
-        <Item
-          label="Envoi SRC"
+          label="Premier relevé"
           value={
             track.launchFix
-              ? `${track.launchFix.lat.toFixed(5)}, ${track.launchFix.lon.toFixed(5)}`
-              : "—"
-          }
-          mono
-        />
-        <Item
-          label="Arrêt"
-          value={
-            track.stopFix
-              ? `${track.stopFix.predicted ? "prévu" : "constaté"} · ${track.stopFix.lat.toFixed(5)}, ${track.stopFix.lon.toFixed(5)}`
+              ? `${track.launchFix.lat.toFixed(5)}, ${track.launchFix.lon.toFixed(5)} · ${new Date(track.launchFix.at).toLocaleTimeString("fr-FR", { timeZone: "Africa/Ndjamena" })}`
               : "—"
           }
           mono
@@ -267,7 +228,7 @@ export function Dossier() {
       <Separator />
       <div className="space-y-3 p-4">
         <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Modes IFF
+          Transpondeur
         </h3>
         {modes.length > 0 ? (
           <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
@@ -280,56 +241,19 @@ export function Dossier() {
               </div>
             ))}
             <Item
-              label="Site interrogateur"
-              value={track.iff?.m4Site ?? "—"}
-            />
-            <Item
-              label="Affiliation"
-              value={
-                heard
-                  ? `${rej ? "1090ES rejeu" : "1090ES live"}${track.nation ? ` · ${track.nation}` : ""}`
-                  : track.friendKind
-                    ? `${friendLabel(track.friendKind)} · ${
-                        track.iff?.source === "iff-fatl"
-                          ? "IFF FATL"
-                          : "ADS-B ASECNA (exercice)"
-                      }`
-                    : track.iff?.flightId ?? "Non corrélé"
-              }
+              label="Reçu"
+              value={`${rej ? "1090ES rejeu" : "1090ES en direct"}${track.nation ? ` · ${track.nation}` : ""}`}
             />
           </dl>
         ) : (
-          <p className="text-xs text-muted-foreground">
-            Pas de transpondeur corrélé. Un challenge Mode 4 peut être demandé
-            via l'interrogateur du site radar.
-          </p>
+          <p className="text-xs text-muted-foreground">Pas de transpondeur entendu.</p>
         )}
-        <p className="text-xs text-muted-foreground">
-          {track.iff?.m4Note ?? M4_STEALTH}
-        </p>
-        {track.iff?.mlat ? (
-          <p
-            className={
-              track.iff.mlat.spoofSuspect
-                ? "text-xs text-crit"
-                : "text-xs text-muted-foreground"
-            }
-          >
-            MLAT {track.iff.mlat.nSites} sites · résidu{" "}
-            {track.iff.mlat.residualKm.toFixed(2)} km
-            {track.iff.mlat.adsbDeltaKm != null
-              ? ` · écart ADS-B ${track.iff.mlat.adsbDeltaKm.toFixed(1)} km`
-              : ""}
-            {track.iff.surveillance
-              ? ` · ${surveillanceLabel(inferSurveillance(track.iff))}`
-              : ""}
-          </p>
-        ) : track.iff ? (
+        {track.iff ? (
           <p className="text-xs text-muted-foreground">
-            {track.iff.surveillance
-              ? surveillanceLabel(inferSurveillance(track.iff))
-              : "Pas de Mode S"}{" "}
-            · pas de MLAT (volume ou ICAO24 insuffisant).
+            {surveillanceLabel(track.iff.surveillance)}
+            {track.posSource === "mlat"
+              ? " · position MLAT du réseau : l'appareil n'émet pas la sienne."
+              : ""}
           </p>
         ) : null}
         {track.iff?.replies && track.iff.replies.length > 0 ? (
@@ -342,24 +266,8 @@ export function Dossier() {
             ))}
           </ol>
         ) : null}
-        <Button
-          variant={m4Busy ? "secondary" : "outline"}
-          className="w-full"
-          disabled={m4Busy || !m4.ok}
-          onClick={() => requestM4(track.id)}
-        >
-          <Fingerprint />
-          {track.iff?.m4 === "demande"
-            ? "Interrogation en cours"
-            : track.iff?.m4 && track.iff.m4 !== "absent"
-              ? "Réinterroger Mode 4"
-              : "Demander Mode 4"}
-        </Button>
-        {!m4.ok ? (
-          <p className="text-xs text-muted-foreground">{m4.reason}</p>
-        ) : null}
         <Button asChild variant="outline" className="w-full">
-          <Link to="/iff">Pupitre IFF · Mode 4 / Mode S / MLAT</Link>
+          <Link to="/iff">Transpondeurs 1090</Link>
         </Button>
       </div>
       {plat ? (
@@ -385,7 +293,6 @@ export function Dossier() {
               <Item label="Emport" value={plat.payload} />
             </dl>
             <p className="text-xs text-muted-foreground">{methodBlurb(track)}</p>
-            <p className="text-xs text-muted-foreground">{STEALTH_NOTE}</p>
           </div>
         </>
       ) : null}
@@ -425,11 +332,12 @@ export function Dossier() {
 
       <div className="mt-auto space-y-2 p-4">
         <Button className="w-full" variant="outline" disabled={liveN === 0} onClick={() => lockLive()}>
-          <Fingerprint />
-          Inject réel 1090ES
+          <Crosshair />
+          Prendre la piste réelle la plus proche
         </Button>
-        {/* Le traitement croise la météo et le GNSS d'AUJOURD'HUI : il n'a pas de sens pour un rejeu. */}
-        {(track.feed === "adsb" || track.locked) && !rej ? <TransponderBlock track={track} /> : null}
+        {/* Le traitement croise la météo et le GNSS d'AUJOURD'HUI : seulement pour une piste 1090ES en
+            direct — ni un rejeu, ni un exercice (sans transpondeur). */}
+        {track.feed === "adsb" ? <TransponderBlock track={track} /> : null}
         <AssistantAsk track={track} />
         <Button
           variant={track.locked ? "default" : "outline"}
@@ -445,42 +353,6 @@ export function Dossier() {
         <Button asChild variant="outline" className="w-full">
           <Link to="/radar">Écran radar PPI</Link>
         </Button>
-        <Button asChild variant="outline" className="w-full">
-          <Link to="/trace">Traçabilité Sentinel</Link>
-        </Button>
-        <Button asChild variant="outline" className="w-full">
-          <Link to="/audio">
-            <Mic />
-            Écoute SIGINT
-          </Link>
-        </Button>
-        {isSuperadmin ? (
-          <>
-            <Button
-              className="w-full"
-              variant={ewBusy ? "secondary" : "outline"}
-              disabled={ewBusy}
-              onClick={() => requestEw(track.id)}
-            >
-              <RadioTower />
-              {track.ew?.state === "effet"
-                ? "Effet RF en cours (externe)"
-                : track.ew?.state === "demande"
-                  ? "Demande transmise"
-                  : ewArmed
-                    ? "Demander un effet RF"
-                    : "RF désarmé — activer en en-tête"}
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              {ewBusy ? track.ew?.note : ew.ok ? ew.reason : ew.reason}
-            </p>
-          </>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            Brouillage et contrôle réservés au chef de division. Détection,
-            identification et SIGINT restent disponibles.
-          </p>
-        )}
         <Button
           className="w-full"
           disabled={!canFile || alreadyFiled}
@@ -549,15 +421,13 @@ function Item({
 /** Résumé factuel d'une piste pour l'assistant — uniquement des champs typés, aucune fiction. */
 function trackBrief(track: Track): string {
   const feed =
-    track.injected
-      ? "INJECT DE FORMATION (exercice, pas un contact réel)"
-      : track.feed === "rejeu"
-        ? "REJEU (position 1090ES enregistrée, pas live)"
-        : track.feed === "adsb"
-          ? "1090ES live (réseau passif)"
-          : track.feed === "rid"
-            ? "Remote ID (écoute passive)"
-            : "simulation COP";
+    track.feed === "rejeu"
+      ? "REJEU (position 1090ES enregistrée, pas live)"
+      : track.exercice
+        ? `EXERCICE (vol réel de notre drone ${track.exercice.drone}, joué comme intrus : pas un contact réel)`
+        : track.sensors.includes("antenne")
+          ? "1090ES en direct (antenne du poste)"
+          : "1090ES en direct (relevé réseau)";
   const lines = [
     `Indicatif: ${track.callsign}`,
     `Source: ${feed}`,

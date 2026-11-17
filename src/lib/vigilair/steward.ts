@@ -71,7 +71,7 @@ export const STEWARD_PARAMS = [
     id: "amis",
     group: "Détection",
     label: "Amis",
-    detail: "Couche FATL et ASECNA.",
+    detail: "Trafic ASECNA et nos drones.",
   },
   {
     id: "feu",
@@ -79,24 +79,7 @@ export const STEWARD_PARAMS = [
     label: "Feu VIIRS",
     detail: "Signale si le thermique se tait.",
   },
-  {
-    id: "ecoute",
-    group: "Détection",
-    label: "SIGINT",
-    detail: "Écoute passive du poste.",
-  },
-  {
-    id: "large",
-    group: "Détection",
-    label: "Écoute large",
-    detail: "Bande élargie, sans émission.",
-  },
-  {
-    id: "remanence",
-    group: "Radar",
-    label: "Rémanence",
-    detail: "Le PPI garde la trace du balayage.",
-  },
+
   {
     id: "etiquettes",
     group: "Radar",
@@ -112,8 +95,8 @@ export const STEWARD_PARAMS = [
   {
     id: "iffppi",
     group: "Radar",
-    label: "IFF PPI",
-    detail: "Marques IFF sur le PPI.",
+    label: "Squawk PPI",
+    detail: "Squawk transpondeur sur le PPI.",
   },
   {
     id: "mesure",
@@ -145,12 +128,6 @@ export const STEWARD_PARAMS = [
     label: "Hebdo",
     detail: "Vide le cache image au jour et à l'heure UTC.",
   },
-  {
-    id: "instruction",
-    group: "Poste",
-    label: "Exercice",
-    detail: "Pistes d'instruction. Ce ne sont pas des contacts.",
-  },
 ] as const;
 
 export type StewardParamId = (typeof STEWARD_PARAMS)[number]["id"];
@@ -171,9 +148,6 @@ export function emptyFlags(): StewardFlags {
     live: false,
     amis: false,
     feu: false,
-    ecoute: false,
-    large: false,
-    remanence: false,
     etiquettes: false,
     traces: false,
     iffppi: false,
@@ -182,7 +156,6 @@ export function emptyFlags(): StewardFlags {
     auto: false,
     horloge: false,
     hebdo: false,
-    instruction: false,
   };
 }
 

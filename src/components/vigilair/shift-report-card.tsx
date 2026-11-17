@@ -17,7 +17,7 @@ function bulletinLine(e: JournalEntry): string {
     ` · ${originLabel(e.origin)} · conf ${Math.round(e.confidence)}%` +
     ` · ${formatCoord(e.lat, e.lon)} ${Math.round(e.altM)} m` +
     ` · ${e.sensors.map(sensorLabel).join("/") || "capteurs ?"}` +
-    (e.injected ? " · EXERCICE (inject)" : "")
+    (e.injected ? " · EXERCICE OU REJEU (pas un contact réel)" : "")
   );
 }
 
@@ -40,7 +40,7 @@ export function ShiftReportCard() {
     setErr(null);
     const events = journal.map(bulletinLine);
     const real = journal.filter((e) => !e.injected).length;
-    const meta = `Poste FTTJ (N'Djamena). ${journal.length} bulletins (${real} réels, ${journal.length - real} exercices).`;
+    const meta = `Poste FTTJ (N'Djamena). ${journal.length} bulletins (${real} réels, ${journal.length - real} d'exercice ou de rejeu).`;
     shiftReport({ data: { events, meta } })
       .then((r) => {
         if (r.ok) setReport(r.text);

@@ -1,17 +1,10 @@
 import { useEffect, useState } from "react";
-import {
-  FileText,
-  FolderLock,
-  Laptop,
-  ShieldAlert,
-  ShieldOff,
-} from "lucide-react";
+import { FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   INCIDENT_LABEL,
   ackIncident,
-  drillExfil,
   getSentinelPdf,
   listDeviceBindings,
   listIncidents,
@@ -120,8 +113,6 @@ function ChefSentinel() {
           <Stat k="Agents éjectés" v={String(stats.ejected)} />
           <Stat k="Postes scellés" v={String(stats.bindings)} />
         </div>
-
-        <DrillPanel onDone={reloadStats} />
 
         <div className="flex flex-wrap gap-1 rounded-md border border-border p-1">
           {(
@@ -327,8 +318,9 @@ function BindingsPanel() {
     return (
       <p className="rounded-md border border-border bg-surface px-4 py-8 text-center text-sm text-muted-foreground">
         Aucun poste scellé. La première connexion d'un agent avec sa clé VA-
-        lie la machine. Lancez un exercice « autre poste » pour voir la
-        coupure.
+        lie la machine. Pour vérifier la coupure, présentez la clé d'un agent
+        sur une autre machine : le poste refuse, éjecte et verse un dossier
+        (l'éjection est réelle : il faudra lui réémettre une clé).
       </p>
     );
   }
@@ -392,7 +384,8 @@ function IncidentsPanel({ onChange }: { onChange: () => void }) {
   if (rows.length === 0) {
     return (
       <p className="rounded-md border border-border bg-surface px-4 py-8 text-center text-sm text-muted-foreground">
-        Aucun incident. Un exercice ci-dessus produit alerte, coupure et PDF.
+        Aucun incident. Une vraie tentative (clé sur un autre poste, copie du
+        logiciel ou d'un dossier) produit alerte, coupure et PDF.
       </p>
     );
   }
@@ -460,91 +453,6 @@ function IncidentsPanel({ onChange }: { onChange: () => void }) {
         </li>
       ))}
     </ul>
-  );
-}
-
-function DrillPanel({ onDone }: { onDone: () => void }) {
-  const [busy, setBusy] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [last, setLast] = useState<string | null>(null);
-
-  const run = async (kind: "software" | "folder" | "machine") => {
-    setBusy(kind);
-    setErr(null);
-    try {
-      const r = await drillExfil({ data: { kind } });
-      setLast(
-        `${r.actor} · session coupée · dossier ${r.incidentId.slice(0, 8)} · SHA ${r.pdfSha.slice(0, 8)}`,
-      );
-      useVigilair.setState((s) => ({
-        alerts: [
-          {
-            id: `sec-${r.incidentId}`,
-            trackId: "",
-            at: Date.now(),
-            level: "critique" as const,
-            title: r.title,
-            body: `Sentinelle · ${r.actor} déconnecté. Dossier hashé versé.`,
-            acked: false,
-          },
-          ...s.alerts,
-        ].slice(0, 40),
-      }));
-      onDone();
-    } catch (ex) {
-      setErr(ex instanceof Error ? ex.message : "Exercice impossible");
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return (
-    <section className="space-y-3 rounded-md border border-border bg-surface p-4 hud">
-      <div className="flex items-center gap-2">
-        <ShieldAlert className="size-4 text-crit" />
-        <h2 className="text-sm font-semibold">Exercice sentinelle</h2>
-      </div>
-      <p className="text-sm text-muted-foreground">
-        Simule un agent qui pose sa clé puis copie. La session de l'agent est
-        coupée, pas la vôtre. Alerte COP + PDF d'incident.
-      </p>
-      <div className="flex flex-wrap gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={Boolean(busy)}
-          onClick={() => void run("software")}
-        >
-          <ShieldOff />
-          Copie du logiciel
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={Boolean(busy)}
-          onClick={() => void run("folder")}
-        >
-          <FolderLock />
-          Copie d'un dossier
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={Boolean(busy)}
-          onClick={() => void run("machine")}
-        >
-          <Laptop />
-          Clé sur un autre poste
-        </Button>
-      </div>
-      {busy ? (
-        <p className="text-xs text-muted-foreground">Coupure en cours…</p>
-      ) : null}
-      {last ? (
-        <p className="font-mono text-xs text-ok">{last}</p>
-      ) : null}
-      {err ? <p className="text-sm text-crit">{err}</p> : null}
-    </section>
   );
 }
 

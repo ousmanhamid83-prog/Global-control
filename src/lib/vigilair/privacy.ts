@@ -2,7 +2,6 @@
 
 export const POSTE_LABEL = "poste";
 export const POSTE_ETRANGER = "poste-étranger";
-export const POSTE_EXERCICE = "poste-exercice";
 
 const IPV4 =
   /\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b/g;
@@ -25,7 +24,6 @@ export function sanitizeMachineLabel(raw?: string | null): string {
   if (s.includes("étranger") || s.includes("etranger") || s.includes("foreign")) {
     return POSTE_ETRANGER;
   }
-  if (s.includes("exercice") || s.includes("drill")) return POSTE_EXERCICE;
   return POSTE_LABEL;
 }
 

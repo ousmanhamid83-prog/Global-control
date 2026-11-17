@@ -15,9 +15,6 @@ import { scanFlames } from "./flame";
 import { creerFile, type FileTuiles } from "./file-tuiles";
 import { couvre, type RectTuiles } from "./mosaique-couverture";
 
-export const SAT_CREDIT =
-  "Vue proche : World Imagery jusqu'à z19, objets au sol, toute région. Vue large : Meteosat ≤ 60 min.";
-
 export function satCredit(z: number, layer: SatLayer = "vis", meta?: SatMeta | null): string {
   if (layer === "s2") {
     const src = meta?.s2Src;
@@ -1234,12 +1231,6 @@ export function setTileRefine(on: boolean): void {
 
 export function clearTileCache(): void {
   cache.clear();
-}
-
-export function tilesReady(): number {
-  let n = 0;
-  for (const v of cache.values()) if (v !== "fail") n += 1;
-  return n;
 }
 
 if (typeof window !== "undefined") {

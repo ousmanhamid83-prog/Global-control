@@ -1097,12 +1097,6 @@ export const PLATFORM_BY_ID: Record<string, Platform> = Object.fromEntries(
   [...PLATFORMS, ...OUT_OF_MANDATE, ...FRIEND_PLATFORMS].map((x) => [x.id, x]),
 );
 
-export const MANDATE_ORIGINS: Origin[] = ["CN", "TR", "RU", "IR"];
-
-export function platformsByOrigin(origin: Origin): Platform[] {
-  return PLATFORMS.filter((x) => x.origin === origin);
-}
-
 export function threatRank(t: Threat): number {
   return { faible: 1, moderee: 2, elevee: 3, critique: 4 }[t];
 }
@@ -1231,15 +1225,13 @@ export function idStateLabel(s: import("./types").IdState): string {
   }
 }
 
-export function sensorLabel(k: import("./types").SensorKind): string {
-  switch (k) {
-    case "rf":
-      return "RF";
-    case "radar":
-      return "Radar 3D";
-    case "eoir":
-      return "EO/IR";
-    case "acoustic":
-      return "Acoustique";
-  }
+/**
+ * Où une piste a été entendue. Un bulletin versé avant la version réelle peut porter une autre
+ * valeur (pistes simulées) : elle est rendue telle quelle, jamais maquillée.
+ */
+export function sensorLabel(k: string): string {
+  if (k === "antenne") return "antenne 1090 du poste";
+  if (k === "reseau") return "relevé 1090 du réseau";
+  if (k === "liaison") return "liaison MAVLink de notre drone (exercice)";
+  return k;
 }

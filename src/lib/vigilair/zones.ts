@@ -1,8 +1,8 @@
 /** Bulles de protection C-UAS — N'Djamena. AfriControl n'émet pas. */
 
-import { isFriend } from "./friends";
-import { haversineKm, headingBetween } from "./geo";
-import { PROTECTED_SITES } from "./sensors";
+import { isFriend } from "./friends.ts";
+import { haversineKm, headingBetween } from "./geo.ts";
+import { PROTECTED_SITES } from "./sensors.ts";
 import type { ProtectedSite, Track } from "./types";
 
 export type ZoneKind = ProtectedSite["kind"] | "mine" | "custom";
@@ -24,6 +24,8 @@ export type ZoneContact = {
   distKm: number;
   uas: boolean;
   friend: boolean;
+  /** Piste d'exercice (vrai vol de notre drone, joué comme intrus) : versée comme exercice. */
+  exercice: boolean;
 };
 
 export type ZoneLevel = "veille" | "trafic" | "approche" | "intrusion";
@@ -73,11 +75,10 @@ export function isUasThreat(t: Track): boolean {
   if (isFriend(t)) return false;
   // Un rejeu est du passé : il ne déclenche jamais une intrusion (ni son signalement au serveur).
   if (t.feed === "rejeu") return false;
-  if (t.injected) return true;
-  if ((t.category ?? "").toUpperCase() === "B6") return true;
-  if (t.feed === "rid") return true;
-  if (t.feed === "adsb") return false;
-  return true;
+  // Exercice : le drone joue un intrus, et c'est précisément ce que l'exercice éprouve.
+  if (t.feed === "exercice") return true;
+  // 1090ES : seul un émetteur de catégorie B6 (UAV) est une menace ; le reste est du trafic.
+  return (t.category ?? "").toUpperCase() === "B6";
 }
 
 function asContact(t: Track, distKm: number): ZoneContact {
@@ -87,6 +88,7 @@ function asContact(t: Track, distKm: number): ZoneContact {
     distKm,
     uas: isUasThreat(t),
     friend: isFriend(t),
+    exercice: t.feed === "exercice",
   };
 }
 

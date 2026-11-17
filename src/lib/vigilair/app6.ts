@@ -4,14 +4,14 @@
  *
  * AfriControl est un poste de réception : il ne distribue rien, n'interroge rien. L'affiliation est
  * une lecture, jamais une désignation de tir. « Inconnu » est l'état par défaut assumé : une piste
- * sans IFF ami et sans mandat connu reste INCONNU, pas HOSTILE.
+ * qui n'est ni du trafic ASECNA ni l'un de nos drones reste INCONNU, pas HOSTILE.
  */
 
 import type { Threat, Track } from "./types";
 
-/** Ami par affiliation (FATL / ASECNA), distinct de l'origine constructeur. */
+/** Ami par affiliation (trafic ASECNA, nos drones), distinct de l'origine constructeur. */
 function isFriend(t: Track): boolean {
-  return t.friendKind === "fatl" || t.friendKind === "asecna" || t.friendKind === "drone";
+  return t.friendKind === "asecna" || t.friendKind === "drone";
 }
 
 /** Affiliation standard STANAG : la forme du cadre en dépend. */
@@ -59,25 +59,16 @@ export function affiliationColorVar(a: Affiliation): string {
 
 /**
  * Lit l'affiliation d'une piste. Règles, dans l'ordre :
- *  - IFF ami (FATL Mode 4 valide, ou ASECNA) → AMI ;
- *  - Mode 4 demandé mais invalide alors qu'un ami est attendu → SUSPECT ;
+ *  - notre drone inscrit, ou trafic ASECNA du théâtre → AMI ;
  *  - origine sous mandat (CN/TR/RU/IR) et menace haute → HOSTILE ; menace moindre → SUSPECT ;
  *  - trafic civil identifié hors mandat → NEUTRE ;
  *  - tout le reste → INCONNU (l'état honnête par défaut).
  */
 export function affiliationOf(t: Track, threat: Threat): { affiliation: Affiliation; reason: string } {
   if (isFriend(t)) {
-    if (t.iff?.m4 === "invalid") {
-      return { affiliation: "suspect", reason: "ami attendu, Mode 4 invalide" };
-    }
     return {
       affiliation: "ami",
-      reason:
-        t.friendKind === "fatl"
-          ? "FATL · IFF Mode 4"
-          : t.friendKind === "drone"
-            ? `Notre drone${t.ownDrone ? ` · ${t.ownDrone}` : ""}`
-            : "ASECNA · plan de vol IFR",
+      reason: t.friendKind === "drone" ? `Notre drone${t.ownDrone ? ` · ${t.ownDrone}` : ""}` : "ASECNA · trafic IFR",
     };
   }
   const mandate = t.origin === "CN" || t.origin === "TR" || t.origin === "RU" || t.origin === "IR";
@@ -91,7 +82,7 @@ export function affiliationOf(t: Track, threat: Threat): { affiliation: Affiliat
   if (t.feed === "adsb" && t.idState === "confirme" && !t.military && t.category?.toUpperCase() !== "B6") {
     return { affiliation: "neutre", reason: "1090ES civil · hors mandat" };
   }
-  return { affiliation: "inconnu", reason: "sans IFF ni mandat levé" };
+  return { affiliation: "inconnu", reason: "ni ami, ni civil confirmé, ni mandat" };
 }
 
 export function app6Of(t: Track, threat: Threat): App6Symbol {

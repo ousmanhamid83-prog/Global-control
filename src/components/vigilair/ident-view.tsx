@@ -1,5 +1,5 @@
 import { RadarMap } from "@/components/vigilair/radar-map";
-import { IffBadge, PaintFilters } from "@/components/vigilair/paint-filters";
+import { PaintFilters } from "@/components/vigilair/paint-filters";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -8,24 +8,22 @@ import {
   originLabel,
   PLATFORM_BY_ID,
 } from "@/lib/vigilair/catalog";
-import { STEALTH_NOTE } from "@/lib/vigilair/ew";
 import { originTone } from "@/lib/vigilair/format";
 import { friendLabel, isFriend } from "@/lib/vigilair/friends";
 import { AO, haversineKm } from "@/lib/vigilair/geo";
-import { canRequestM4, iffModesLine, M4_STEALTH } from "@/lib/vigilair/iff";
+import { iffModesLine } from "@/lib/vigilair/iff";
+import { surveillanceLabel } from "@/lib/vigilair/mode-s";
 import { sortTracks, trackVisible, useVigilair } from "@/lib/vigilair/store";
 import { cn } from "@/lib/utils";
-import { Crosshair, EyeOff, Fingerprint } from "lucide-react";
+import { Crosshair, EyeOff } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
 export function IdentView() {
   const tracks = useVigilair((s) => s.tracks);
   const selectedId = useVigilair((s) => s.selectedId);
   const lockTrack = useVigilair((s) => s.lockTrack);
-  const requestM4 = useVigilair((s) => s.requestM4);
   const live = sortTracks(tracks.filter((t) => trackVisible(t, selectedId)));
   const track = live.find((t) => t.id === selectedId) ?? live.find((t) => t.locked) ?? null;
-  const m4 = track ? canRequestM4(track) : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -35,8 +33,8 @@ export function IdentView() {
             Identification · type Flightradar
           </h1>
           <p className="text-xs text-muted-foreground">
-            Couverture 120 km FTTJ · 1090ES live / IFF Mode 4 · filtre
-            menace · {STEALTH_NOTE}
+            Couverture 120 km FTTJ · 1090ES en direct · filtre menace · le poste écoute, il
+            n'émet pas.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1">
@@ -64,7 +62,7 @@ export function IdentView() {
                 <th className="px-3 py-2 font-medium">CS</th>
                 <th className="px-2 py-2 font-medium">Type</th>
                 <th className="px-2 py-2 font-medium">Orig.</th>
-                <th className="px-2 py-2 font-medium">IFF</th>
+                <th className="px-2 py-2 font-medium">1090</th>
                 <th className="px-2 py-2 font-medium">Alt</th>
                 <th className="px-2 py-2 font-medium">FTTJ</th>
               </tr>
@@ -106,7 +104,11 @@ export function IdentView() {
                       )}
                     </td>
                     <td className="px-2 py-2">
-                      {t.iff ? <IffBadge m4={t.iff.m4} /> : <Badge>—</Badge>}
+                      {t.iff ? (
+                        <Badge>{t.iff.surveillance === "adsb" ? "ADS-B" : "Mode S"}</Badge>
+                      ) : (
+                        <Badge>—</Badge>
+                      )}
                     </td>
                     <td className="px-2 py-2 font-mono tabular-nums">
                       {Math.round(t.altM)}
@@ -133,12 +135,9 @@ export function IdentView() {
               </p>
               {track.iff ? (
                 <p className="text-xs text-muted-foreground">
-                  {iffModesLine(track.iff)}
-                  {track.iff.m4Site ? ` · ${track.iff.m4Site}` : ""}
+                  {surveillanceLabel(track.iff.surveillance)} · {iffModesLine(track.iff)}
                 </p>
-              ) : (
-                <p className="text-xs text-muted-foreground">{M4_STEALTH}</p>
-              )}
+              ) : null}
               <div className="flex flex-col gap-2">
                 <Button
                   variant="outline"
@@ -148,24 +147,8 @@ export function IdentView() {
                   <Crosshair />
                   {track.locked ? "Relâcher le verrou" : "Verrouiller la trajectoire"}
                 </Button>
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  disabled={!m4?.ok}
-                  onClick={() => requestM4(track.id)}
-                >
-                  <Fingerprint />
-                  {track.iff?.m4 === "demande"
-                    ? "Interrogation Mode 4…"
-                    : track.iff?.m4 === "valid"
-                      ? "Réinterroger Mode 4"
-                      : "Demander Mode 4"}
-                </Button>
                 <Button asChild variant="outline" className="w-full">
-                  <Link to="/iff">Pupitre IFF</Link>
-                </Button>
-                <Button asChild variant="outline" className="w-full">
-                  <Link to="/trace">Traçabilité SRC → ARR</Link>
+                  <Link to="/iff">Transpondeurs 1090</Link>
                 </Button>
               </div>
             </div>

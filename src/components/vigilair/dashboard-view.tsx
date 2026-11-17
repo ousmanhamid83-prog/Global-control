@@ -24,7 +24,6 @@ import {
   TelemetryCard,
 } from "@/components/vigilair/telemetry-panel";
 import { cn } from "@/lib/utils";
-import { SENSOR_SITES } from "@/lib/vigilair/sensors";
 import { computePosture, postureLabel } from "@/lib/vigilair/defense";
 import {
   classLabel,
@@ -34,10 +33,8 @@ import {
 } from "@/lib/vigilair/catalog";
 import { altToFl, formatClock, formatWatHm, kmhToKt } from "@/lib/vigilair/format";
 import { countFriends, isFriend } from "@/lib/vigilair/friends";
-import { countM4 } from "@/lib/vigilair/iff";
 import { countModeS } from "@/lib/vigilair/mode-s";
 import { countLive } from "@/lib/vigilair/live-adsb";
-import { prfHz } from "@/lib/vigilair/ppi";
 import { detectRaids } from "@/lib/vigilair/raid";
 import { ROLE_LABEL } from "@/lib/vigilair/staff";
 import { useStaff } from "@/lib/vigilair/staff-context";
@@ -80,7 +77,6 @@ export function DashboardView() {
   const history = useVigilair((s) => s.history);
   const now = useVigilair((s) => s.now);
   const ppi = useVigilair((s) => s.ppi);
-  const ewArmed = useVigilair((s) => s.ewArmed);
   const pic = useVigilair((s) => s.livePicture);
   const watch = useVigilair((s) => s.watch);
   const watchLoaded = useVigilair((s) => s.watchLoaded);
@@ -104,7 +100,6 @@ export function DashboardView() {
   const { posture, reason } = computePosture(tracks);
   const raids = detectRaids(tracks);
   const friends = countFriends(tracks);
-  const m4 = countM4(tracks);
   const ms = countModeS(live);
   const live1090 = countLive(tracks);
 
@@ -260,41 +255,17 @@ export function DashboardView() {
             : "warn",
     },
     {
-      label: "Effecteur",
-      value: staffLoading
-        ? "…"
-        : isSuperadmin
-          ? ewArmed
-            ? "RF armé"
-            : "RF off"
-          : "Chef seulement",
-      tone: ewArmed ? "warn" : "idle",
-    },
-    { label: "PRF PPI", value: `${prfHz(ppi.rangeKm)} Hz` },
-    {
       label: "Raids",
       value: raids.length ? `${raids[0].corridor} · ${raids[0].count}` : "Aucun",
       tone: raids.length ? "crit" : "ok",
     },
     {
-      label: "Amis FATL / ASECNA",
-      value: `${friends.fatl} / ${friends.asecna}`,
+      label: "Amis · nos drones / ASECNA",
+      value: `${friends.drone} / ${friends.asecna}`,
     },
     {
-      label: "Mode 4",
-      value:
-        m4.invalid > 0
-          ? `${m4.valid} valides · ${m4.invalid} invalides`
-          : `${m4.valid} valides · ${m4.absent} sans M4`,
-      tone: m4.invalid > 0 ? "crit" : "idle",
-    },
-    {
-      label: "Mode S / MLAT",
-      value:
-        ms.spoof > 0
-          ? `${ms.mlat} TDOA · ${ms.spoof} usurp.`
-          : `${ms.ehs + ms.els + ms.adsb} 1090 · ${ms.mlat} MLAT`,
-      tone: ms.spoof > 0 ? "crit" : "idle",
+      label: "ADS-B / Mode S",
+      value: `${ms.adsb} ADS-B · ${ms.modes} Mode S · ${live.filter((t) => t.posSource === "mlat").length} MLAT réseau`,
     },
     {
       label: "1090ES live",
@@ -728,8 +699,6 @@ export function DashboardView() {
               <Row k="Bande Sahel" v="Dakar → mer Rouge · 4 000 km" />
               <Row k="Carte Monde" v="VIIRS SNPP quotidien · 20 000 km" />
               <Row k="PPI porté" v={`${ppi.rangeKm} km`} />
-              <Row k="Balayage" v={`${ppi.rpm} tr/min`} />
-              <Row k="Gain / clutter" v={`${ppi.gain.toFixed(2)} / ${Math.round(ppi.clutter * 100)} %`} />
               <Row k="Mandat" v="CN · TR · RU · IR" />
               <Row k="1090ES live" v={pic ? `${pic.aircraft.length} Afrique · ${pic.sahelN} Sahel · ${pic.localN} ident` : "en attente"} />
               <Row k="SIGMET Afrique" v={String(pic?.sigmets.filter((s) => s.inAo).length ?? 0)} />
@@ -752,15 +721,13 @@ export function DashboardView() {
                 }
               />
               <Row k="Émission RF" v="Interdite (AfriControl n'émet pas)" />
-              <Row k="Brouillage" v={isSuperadmin ? "Réservé chef de division" : "Masqué — chef seulement"} />
-              <Row k="SIGINT" v="1090ES passif · pas de C2 injecté" />
+              <Row k="Brouillage" v="Aucun — le poste n'en a pas" />
+              <Row k="Écoute" v="1090 MHz et phonie VHF, passives" />
               <Row k="Contrôle objet" v="Jamais — COP seulement" />
             </dl>
           </section>
           <section className="hud rounded-md border border-border bg-surface p-4">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.08em]">
-              {pic?.sources.length ? "Flux réels" : "Inventaire C-UAS"}
-            </h2>
+            <h2 className="text-sm font-semibold uppercase tracking-[0.08em]">Flux réels</h2>
             <ul className="mt-3 space-y-2">
               {pic?.sources.length
                 ? pic.sources.map((s) => {
@@ -788,20 +755,11 @@ export function DashboardView() {
                       </li>
                     );
                   })
-                : SENSOR_SITES.map((s) => (
-                    <li
-                      key={s.id}
-                      className="flex items-center justify-between gap-2 text-sm"
-                    >
-                      <span className="min-w-0 break-words">
-                        {s.name}
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          {s.kind.toUpperCase()} · {s.rangeKm} km
-                        </span>
-                      </span>
-                      <Badge className="shrink-0">Inventaire</Badge>
+                : (
+                    <li className="text-sm text-muted-foreground">
+                      En attente du premier relevé des flux réels.
                     </li>
-                  ))}
+                  )}
             </ul>
             {byClass.length > 0 ? (
               <p className="mt-4 text-xs text-muted-foreground">

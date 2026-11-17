@@ -10,10 +10,6 @@ export const TIME_VECTORS = [0, 1, 2, 5] as const;
 
 export type PpiParams = {
   rangeKm: PpiRangeKm;
-  rpm: number;
-  gain: number;
-  clutter: number;
-  afterglow: boolean;
   labels: boolean;
   trails: boolean;
   iff: boolean;
@@ -27,10 +23,6 @@ export type PpiParams = {
 
 export const DEFAULT_PPI: PpiParams = {
   rangeKm: 1200,
-  rpm: 8,
-  gain: 1,
-  clutter: 0.06,
-  afterglow: true,
   labels: true,
   trails: true,
   iff: true,
@@ -41,12 +33,6 @@ export const DEFAULT_PPI: PpiParams = {
 
 /** Déclinaison magnétique à N'Djamena ≈ +1,2° E (WMM 2025). Nord mag = nord vrai − déclinaison. */
 export const MAG_DECLINATION_DEG = 1.2;
-
-/** PRF théorique pour une portée non ambiguë (c / 2R). */
-export function prfHz(rangeKm: number): number {
-  const r = Math.max(1, rangeKm) * 1000;
-  return Math.round(299_792_458 / (2 * r));
-}
 
 export type HistSample = {
   t: number;

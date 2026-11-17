@@ -7,7 +7,6 @@ import { mineById, mineCamera } from "./mines.ts";
 import { formatFireAge, lockFire, fireAgeMs } from "./fire-clock.ts";
 import { treatContact } from "./treat.ts";
 import { emptyFlags, planSteward, weeklyDue } from "./steward.ts";
-import { collectSigintAlerts } from "./sigint-alerts.ts";
 
 describe("photo réelle N'Djamena z17", () => {
   it("ne voit pas de feu voiture dans la mosaïque", () => {
@@ -143,37 +142,6 @@ describe("intendant", () => {
     });
     assert.equal(back.some((a) => a.id === "ir-vis"), true);
     assert.equal(back.some((a) => a.id === "weekly"), false);
-  });
-});
-
-describe("alertes SIGINT", () => {
-  it("ouvre un verrou une seule fois et ignore le reste", () => {
-    const warned = new Set<string>();
-    const base = {
-      id: "t1",
-      callsign: "T01",
-      lat: 12.1,
-      lon: 15.0,
-      threat: "elevee" as const,
-      now: 1_700_000_000_000,
-      warned,
-    };
-    const first = collectSigintAlerts({
-      ...base,
-      streams: [
-        { id: "aco", label: "Acoustique BPF", state: "lock", detail: "lock" },
-        { id: "ew", label: "Brouillage", state: "denied", detail: "n'émet pas" },
-        { id: "c2", label: "Source", state: "scan", detail: "en cours" },
-      ],
-    });
-    assert.equal(first.length, 1);
-    assert.equal(first[0]?.domain, "sigint");
-    assert.equal(first[0]?.level, "moderee");
-    const again = collectSigintAlerts({
-      ...base,
-      streams: [{ id: "aco", label: "Acoustique BPF", state: "lock", detail: "lock" }],
-    });
-    assert.equal(again.length, 0);
   });
 });
 

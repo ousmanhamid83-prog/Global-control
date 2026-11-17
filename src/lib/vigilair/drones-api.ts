@@ -255,6 +255,45 @@ export const droneConfirmer1090 = createServerFn({ method: "POST" })
     },
   );
 
+/**
+ * Le chef fait jouer à un de nos drones un intrus du catalogue (exercice, 2 h), ou y met fin. Le
+ * drone vole pour de vrai sur son programme de vol ; seule sa piste est marquée EXERCICE.
+ */
+export const droneExercice = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((raw: { id?: string; plateforme?: string | null }) => ({
+    id: String(raw?.id ?? ""),
+    plateforme: typeof raw?.plateforme === "string" && raw.plateforme ? raw.plateforme.slice(0, 64) : null,
+  }))
+  .handler(
+    async ({ data, context }): Promise<{ ok: boolean; error?: string; drones?: OwnDrone[] }> => {
+      const { insertOpsLog, requireSuperadmin } = await import("./staff");
+      const chef = await requireSuperadmin(context.userId);
+      const m = await import("./drones.server");
+      const r = await m.setDroneExerciceServer(data.id, data.plateforme);
+      if (r.ok) {
+        const drone = r.drones!.find((d) => d.id === data.id)!;
+        const { PLATFORM_BY_ID } = await import("./catalog");
+        const p = data.plateforme ? PLATFORM_BY_ID[data.plateforme] : null;
+        await insertOpsLog({
+          userId: chef.userId,
+          actor: chef.label,
+          role: chef.role,
+          team: chef.team,
+          kind: "drone",
+          title: p
+            ? `EXERCICE · drone ${drone.name} joue ${p.manufacturer} ${p.name}`
+            : `Fin d'exercice · drone ${drone.name}`,
+          detail: p
+            ? "Pendant 2 h, sa vraie télémétrie fait une piste EXERCICE : alertes jamais relayées par Signal, intrusions versées au journal comme exercice."
+            : "Le drone n'est plus joué comme intrus.",
+          severity: "warn",
+        });
+      }
+      return r;
+    },
+  );
+
 /** Le chef pose (ou retire, null) l'image d'une source en fond de carte ; au journal. */
 export const droneFond = createServerFn({ method: "POST" })
   .middleware([authMiddleware])

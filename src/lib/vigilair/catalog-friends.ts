@@ -49,9 +49,15 @@ function f(o: {
     ceilingM: o.ceil,
     cruiseKmh: o.cruise,
     maxKmh: o.vmax,
-    rfBands: o.bands ?? ["IFF Mode 4", "Mode 3/A", "UHF/VHF"],
+    // Un avion de ligne émet en 1090 (ADS-B, Mode S) et parle en VHF : ni IFF militaire, ni Remote ID
+    // (norme des petits drones). Ces deux mentions s'affichaient à tort sur chaque avion entendu.
+    rfBands:
+      o.bands ??
+      (o.kind === "asecna"
+        ? ["ADS-B 1090", "Mode S", "VHF COM"]
+        : ["IFF militaire", "Mode 3/A", "UHF/VHF"]),
     protocol: o.proto,
-    remoteId: o.kind === "asecna",
+    remoteId: false,
     payload: o.payload,
     cues: { rf: o.rf, visual: o.vis, kinematic: o.kin, acoustic: o.ac },
     notes: o.notes,
@@ -74,10 +80,10 @@ export const FRIEND_PLATFORMS: Platform[] = [
     ceil: 4500,
     cruise: 215,
     vmax: 335,
-    proto: "IFF FATL Mode 4 + UHF",
+    proto: "IFF militaire + UHF",
     payload: "Canon + roquettes · appui-feu FATL",
-    bands: ["IFF Mode 4", "IFF Mode 3/A", "UHF tactique", "VHF"],
-    rf: "IFF Mode 4 crypto FATL + squawk 3/A. Pas de C2 ISM.",
+    bands: ["IFF militaire", "IFF Mode 3/A", "UHF tactique", "VHF"],
+    rf: "IFF militaire + squawk 3/A. Pas de C2 ISM.",
     vis: "Hind, nez canon, ailes stub, rotor 5 pales.",
     kin: "80–220 km/h, 50–1500 m, patrouille autour d'une base.",
     ac: "Turbine TV3-117, BPF rotor ~5 Hz.",
@@ -98,9 +104,9 @@ export const FRIEND_PLATFORMS: Platform[] = [
     ceil: 6000,
     cruise: 220,
     vmax: 250,
-    proto: "IFF FATL Mode 4 + UHF",
+    proto: "IFF militaire + UHF",
     payload: "Transport troupes / CASEVAC",
-    rf: "IFF Mode 4 + 3/A, UHF. Pas de protocole drone.",
+    rf: "IFF militaire + 3/A, UHF. Pas de protocole drone.",
     vis: "Hip, cabine large, rotor 5 pales, treuil.",
     kin: "Patrouille / liaison base, 100–800 m.",
     ac: "Rotor lourd, signature grave.",
@@ -120,10 +126,10 @@ export const FRIEND_PLATFORMS: Platform[] = [
     ceil: 10000,
     cruise: 540,
     vmax: 590,
-    proto: "IFF Mode 4 + Mode S + ADS-B 1090",
+    proto: "IFF militaire + Mode S + ADS-B 1090",
     payload: "Fret / parachutage",
-    bands: ["IFF Mode 4", "IFF Mode S", "ADS-B 1090", "HF/UHF"],
-    rf: "Mode 4 FATL + Mode S + ADS-B. Transpondeur mil/civ visible ASECNA.",
+    bands: ["IFF militaire", "IFF Mode S", "ADS-B 1090", "HF/UHF"],
+    rf: "Mode S + ADS-B quand ils sont allumés : seuls ceux-là s'entendent au poste.",
     vis: "Hercules, aile haute, 4 turboprop.",
     kin: "FL180–FL250, 500 km/h, liaisons FTTJ–Abéché–Faya.",
     ac: "Quatre T56, grave.",
@@ -143,9 +149,9 @@ export const FRIEND_PLATFORMS: Platform[] = [
     ceil: 7500,
     cruise: 430,
     vmax: 540,
-    proto: "IFF Mode 4 FATL",
+    proto: "IFF militaire",
     payload: "Fret tactique",
-    rf: "IFF Mode 4 + 3/A, VHF. Pas d'OcuSync.",
+    rf: "IFF militaire + 3/A, VHF. Pas d'OcuSync.",
     vis: "Curl, aile haute, rampe arrière, 2 turboprop.",
     kin: "FL120–FL180, liaisons intérieures.",
     ac: "Deux AI-24.",
@@ -165,15 +171,15 @@ export const FRIEND_PLATFORMS: Platform[] = [
     ceil: 7000,
     cruise: 700,
     vmax: 950,
-    proto: "IFF FATL Mode 4 + UHF",
+    proto: "IFF militaire + UHF",
     payload: "Appui-feu, 4 t",
-    bands: ["IFF Mode 4", "IFF Mode 3/A", "UHF", "radar télémétrique"],
-    rf: "IFF Mode 4 FATL, pas de datalink VKS. Discriminant vs Frogfoot hostile.",
+    bands: ["IFF militaire", "IFF Mode 3/A", "UHF", "radar télémétrique"],
+    rf: "IFF militaire, pas de datalink VKS.",
     vis: "Frogfoot, aile droite, biréacteur trapu.",
     kin: "Rasant 50–3000 m, 600–850 km/h.",
     ac: "R-95 ×2, très bruyant bas.",
     notes:
-      "Appui-feu FATL. Même type que le Su-25SM du mandat RU — c'est le Mode 4 FATL qui fait l'ami, pas la silhouette.",
+      "Appui-feu FATL. Même type que le Su-25SM du mandat RU : la silhouette ne fait pas l'affiliation, et le poste ne lit pas l'IFF militaire.",
   }),
   f({
     id: "fatl-pc7",
@@ -189,7 +195,7 @@ export const FRIEND_PLATFORMS: Platform[] = [
     ceil: 8000,
     cruise: 330,
     vmax: 500,
-    proto: "IFF Mode 4 + Mode 3/A + VHF",
+    proto: "IFF militaire + Mode 3/A + VHF",
     payload: "Entraînement / COIN léger",
     rf: "IFF, VHF. Pas de C2 drone.",
     vis: "Turbo Trainer, tandem, hélice, aile basse.",
@@ -211,15 +217,15 @@ export const FRIEND_PLATFORMS: Platform[] = [
     ceil: 7200,
     cruise: 180,
     vmax: 235,
-    proto: "Liaison SATCOM FATL + IFF Mode 4",
+    proto: "Liaison SATCOM + IFF militaire",
     payload: "ISR / frappe FATL",
-    bands: ["SATCOM", "IFF Mode 4", "IFF Mode 3/A", "C-band LOS"],
-    rf: "IFF Mode 4 FATL + SATCOM national. Même famille Rainbow que le mandat CN — affiliation Tchad.",
+    bands: ["SATCOM", "IFF militaire", "IFF Mode 3/A", "C-band LOS"],
+    rf: "IFF militaire + SATCOM. Même famille Rainbow que le mandat CN — affiliation Tchad.",
     vis: "MALE aile haute, empennage en V, train tricycle.",
     kin: "Loiter 150–180 km/h, 4000–6000 m, box FTTJ / Abéché.",
     ac: "Mono turboprop discret.",
     notes:
-      "UAS FATL d'origine chinoise. Origine CN ≠ hostile : le Mode 4 FATL prime. Effecteur interdit.",
+      "UAS FATL d'origine chinoise. Origine CN ≠ hostile, mais le poste ne lit pas l'IFF militaire : l'affiliation ne se lit pas à l'écran.",
   }),
   f({
     id: "asecna-a320",
@@ -381,10 +387,4 @@ export const FRIEND_PLATFORMS: Platform[] = [
 
 export const FRIEND_BY_ID: Record<string, Platform> = Object.fromEntries(
   FRIEND_PLATFORMS.map((p) => [p.id, p]),
-);
-
-export const FATL_PLATFORMS = FRIEND_PLATFORMS.filter((p) => p.friendKind === "fatl");
-const LIVE_ONLY = new Set(["asecna-wide", "asecna-biz", "asecna-unk"]);
-export const ASECNA_PLATFORMS = FRIEND_PLATFORMS.filter(
-  (p) => p.friendKind === "asecna" && !LIVE_ONLY.has(p.id),
 );

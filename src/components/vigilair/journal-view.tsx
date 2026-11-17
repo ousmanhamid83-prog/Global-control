@@ -100,7 +100,7 @@ export function JournalView() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-sm">{e.callsign}</span>
                     <Badge tone={originTone(e.origin)}>{originLabel(e.origin)}</Badge>
-                    {e.injected ? <Badge tone="warn">INJ</Badge> : null}
+                    {e.injected ? <Badge tone="warn">EXERCICE</Badge> : null}
                     {e.pending ? (
                       <Badge>
                         <LoaderCircle className="mr-1 size-3 animate-spin" />
@@ -129,13 +129,7 @@ export function JournalView() {
                 </p>
                 {e.launchLat != null && e.launchLon != null ? (
                   <p className="mt-1 font-mono text-xs text-muted-foreground">
-                    SRC {formatCoord(e.launchLat, e.launchLon)}
-                    {e.c2Lat != null && e.c2Lon != null
-                      ? ` · TEL ${formatCoord(e.c2Lat, e.c2Lon)}`
-                      : ""}
-                    {e.stopLat != null && e.stopLon != null
-                      ? ` · ARR ${formatCoord(e.stopLat, e.stopLon)}`
-                      : ""}
+                    Premier relevé {formatCoord(e.launchLat, e.launchLon)}
                   </p>
                 ) : null}
                 {e.contentSha256 ? (
@@ -151,9 +145,6 @@ export function JournalView() {
                 ) : null}
                 {e.fileError ? (
                   <p className="mt-1 text-xs text-warn">{e.fileError}</p>
-                ) : null}
-                {e.ewNote ? (
-                  <p className="mt-1 text-xs text-muted-foreground">{e.ewNote}</p>
                 ) : null}
                 <p className="mt-1 text-xs text-muted-foreground">{e.method}</p>
                 {e.contentSha256 && !e.pending ? (

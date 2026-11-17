@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Clock, Pause, Play, Radio, RadioTower } from "lucide-react";
+import { Clock, Pause, Play, Radio } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { AlertRelay } from "@/components/vigilair/alert-relay";
 import { DutyWatch } from "@/components/vigilair/duty-watch";
@@ -18,7 +18,6 @@ import { computePosture, postureLabel } from "@/lib/vigilair/defense";
 import { formatClock } from "@/lib/vigilair/format";
 import { countFriends } from "@/lib/vigilair/friends";
 import { countLive } from "@/lib/vigilair/live-adsb";
-import { countM4 } from "@/lib/vigilair/iff";
 import { PPI_RANGES, type PpiRangeKm } from "@/lib/vigilair/ppi";
 import { detectRaids } from "@/lib/vigilair/raid";
 import { useStaff } from "@/lib/vigilair/staff-context";
@@ -34,9 +33,7 @@ type NavTo =
   | "/iff"
   | "/capteurs"
   | "/zones"
-  | "/trace"
   | "/quart"
-  | "/audio"
   | "/catalogue"
   | "/journal"
   | "/sentinelle"
@@ -58,10 +55,9 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
     label: "Détection",
     items: [
       { to: "/ident", label: "Ident" },
-      { to: "/iff", label: "IFF" },
+      { to: "/iff", label: "Mode S" },
       { to: "/capteurs", label: "Capteurs" },
       { to: "/zones", label: "Bulles" },
-      { to: "/trace", label: "Trace" },
     ],
   },
   {
@@ -72,7 +68,6 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
     label: "Garde",
     items: [
       { to: "/quart", label: "Quart" },
-      { to: "/audio", label: "SIGINT" },
       { to: "/catalogue", label: "Signatures" },
       { to: "/journal", label: "Journal" },
       { to: "/sentinelle", label: "Sentinelle" },
@@ -110,9 +105,7 @@ function ShellBody({ children }: { children: ReactNode }) {
   const running = useVigilair((s) => s.running);
   const tracks = useVigilair((s) => s.tracks);
   const alerts = useVigilair((s) => s.alerts);
-  const ewArmed = useVigilair((s) => s.ewArmed);
   const setRunning = useVigilair((s) => s.setRunning);
-  const setEwArmed = useVigilair((s) => s.setEwArmed);
   const lockTrack = useVigilair((s) => s.lockTrack);
   const setPpi = useVigilair((s) => s.setPpi);
   const scrubReplay = useVigilair((s) => s.scrubReplay);
@@ -121,8 +114,6 @@ function ShellBody({ children }: { children: ReactNode }) {
   const setShowFriends = useVigilair((s) => s.setShowFriends);
   const setShowLive = useVigilair((s) => s.setShowLive);
   const cycleThreatFloor = useVigilair((s) => s.cycleThreatFloor);
-  const cycleIffFilter = useVigilair((s) => s.cycleIffFilter);
-  const requestM4 = useVigilair((s) => s.requestM4);
   const { isSuperadmin } = useStaff();
   const [botOpen, setBotOpen] = useState(false);
 
@@ -219,16 +210,6 @@ function ShellBody({ children }: { children: ReactNode }) {
         useVigilair.getState().cycleThreatFloor();
         return;
       }
-      if (e.key === "i" || e.key === "I") {
-        useVigilair.getState().cycleIffFilter();
-        return;
-      }
-      if (e.key === "m" || e.key === "M") {
-        if (useVigilair.getState().copLock?.locked) return;
-        const id = useVigilair.getState().selectedId;
-        if (id) requestM4(id);
-        return;
-      }
       if (e.key === "d" || e.key === "D") {
         useVigilair.getState().toggleDeclutter();
         return;
@@ -244,13 +225,12 @@ function ShellBody({ children }: { children: ReactNode }) {
       window.removeEventListener("pointerdown", onPointer, true);
       window.removeEventListener("keydown", onKey);
     };
-  }, [lockTrack, setPpi, scrubReplay, seekReplay, returnToLive, setShowFriends, setShowLive, cycleThreatFloor, cycleIffFilter, requestM4]);
+  }, [lockTrack, setPpi, scrubReplay, seekReplay, returnToLive, setShowFriends, setShowLive, cycleThreatFloor]);
 
   const live = tracks.filter((t) => t.idState !== "perdu").length;
   const unacked = alerts.filter((a) => !a.acked).length;
   const friends = countFriends(tracks);
   const live1090 = countLive(tracks);
-  const m4 = countM4(tracks);
   const full =
     pathname === "/" ||
     pathname === "/ident" ||
@@ -298,8 +278,6 @@ function ShellBody({ children }: { children: ReactNode }) {
             <Badge tone="warn">Bulle</Badge>
           ) : null}
           {friends.n > 0 ? <Badge tone="ok">Amis {friends.n}</Badge> : null}
-          {m4.valid > 0 ? <Badge tone="ok">M4+ {m4.valid}</Badge> : null}
-          {m4.invalid > 0 ? <Badge tone="crit">M4- {m4.invalid}</Badge> : null}
           {unacked > 0 ? <Badge tone="crit">{unacked} alertes</Badge> : null}
           {raids.length > 0 ? <Badge tone="crit">Raid {raids[0].count}</Badge> : null}
           {frozen ? <Badge tone="crit">COP figé</Badge> : null}
@@ -326,17 +304,6 @@ function ShellBody({ children }: { children: ReactNode }) {
               onClick={() => setBotOpen((v) => !v)}
             >
               Bot
-            </Button>
-          ) : null}
-          {isSuperadmin ? (
-            <Button
-              variant={ewArmed ? "default" : "outline"}
-              size="sm"
-              onClick={() => setEwArmed(!ewArmed)}
-              aria-label={ewArmed ? "Désarmer le brouillage" : "Armer le brouillage défensif"}
-            >
-              <RadioTower />
-              {ewArmed ? "RF armé" : "RF off"}
             </Button>
           ) : null}
           <Button

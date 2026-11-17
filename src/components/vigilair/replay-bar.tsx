@@ -10,28 +10,41 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { INJECT_GROUPS, INJECTS } from "@/lib/vigilair/inject";
+import { dronesPeek } from "@/lib/vigilair/drones";
+import { exerciceEnCours } from "@/lib/vigilair/drones-core";
+import { reglerExercice } from "@/lib/vigilair/drones-suivi";
 import { fetchRejeuTape } from "@/lib/vigilair/live-feeds";
 import { rejeuClock, tapeUsable } from "@/lib/vigilair/rejeu";
 import { formatTape } from "@/lib/vigilair/replay";
-import { REJEU_INJECT_ID, useVigilair } from "@/lib/vigilair/store";
-import { cn } from "@/lib/utils";
+import { useStaff } from "@/lib/vigilair/staff-context";
+import { useVigilair } from "@/lib/vigilair/store";
+
+/** Le chef met fin à tous les exercices en cours, au poste ; la console oublie ensuite leurs pistes. */
+async function finExercices(purger: () => void): Promise<string | null> {
+  const maintenant = Date.now();
+  for (const d of dronesPeek()) {
+    if (!exerciceEnCours(d, maintenant)) continue;
+    const erreur = await reglerExercice(d.id, null);
+    if (erreur) return erreur;
+  }
+  purger();
+  return null;
+}
 
 export function ReplayBar() {
   const clockMode = useVigilair((s) => s.clockMode);
   const replayIndex = useVigilair((s) => s.replayIndex);
   const replayCount = useVigilair((s) => s.replayCount);
-  const instruction = useVigilair((s) => s.instruction);
-  const lastInject = useVigilair((s) => s.lastInject);
   const seekReplay = useVigilair((s) => s.seekReplay);
   const scrubReplay = useVigilair((s) => s.scrubReplay);
   const returnToLive = useVigilair((s) => s.returnToLive);
-  const runInject = useVigilair((s) => s.runInject);
   const purgeInjects = useVigilair((s) => s.purgeInjects);
   const rejeu = useVigilair((s) => s.rejeu);
   const startRejeu = useVigilair((s) => s.startRejeu);
   const setRejeuSpeed = useVigilair((s) => s.setRejeuSpeed);
   const stopRejeu = useVigilair((s) => s.stopRejeu);
+  const { isSuperadmin } = useStaff();
+  const [finErreur, setFinErreur] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [rejeuBusy, setRejeuBusy] = useState(false);
   const [rejeuError, setRejeuError] = useState<string | null>(null);
@@ -56,7 +69,6 @@ export function ReplayBar() {
   const idx = clockMode === "replay" ? replayIndex : max;
   const tapeNow = formatTape(idx * 1000);
   const tapeEnd = formatTape(max * 1000);
-  const last = lastInject ? INJECTS.find((x) => x.id === lastInject) : null;
   const hasExercise = useVigilair((s) => s.tracks.some((t) => t.injected && t.feed !== "rejeu"));
 
   return (
@@ -90,21 +102,28 @@ export function ReplayBar() {
           </Button>
         </div>
       ) : null}
-      {instruction && !(rejeu && lastInject === REJEU_INJECT_ID && !hasExercise) ? (
+      {hasExercise ? (
         <div
           className="flex items-center gap-2 border-b border-warn/30 bg-warn/10 px-4 py-1.5"
           role="status"
+          data-testid="exercice-banner"
         >
           <GraduationCap className="size-4 shrink-0 text-warn" />
           <p className="min-w-0 flex-1 truncate text-xs text-fg">
-            Mode instruction
-            {last ? ` · ${last.name}` : ""} — pistes INJ de formation, pas un
-            contact réel.
+            EXERCICE en cours — pistes EXE : un vrai vol, joué comme intrus. Pas un contact réel,
+            jamais relayé par Signal.{finErreur ? ` ${finErreur}` : ""}
           </p>
-          <Button variant="ghost" size="sm" onClick={purgeInjects}>
-            <Trash2 />
-            Purger · retour veille réelle
-          </Button>
+          {isSuperadmin ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="exercice-fin"
+              onClick={() => void finExercices(purgeInjects).then(setFinErreur)}
+            >
+              <Trash2 />
+              Fin d'exercice · retour veille réelle
+            </Button>
+          ) : null}
         </div>
       ) : null}
       <div className="flex gap-2 px-3 py-2 flex-row items-center">
@@ -201,39 +220,6 @@ export function ReplayBar() {
           <Button size="sm" variant="outline" disabled={rejeuBusy} onClick={launchRejeu}>
             {rejeuBusy ? "Chargement…" : rejeu ? "Relancer" : "Lancer le rejeu"}
           </Button>
-        </div>
-        <div className="grid gap-3 grid-cols-3">
-          {INJECT_GROUPS.map((g) => (
-            <div key={g.id}>
-              <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {g.label}
-              </p>
-              <ul className="space-y-1">
-                {INJECTS.filter((s) => s.group === g.id).map((s) => (
-                  <li key={s.id}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        runInject(s.id);
-                        setOpen(false);
-                      }}
-                      className={cn(
-                        "w-full rounded-md border px-3 py-2 text-left transition-colors duration-150",
-                        lastInject === s.id
-                          ? "border-border bg-secondary"
-                          : "border-transparent hover:bg-secondary/70",
-                      )}
-                    >
-                      <span className="block text-xs font-medium">{s.name}</span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">
-                        {s.count} pistes · {s.corridorName}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
         </div>
         </div>
       ) : null}

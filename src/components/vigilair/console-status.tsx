@@ -48,7 +48,6 @@ export function ConsoleStatus() {
   const alerts = useVigilair((s) => s.alerts);
   const running = useVigilair((s) => s.running);
   const clockMode = useVigilair((s) => s.clockMode);
-  const ewArmed = useVigilair((s) => s.ewArmed);
   const { events } = useTelemetry();
 
   const sources = pic?.sources ?? [];
@@ -96,8 +95,8 @@ export function ConsoleStatus() {
       >
         {clockMode === "replay" ? "relecture AAR" : running ? "en marche" : "en pause"}
       </Cell>
-      <Cell tone={ewArmed ? "warn" : "ok"} label="Émission">
-        {ewArmed ? "RF armé" : "aucune"}
+      <Cell tone="ok" label="Émission">
+        aucune
       </Cell>
       <Link
         to="/journal"

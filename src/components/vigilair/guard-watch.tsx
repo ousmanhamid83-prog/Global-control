@@ -13,7 +13,6 @@ export function GuardWatch() {
           useVigilair.getState().setCopLock(lock);
           if (lock.locked && !prev) {
             useVigilair.getState().setRunning(false);
-            useVigilair.getState().setEwArmed(false);
           }
         })
         .catch(() => undefined);

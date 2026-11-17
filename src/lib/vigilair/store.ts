@@ -2,25 +2,12 @@ import { create } from "zustand";
 import { PLATFORM_BY_ID, threatRank } from "./catalog";
 import { methodBlurb } from "./engine";
 import { bulletinToJournal, fileEvidence } from "./evidence-store";
-import { canRequestEw } from "./ew";
 import { AO, HOME, SCALE, haversineKm, nearestCity, theaterRank, type GeoOrigin, type MapScale } from "./geo";
-import { isFriend, spawnFriendTrack } from "./friends";
-import {
-  beginM4Request,
-  canRequestM4,
-  M4_DELAY_MS,
-  nextIffFilter,
-  nextThreatFloor,
-  passesPaintFilter,
-  resolveM4,
-  type IffFilter,
-  type PaintFilter,
-  type ThreatFloor,
-} from "./iff";
-import { INJECTS, spawnInject } from "./inject";
+import { isFriend } from "./friends";
+import { nextThreatFloor, passesPaintFilter, type ThreatFloor } from "./iff";
 import { autoLockPick, type AutoPick } from "./auto-lock";
 import type { GpsZone } from "./passability";
-import { iffEvidenceLine, tickModeS } from "./mode-s";
+import { iffEvidenceLine } from "./mode-s";
 import { DEFAULT_PPI, type HistSample, type PpiParams } from "./ppi";
 import {
   SNAP_MAX,
@@ -29,7 +16,6 @@ import {
   expandSnap,
   type Snap,
 } from "./replay";
-import { spawnTrack, stepTrack } from "./simulate";
 import {
   avecStatutId,
   emergencyLabel,
@@ -38,23 +24,21 @@ import {
   mergeLiveTracks,
   type LivePicture,
 } from "./live-adsb";
-import { sampleCpa } from "./acoustics";
+import { cpaSite } from "./cpa";
 import { COAST_ALERT_S, DUP_ADDR_RUN } from "./coast";
 import { silentAlarm, siteApproach } from "./site-approach";
 import { indexTape, rejeuClock, tapeAt, type RejeuTape, type TapeIndex } from "./rejeu";
 import { treatContact } from "./treat";
-import { preloadAoTiles, preloadAt, SAT_CREDIT, tileRef } from "./tiles";
+import { preloadAoTiles, preloadAt, tileRef } from "./tiles";
 import type { SatLayer, SatMeta } from "./sat";
 import { autoLayerSwitch } from "./sat";
 import { detectRaids } from "./raid";
-import { raiseSigintAlerts } from "./sigint";
 import { lockFire } from "./fire-clock";
 import { emptyFlags, type StewardFlags, type StewardParamId } from "./steward";
 import { setTileRefine } from "./tiles";
 import { emitDuty } from "./duty-bus";
-import { SAR_NOTE, SCENE_NOTE, evidenceOf } from "./trace";
 import { buildCapture, type CaptureShot, type Phenomenon } from "./capture";
-import type { AlertItem, AudioClip, JournalEntry, Origin, Threat, Track } from "./types";
+import type { AlertItem, JournalEntry, Origin, Threat, Track } from "./types";
 import type { WatchShiftRow } from "./watch";
 import {
   loadWatchMode,
@@ -74,8 +58,10 @@ import { mineZoneRows } from "./mines";
 import type { NavRoute } from "./nav";
 import { nearestWatchSite, watchZoneRows } from "./watch-sites";
 import { dronesPeek, matchOwnDrone } from "./drones";
+import { exerciceEnCours } from "./drones-core";
 import { constat1090 } from "./drones-pilotage";
 import { telemetriePour } from "./drones-suivi";
+import { PREFIXE_EXERCICE, pisteExercice } from "./exercice";
 
 /** Dernier relevé de la veille drone : mouvement %, zones, indice de présence, et capture figée. */
 export type DroneMotion = {
@@ -119,7 +105,6 @@ export type DroneMotion = {
 import { reportZoneBreach } from "./zones-ops";
 
 const JOURNAL_KEY = "vigilair-journal-v1";
-const CLIPS_KEY = "vigilair-clips-v1";
 
 function loadJournal(): JournalEntry[] {
   if (typeof window === "undefined") return [];
@@ -138,23 +123,6 @@ function saveJournal(entries: JournalEntry[]) {
   localStorage.setItem(JOURNAL_KEY, JSON.stringify(entries.slice(0, 200)));
 }
 
-function loadClips(): AudioClip[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(CLIPS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as AudioClip[];
-    return Array.isArray(parsed) ? parsed.slice(0, 40) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveClips(clips: AudioClip[]) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(CLIPS_KEY, JSON.stringify(clips.slice(0, 40)));
-}
-
 export type FilterOrigin = Origin | "ALL" | "AMI" | "LIVE";
 
 /** Inject REJEU RÉEL en cours : la bande, l'heure d'origine lue, la vitesse. */
@@ -169,7 +137,6 @@ export type RejeuState = {
   n: number;
 };
 
-export const REJEU_INJECT_ID = "rejeu-reel";
 export type ClockMode = "live" | "replay";
 /** « drone » : le chef désigne sur la carte le point où envoyer un de nos drones. */
 export type CopTool = "lock" | "mesure" | "zone" | "drone" | "coins";
@@ -184,14 +151,10 @@ type VigilairState = {
   rejeu: RejeuState | null;
   alerts: AlertItem[];
   journal: JournalEntry[];
-  clips: AudioClip[];
-  listening: boolean;
-  listenWide: boolean;
   running: boolean;
   now: number;
   originFilter: FilterOrigin;
   search: string;
-  spawned: number;
   mapScale: MapScale;
   satLayer: SatLayer;
   /** Bascule auto de l'imagerie en couche Nuit quand il fait nuit à FTTJ (Visible = noir la nuit). */
@@ -233,14 +196,13 @@ type VigilairState = {
   siteNetCadenceMin: number;
   /** Seuil d'alerte par secteur : si ≥ N caméras d'un même secteur tombent sur un cycle → attaque coordonnée. */
   siteNetSectorThreshold: number;
-  ewArmed: boolean;
   ppi: PpiParams;
   history: HistSample[];
   clockMode: ClockMode;
   replayIndex: number;
   replayCount: number;
+  /** Une injection RÉELLE est en cours (rejeu de trafic enregistré) : bandeau EXERCICE. */
   instruction: boolean;
-  lastInject: string | null;
   showFriends: boolean;
   showLive: boolean;
   livePicture: LivePicture | null;
@@ -252,7 +214,6 @@ type VigilairState = {
   zones: ZoneRow[];
   zonePicture: ZoneStatus[];
   threatFloor: ThreatFloor;
-  iffFilter: IffFilter;
   declutter: boolean;
   watchMode: boolean;
   watchDimmed: boolean;
@@ -321,35 +282,24 @@ type VigilairState = {
   setWeekly: (patch: { on?: boolean; day?: number; hour?: number; lastAt?: number }) => void;
   pushSteward: (text: string, at: number) => void;
   setViewOrigin: (o: GeoOrigin) => void;
-  setEwArmed: (v: boolean) => void;
   setPpi: (patch: Partial<PpiParams>) => void;
   ackAlert: (id: string) => void;
   ackAll: () => void;
-  ackSigint: () => void;
   fileBulletin: (trackId: string) => void;
-  recordClip: (trackId: string) => void;
-  setListening: (v: boolean) => void;
-  setListenWide: (v: boolean) => void;
-  requestEw: (trackId: string) => void;
-  requestM4: (trackId: string) => void;
   clearJournal: () => void;
   hydrateJournal: (rows: JournalEntry[]) => void;
   seekReplay: (index: number, play?: boolean) => void;
   scrubReplay: (delta: number) => void;
   returnToLive: () => void;
-  runInject: (id: string) => void;
   lockLive: () => void;
   startRejeu: (tape: RejeuTape) => void;
   setRejeuSpeed: (speed: number) => void;
   stopRejeu: () => void;
   purgeInjects: () => void;
-  setInstruction: (v: boolean) => void;
   setShowFriends: (v: boolean) => void;
   setShowLive: (v: boolean) => void;
   setThreatFloor: (v: ThreatFloor) => void;
   cycleThreatFloor: () => void;
-  setIffFilter: (v: IffFilter) => void;
-  cycleIffFilter: () => void;
   setDeclutter: (v: boolean) => void;
   toggleDeclutter: () => void;
   setWatch: (w: WatchShiftRow | null) => void;
@@ -379,27 +329,29 @@ type VigilairState = {
 
 let loopStarted = false;
 let liveTracks: Track[] = [];
-let spawned = 0;
 const raidWarned = new Set<string>();
 /** Pistes déjà signalées muettes / incohérentes : on prévient une fois, pas à chaque relevé. */
 const coastWarned = new Set<string>();
 const jumpWarned = new Set<string>();
-const zoneWarned = new Set<string>();
+/**
+ * Bulles déjà signalées : clé (entrée/approche, bulle, piste) → piste. La piste est gardée à part :
+ * la redécouper dans la clé au dernier « : » échouait sur un identifiant qui en contient (une piste
+ * d'exercice porte l'identifiant du drone, « drone:… ») et l'alerte repartait à chaque tour.
+ */
+const zoneWarned = new Map<string, string>();
 const phenomWarned = new Set<string>();
 const snaps: Snap[] = [];
 let replayView: Track[] | null = null;
 let replayAcc = 0;
 let lastSnapAt = 0;
-const mlatWarned = new Set<string>();
 
 function applyZoneAlerts(tracks: Track[], now: number, alerts: AlertItem[]): void {
   const zones = getLiveZones();
   const picture = evaluateZones(tracks, [...zones, ...mineZoneRows(), ...watchZoneRows()]);
   useVigilair.setState({ zonePicture: picture });
   const liveIds = new Set(tracks.map((t) => t.id));
-  for (const key of [...zoneWarned]) {
-    const tid = key.split(":").pop();
-    if (tid && !liveIds.has(tid)) zoneWarned.delete(key);
+  for (const [key, tid] of zoneWarned) {
+    if (!liveIds.has(tid)) zoneWarned.delete(key);
   }
   if (useVigilair.getState().clockMode === "replay") return;
   for (const st of picture) {
@@ -408,7 +360,7 @@ function applyZoneAlerts(tracks: Track[], now: number, alerts: AlertItem[]): voi
       if (!c.uas) continue;
       const key = `in:${st.zone.id}:${c.trackId}`;
       if (zoneWarned.has(key)) continue;
-      zoneWarned.add(key);
+      zoneWarned.set(key, c.trackId);
       alerts.push({
         id: `al-zone-${st.zone.id}-${c.trackId}`,
         trackId: c.trackId,
@@ -427,6 +379,7 @@ function applyZoneAlerts(tracks: Track[], now: number, alerts: AlertItem[]): voi
           distKm: c.distKm,
           kind: "inside",
           uas: true,
+          exercice: c.exercice,
         },
       }).catch(() => undefined);
     }
@@ -434,7 +387,7 @@ function applyZoneAlerts(tracks: Track[], now: number, alerts: AlertItem[]): voi
       if (!c.uas) continue;
       const key = `ap:${st.zone.id}:${c.trackId}`;
       if (zoneWarned.has(key)) continue;
-      zoneWarned.add(key);
+      zoneWarned.set(key, c.trackId);
       alerts.push({
         id: `al-zoneap-${st.zone.id}-${c.trackId}`,
         trackId: c.trackId,
@@ -453,6 +406,7 @@ function applyZoneAlerts(tracks: Track[], now: number, alerts: AlertItem[]): voi
           distKm: c.distKm,
           kind: "approach",
           uas: true,
+          exercice: c.exercice,
         },
       }).catch(() => undefined);
     }
@@ -461,10 +415,6 @@ function applyZoneAlerts(tracks: Track[], now: number, alerts: AlertItem[]): voi
 
 export function peekTracks(): Track[] {
   return replayView ?? liveTracks;
-}
-
-export function peekSnapCount(): number {
-  return snaps.length;
 }
 
 function sampleHistory(tracks: Track[], now: number): HistSample {
@@ -559,14 +509,10 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   rejeu: null,
   alerts: [],
   journal: [],
-  clips: [],
-  listening: false,
-  listenWide: false,
   running: true,
   now: 0,
   originFilter: "ALL",
   search: "",
-  spawned: 0,
   mapScale: "ident",
   satLayer: "vis",
   autoNight: true,
@@ -590,14 +536,12 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   siteNetWatch: false,
   siteNetCadenceMin: 15,
   siteNetSectorThreshold: 2,
-  ewArmed: false,
   ppi: DEFAULT_PPI,
   history: [],
   clockMode: "live",
   replayIndex: 0,
   replayCount: 0,
   instruction: false,
-  lastInject: null,
   showFriends: true,
   showLive: true,
   livePicture: null,
@@ -609,7 +553,6 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   zones: DEFAULT_ZONES,
   zonePicture: [],
   threatFloor: "ALL",
-  iffFilter: "ALL",
   declutter: false,
   watchMode: false,
   watchDimmed: false,
@@ -755,13 +698,9 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
     if (id === "veille") get().setWatchMode(on);
     if (id === "live") set({ showLive: on });
     if (id === "amis") set({ showFriends: on });
-    if (id === "ecoute") set({ listening: on });
-    if (id === "large") set({ listenWide: on, listening: on || get().listening });
-    if (id === "instruction") set({ instruction: on });
     if (id === "affinage") setTileRefine(on);
     if (id === "auto") get().setWatchAutoLayer(on);
     if (id === "horloge") set({ running: on });
-    if (id === "remanence") get().setPpi({ afterglow: on });
     if (id === "etiquettes") get().setPpi({ labels: on });
     if (id === "traces") get().setPpi({ trails: on });
     if (id === "iffppi") get().setPpi({ iff: on });
@@ -779,34 +718,12 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
       return { stewardLog: [{ at, text }, ...s.stewardLog].slice(0, 12) };
     }),
   setViewOrigin: (viewOrigin) => set({ viewOrigin }),
-  setEwArmed: (ewArmed) => {
-    if (ewArmed && get().copLock?.locked) return;
-    if (!ewArmed) {
-      liveTracks = liveTracks.map((t) =>
-        t.ew && t.ew.state !== "idle"
-          ? {
-              ...t,
-              ew: {
-                state: "idle" as const,
-                at: Date.now(),
-                note: "Effecteur désarmé. Cessation d'effet. Contrôleur adverse non informé.",
-              },
-            }
-          : t,
-      );
-    }
-    set({ ewArmed, tracks: peekTracks() });
-  },
   setPpi: (patch) => set({ ppi: { ...get().ppi, ...patch } }),
   ackAlert: (id) =>
     set({
       alerts: get().alerts.map((a) => (a.id === id ? { ...a, acked: true } : a)),
     }),
   ackAll: () => set({ alerts: get().alerts.map((a) => ({ ...a, acked: true })) }),
-  ackSigint: () =>
-    set({
-      alerts: get().alerts.map((a) => (a.domain === "sigint" ? { ...a, acked: true } : a)),
-    }),
   fileBulletin: (trackId) => {
     const t =
       liveTracks.find((x) => x.id === trackId) ??
@@ -814,7 +731,6 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
     if (!t) return;
     const plat = PLATFORM_BY_ID[t.hypotheses[0]?.platformId ?? t.truePlatformId];
     if (!plat) return;
-    const ev = evidenceOf(t);
     const pendingId = `j-pending-${t.id}-${Date.now()}`;
     const entry: JournalEntry = {
       id: pendingId,
@@ -831,11 +747,6 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
       method: methodBlurb(t),
       launchLat: t.launchFix?.lat,
       launchLon: t.launchFix?.lon,
-      stopLat: t.stopFix?.lat,
-      stopLon: t.stopFix?.lon,
-      c2Lat: t.pilotFix?.lat,
-      c2Lon: t.pilotFix?.lon,
-      ewNote: t.ew?.state === "effet" || t.ew?.state === "demande" ? t.ew.note : undefined,
       injected: t.injected,
       pending: true,
     };
@@ -871,20 +782,7 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
         launchLon: t.launchFix?.lon ?? null,
         launchAt: t.launchFix?.at ?? null,
         launchMethod: t.launchFix?.method ?? null,
-        launchTile: ev?.launchTile ?? (t.launchFix ? tileRef(t.launchFix.lat, t.launchFix.lon) : null),
-        c2Lat: t.pilotFix?.lat ?? null,
-        c2Lon: t.pilotFix?.lon ?? null,
-        c2Method: t.pilotFix?.method ?? null,
-        c2Tile: t.pilotFix ? tileRef(t.pilotFix.lat, t.pilotFix.lon) : null,
-        stopLat: t.stopFix?.lat ?? null,
-        stopLon: t.stopFix?.lon ?? null,
-        stopAt: t.stopFix?.at ?? null,
-        stopMethod: t.stopFix?.method ?? null,
-        stopTile: ev?.stopTile ?? (t.stopFix ? tileRef(t.stopFix.lat, t.stopFix.lon) : null),
-        satCredit: SAT_CREDIT,
-        sarNote: SAR_NOTE,
-        sceneNote: SCENE_NOTE,
-        ewNote: t.ew?.state === "effet" || t.ew?.state === "demande" ? t.ew.note : null,
+        launchTile: t.launchFix ? tileRef(t.launchFix.lat, t.launchFix.lon) : null,
         corridor: t.corridor,
         injected: Boolean(t.injected),
         iffNote: iffEvidenceLine(t),
@@ -919,128 +817,6 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
         set({ journal: next });
       });
   },
-  recordClip: (trackId) => {
-    const t =
-      liveTracks.find((x) => x.id === trackId) ??
-      get().tracks.find((x) => x.id === trackId);
-    if (!t) return;
-    if (!t.acoustic?.locked && !get().listenWide) return;
-    const clip: AudioClip = {
-      id: `clip-${t.id}-${Date.now()}`,
-      at: Date.now(),
-      trackId: t.id,
-      callsign: t.callsign,
-      bpfHz: t.acoustic?.bpfHz ?? 0,
-      channel: t.acoustic?.channel ?? "none",
-      durationS: 8,
-      note: t.acoustic?.channelNote ?? "Écoute SIGINT large — métadonnées RF, pas de contrôle.",
-    };
-    const clips = [clip, ...get().clips].slice(0, 40);
-    saveClips(clips);
-    set({ clips });
-    emitDuty({
-      kind: "clip",
-      title: `Clip SIGINT ${t.callsign}`,
-      detail: clip.note,
-      trackId: t.id,
-    });
-  },
-  setListening: (listening) => set({ listening }),
-  setListenWide: (listenWide) => set({ listenWide, listening: listenWide || get().listening }),
-  requestEw: (trackId) => {
-    if (get().copLock?.locked) return;
-    const t = liveTracks.find((x) => x.id === trackId);
-    if (!t) return;
-    const check = canRequestEw(t, get().ewArmed);
-    const now = Date.now();
-    if (!check.ok) {
-      liveTracks = liveTracks.map((x) =>
-        x.id === trackId
-          ? { ...x, ew: { state: "refuse", at: now, note: check.reason } }
-          : x,
-      );
-      const refused: AlertItem = {
-        id: `al-${trackId}-ew-ref-${now}`,
-        trackId,
-        at: now,
-        level: "faible",
-        title: `${t.callsign} · effet RF refusé`,
-        body: check.reason,
-        acked: false,
-      };
-      const alerts = [refused, ...useVigilair.getState().alerts].slice(0, 40);
-      useVigilair.setState({ tracks: liveTracks, alerts });
-      return;
-    }
-    liveTracks = liveTracks.map((x) =>
-      x.id === trackId
-        ? { ...x, ew: { state: "demande", at: now, note: check.reason } }
-        : x,
-    );
-    const asked: AlertItem = {
-      id: `al-${trackId}-ew-${now}`,
-      trackId,
-      at: now,
-      level: "elevee",
-      title: `${t.callsign} · demande d'effet RF`,
-      body: "Transmis à l'autorité. Télépilote non informé. AfriControl n'émet pas.",
-      acked: false,
-    };
-    const alerts = [asked, ...useVigilair.getState().alerts].slice(0, 40);
-    useVigilair.setState({ tracks: liveTracks, alerts });
-    emitDuty({
-      kind: "ew",
-      title: `Demande RF ${t.callsign}`,
-      detail: "Transmis à l'autorité. AfriControl n'émet pas.",
-      trackId,
-      severity: "warn",
-    });
-  },
-  requestM4: (trackId) => {
-    if (useVigilair.getState().clockMode === "replay") return;
-    if (useVigilair.getState().copLock?.locked) return;
-    const t = liveTracks.find((x) => x.id === trackId);
-    if (!t) return;
-    const check = canRequestM4(t);
-    const now = Date.now();
-    if (!check.ok) {
-      const refused: AlertItem = {
-        id: `al-${trackId}-m4-ref-${now}`,
-        trackId,
-        at: now,
-        level: "faible",
-        title: `${t.callsign} · Mode 4 refusé`,
-        body: check.reason,
-        acked: false,
-      };
-      useVigilair.setState({
-        alerts: [refused, ...useVigilair.getState().alerts].slice(0, 40),
-      });
-      return;
-    }
-    liveTracks = liveTracks.map((x) =>
-      x.id === trackId ? { ...x, iff: beginM4Request(x, now) } : x,
-    );
-    const asked: AlertItem = {
-      id: `al-${trackId}-m4-${now}`,
-      trackId,
-      at: now,
-      level: "faible",
-      title: `${t.callsign} · interrogation Mode 4`,
-      body: check.reason,
-      acked: false,
-    };
-    useVigilair.setState({
-      tracks: liveTracks,
-      alerts: [asked, ...useVigilair.getState().alerts].slice(0, 40),
-    });
-    emitDuty({
-      kind: "m4",
-      title: `Mode 4 ${t.callsign}`,
-      detail: check.reason,
-      trackId,
-    });
-  },
   clearJournal: () => {
     emitDuty({
       kind: "delete_denied",
@@ -1066,7 +842,6 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
     showReplay(idx + delta, false);
   },
   returnToLive: () => goLive(true),
-  setInstruction: (instruction) => set({ instruction }),
   setShowFriends: (showFriends) => set({ showFriends }),
   setShowLive: (showLive) => set({ showLive }),
   setDeclutter: (declutter) => set({ declutter }),
@@ -1074,8 +849,6 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   setThreatFloor: (threatFloor) => set({ threatFloor }),
   cycleThreatFloor: () =>
     set({ threatFloor: nextThreatFloor(get().threatFloor) }),
-  setIffFilter: (iffFilter) => set({ iffFilter }),
-  cycleIffFilter: () => set({ iffFilter: nextIffFilter(get().iffFilter) }),
   setWatch: (w) => set({ watch: w, watchLoaded: true }),
   setCopLock: (l) => set({ copLock: l }),
   setZones: (z) => {
@@ -1170,42 +943,6 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
       capture: null,
       mapScale: get().watchMode ? "veille" : "ident",
     }),
-  runInject: (id) => {
-    if (get().copLock?.locked) return;
-    const spec = INJECTS.find((x) => x.id === id);
-    if (!spec) return;
-    const now = Date.now();
-    replayView = null;
-    const created = spawnInject(spec, now);
-    if (created.length === 0) return;
-    liveTracks = [...created, ...liveTracks];
-    pruneTracks();
-    spawned += created.length;
-    const alert: AlertItem = {
-      id: `al-inj-${spec.id}-${now}`,
-      trackId: created[0]!.id,
-      at: now,
-      level: "elevee",
-      title: `INJECT · ${spec.name}`,
-      body: spec.blurb,
-      acked: false,
-      injected: true,
-    };
-    set({
-      clockMode: "live",
-      instruction: true,
-      lastInject: spec.id,
-      mapScale: spec.mapScale,
-      tracks: liveTracks,
-      selectedId: created[0]!.id,
-      autoPick: null,
-      now,
-      running: true,
-      spawned,
-      replayCount: snaps.length,
-      alerts: [alert, ...get().alerts].slice(0, 40),
-    });
-  },
   lockLive: () => {
     if (get().copLock?.locked) return;
     const pool = peekTracks().filter((t) => t.feed === "adsb");
@@ -1283,7 +1020,6 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
       clockMode: "live",
       running: true,
       instruction: true,
-      lastInject: REJEU_INJECT_ID,
       tracks: liveTracks,
       selectedId: focus?.id ?? null,
       autoPick: null,
@@ -1305,17 +1041,15 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   },
   stopRejeu: () => endRejeu(Date.now(), "arrêté par l'opérateur"),
   purgeInjects: () => {
-    liveTracks = liveTracks.filter((t) => t.feed === "adsb" || t.feed === "rid");
+    liveTracks = liveTracks.filter((t) => t.feed === "adsb");
     rejeuRun = null;
     replayView = null;
-    mlatWarned.clear();
     const keep = new Set(liveTracks.map((t) => t.id));
     const selectedId = get().selectedId;
     set({
       clockMode: "live",
       tracks: liveTracks,
       instruction: false,
-      lastInject: null,
       now: Date.now(),
       running: true,
       selectedId: selectedId && keep.has(selectedId) ? selectedId : null,
@@ -1419,7 +1153,6 @@ function endRejeu(now: number, why: string) {
     rejeu: null,
     tracks: liveTracks,
     instruction: others ? s.instruction : false,
-    lastInject: s.lastInject === REJEU_INJECT_ID ? null : s.lastInject,
     selectedId: sel?.startsWith("rej-") ? null : sel,
     alerts: [
       {
@@ -1438,143 +1171,40 @@ function endRejeu(now: number, why: string) {
   applyAutoLock(now);
 }
 
-function applySim(dt: number) {
+let exercicesA = 0;
+
+/**
+ * Pistes d'EXERCICE, une fois par seconde : la vraie télémétrie de chacun de nos drones que le chef
+ * fait jouer comme intrus. Une liaison muette ou un exercice terminé retire la piste : jamais de
+ * position extrapolée pour un exercice.
+ */
+function majExercices(now: number): void {
+  if (now - exercicesA < 1000) return;
+  exercicesA = now;
+  const prev = new Map(liveTracks.filter((t) => t.feed === "exercice").map((t) => [t.id, t]));
+  const next: Track[] = [];
+  for (const d of dronesPeek()) {
+    const plateforme = exerciceEnCours(d, now);
+    if (!plateforme || !d.liaison) continue;
+    const mesure = telemetriePour(d.id, now);
+    if (!mesure) continue;
+    const t = pisteExercice(d, plateforme, mesure, now, prev.get(`${PREFIXE_EXERCICE}${d.id}`));
+    if (!t) continue;
+    t.cpa = cpaSite(t);
+    next.push(t);
+  }
+  if (next.length === 0 && prev.size === 0) return;
+  liveTracks = [...liveTracks.filter((t) => t.feed !== "exercice"), ...next];
+}
+
+/** Un tour de veille : avance le rejeu et l'exercice, puis passe les règles d'alerte. */
+function veiller() {
   const now = Date.now();
   stepRejeu(now);
+  majExercices(now);
   const alerts: AlertItem[] = [];
-  const armed = useVigilair.getState().ewArmed;
-  liveTracks = liveTracks.map((t) => {
-    if (isLiveFeed(t) || t.feed === "rejeu") return t;
-    let next = stepTrack(t, dt, now);
-    if (
-      next.iff?.m4 === "demande" &&
-      next.iff.m4At != null &&
-      now - next.iff.m4At >= M4_DELAY_MS
-    ) {
-      const resolved = resolveM4(next, now);
-      next = { ...next, iff: resolved };
-      if (resolved.m4 === "invalid") {
-        alerts.push({
-          id: `al-${next.id}-m4-bad-${now}`,
-          trackId: next.id,
-          at: now,
-          level: "critique",
-          title: `${next.callsign} · Mode 4 invalide`,
-          body: resolved.m4Note,
-          acked: false,
-          injected: next.injected,
-        });
-      } else if (resolved.m4 === "timeout" && !isFriend(next)) {
-        alerts.push({
-          id: `al-${next.id}-m4-to-${now}`,
-          trackId: next.id,
-          at: now,
-          level: "moderee",
-          title: `${next.callsign} · Mode 4 timeout`,
-          body: resolved.m4Note,
-          acked: false,
-          injected: next.injected,
-        });
-      }
-    }
-    if (isFriend(next)) {
-      if (next.ew?.state === "demande" || next.ew?.state === "effet") {
-        next = {
-          ...next,
-          ew: {
-            state: "refuse",
-            at: now,
-            note: "Piste amie FATL / ASECNA — effecteur interdit.",
-          },
-        };
-      }
-      const iff = tickModeS(next, now);
-      if (iff) next = { ...next, iff };
-      return next;
-    }
-    const iff = tickModeS(next, now);
-    if (iff) next = { ...next, iff };
-    if (
-      iff?.mlat?.spoofSuspect &&
-      !mlatWarned.has(next.id) &&
-      !isFriend(next)
-    ) {
-      mlatWarned.add(next.id);
-      alerts.push({
-        id: `al-${next.id}-mlat-${now}`,
-        trackId: next.id,
-        at: now,
-        level: "critique",
-        title: `${next.callsign} · ADS-B / MLAT désaccord`,
-        body: iff.mlat.note,
-        acked: false,
-        injected: next.injected,
-      });
-    }
-    if (next.ew?.state === "demande" && (!armed || now - next.ew.at > 1800)) {
-      if (!armed) {
-        next = {
-          ...next,
-          ew: {
-            state: "idle",
-            at: now,
-            note: "Effecteur désarmé avant effet.",
-          },
-        };
-      } else {
-        next = {
-          ...next,
-          ew: {
-            state: "effet",
-            at: now,
-            note: "Effet RF lointain simulé. Le télépilote voit une perte de liaison, sans savoir qu'il est intercepté.",
-          },
-        };
-        alerts.push({
-          id: `al-${next.id}-ew-on-${now}`,
-          trackId: next.id,
-          at: now,
-          level: "critique",
-          title: `${next.callsign} · effet RF`,
-          body: "Liaison C2 dégradée. Contrôleur adverse non informé de l'interception. Pas de prise de contrôle.",
-          acked: false,
-        });
-      }
-    }
-    return next;
-  });
 
   for (const t of liveTracks) {
-    if (t.idState === "confirme" && t.confirmedAt === now) {
-      if (isFriend(t)) continue;
-      const plat = PLATFORM_BY_ID[t.truePlatformId];
-      if (plat && plat.origin !== "XX") {
-        alerts.push({
-          id: `al-${t.id}-${now}`,
-          trackId: t.id,
-          at: now,
-          level: plat.threat,
-          title: `${t.callsign} · ${plat.manufacturer} ${plat.name}`,
-          body: `Identification silencieuse — ${plat.originLabel} · ${Math.round(t.confidence)} % · contrôleur non alerté`,
-          acked: false,
-        });
-      }
-    }
-    if (
-      t.idState === "hors-mandat" &&
-      t.dwellS > 4 &&
-      t.dwellS < 4 + dt + 0.05
-    ) {
-      alerts.push({
-        id: `al-${t.id}-xx`,
-        trackId: t.id,
-        at: now,
-        level: "faible",
-        title: `${t.callsign} · hors mandat`,
-        body: "Origine hors CN / TR / RU / IR — piste classée hors périmètre contractuel.",
-        acked: false,
-      });
-    }
     // Le CPA est purement HORIZONTAL : sans plafond d'altitude, un avion de ligne à la verticale
     // d'une mine afficherait une distance nulle « en rapprochement » et alerterait à chaque survol.
     const cpa = t.cpa;
@@ -1651,7 +1281,6 @@ function applySim(dt: number) {
 
   const raids = detectRaids(liveTracks);
   applyZoneAlerts(liveTracks, now, alerts);
-  raiseSigintAlerts(liveTracks, now, alerts);
   const liveCorridors = new Set(raids.map((r) => r.corridor));
   for (const k of [...raidWarned]) {
     if (!liveCorridors.has(k)) raidWarned.delete(k);
@@ -1668,11 +1297,11 @@ function applySim(dt: number) {
       at: now,
       level: r.worst === "faible" ? "moderee" : r.worst,
       title: injectedRaid
-        ? `INJECT · Raid ${r.corridor} · ${r.count} pistes`
+        ? `EXERCICE · Raid ${r.corridor} · ${r.count} pistes`
         : `Raid ${r.corridor} · ${r.count} pistes`,
       body: injectedRaid
-        ? `Formation — salve ${r.originLabels.join(" / ")} depuis ${r.corridor}. Pas un contact réel.`
-        : `Salve ${r.originLabels.join(" / ")} depuis ${r.corridor}. Contrôleurs non informés.`,
+        ? `Exercice — salve ${r.originLabels.join(" / ")} depuis ${r.corridor}. Pas un contact réel.`
+        : `Salve ${r.originLabels.join(" / ")} depuis ${r.corridor}. Le poste n'émet pas.`,
       acked: false,
       injected: injectedRaid,
     });
@@ -1682,19 +1311,16 @@ function applySim(dt: number) {
     (t) => t.idState !== "perdu" || now - t.lastUpdate < 8000,
   );
   pruneTracks();
-  const hostiles = liveTracks.filter((t) => !isFriend(t) && t.feed !== "adsb").length;
-  const wantMin = useVigilair.getState().instruction ? 10 : 0;
-  if (useVigilair.getState().instruction && hostiles < wantMin && Math.random() < 0.03) {
-    liveTracks = [spawnTrack(now), ...liveTracks];
-    spawned += 1;
+
+  // Toute alerte née d'une piste d'exercice ou de rejeu le dit, et n'est jamais relayée.
+  const injectees = new Set(liveTracks.filter((t) => t.injected).map((t) => t.id));
+  for (const a of alerts) {
+    if (!a.trackId || !injectees.has(a.trackId)) continue;
+    a.injected = true;
+    if (!/^(EXERCICE|REJEU)/.test(a.title)) a.title = `EXERCICE · ${a.title}`;
   }
-  const nFriends = liveTracks.filter(
-    (tr) => tr.friendKind && tr.feed !== "adsb" && tr.idState !== "perdu",
-  ).length;
-  if (useVigilair.getState().instruction && nFriends < 4 && Math.random() < 0.06) {
-    liveTracks = [spawnFriendTrack(now), ...liveTracks];
-    spawned += 1;
-  }
+  const instruction = rejeuRun !== null || liveTracks.some((t) => t.feed === "exercice");
+  if (instruction !== useVigilair.getState().instruction) useVigilair.setState({ instruction });
 
   if (alerts.length > 0) {
     const prev = useVigilair.getState().alerts;
@@ -1708,7 +1334,7 @@ export function bootVigilair() {
   if (typeof window === "undefined") return;
   preloadAoTiles();
   if (!useVigilair.getState().instruction) {
-    liveTracks = liveTracks.filter((t) => t.feed === "adsb" || t.feed === "rid");
+    liveTracks = liveTracks.filter((t) => t.feed === "adsb");
     rejeuRun = null;
   }
   if (useVigilair.getState().now === 0) {
@@ -1717,7 +1343,6 @@ export function bootVigilair() {
     useVigilair.setState({
       tracks: liveTracks,
       journal: loadJournal(),
-      clips: loadClips(),
       now,
       selectedId: null,
       history: [sampleHistory(liveTracks, now)],
@@ -1747,7 +1372,7 @@ export function bootVigilair() {
     const dt = Math.min(0.12, (t - last) / 1000);
     last = t;
     const st = useVigilair.getState();
-    if (st.running && st.clockMode === "live") applySim(dt);
+    if (st.running && st.clockMode === "live") veiller();
     if (st.running && st.clockMode === "replay") {
       replayAcc += dt * 1000;
       if (replayAcc >= SNAP_MS) {
@@ -1771,7 +1396,6 @@ export function bootVigilair() {
         ? {
             tracks: liveTracks,
             now: Date.now(),
-            spawned,
             replayCount: snaps.length,
           }
         : {
@@ -1789,25 +1413,12 @@ export function bootVigilair() {
   requestAnimationFrame(loop);
 }
 
-export function currentPaintFilter(): PaintFilter {
-  const s = useVigilair.getState();
-  return {
-    showFriends: s.showFriends,
-    showLive: s.showLive,
-    threatFloor: s.threatFloor,
-    iffFilter: s.iffFilter,
-    declutter: s.declutter,
-    selectedId: s.selectedId,
-  };
-}
-
 export function trackVisible(t: Track, selectedId?: string | null): boolean {
   const s = useVigilair.getState();
   return passesPaintFilter(t, {
     showFriends: s.showFriends,
     showLive: s.showLive,
     threatFloor: s.threatFloor,
-    iffFilter: s.iffFilter,
     declutter: s.declutter,
     selectedId: selectedId ?? s.selectedId,
   });
@@ -1879,7 +1490,7 @@ export function ingestLivePicture(pic: LivePicture) {
   // exactement sur les pistes qui comptent. On le calcule ici, après la fusion, là où les zones
   // vivantes sont connues.
   for (const t of liveTracks) {
-    if (t.feed === "adsb") t.cpa = sampleCpa(t);
+    if (t.feed === "adsb") t.cpa = cpaSite(t);
   }
   // NOS drones : une piste 1090ES à l'adresse d'un drone inscrit n'est AMIE (friendKind "drone",
   // que isFriend exclut des intrusions) qu'une fois confirmée par le chef — une adresse se copie.
@@ -1890,7 +1501,7 @@ export function ingestLivePicture(pic: LivePicture) {
     if (t.feed !== "adsb") continue;
     const hit = matchOwnDrone(drones, t.id.slice(5), t.callsign);
     if (hit) {
-      const c = constat1090(hit, t, hit.liaison ? telemetriePour(hit.id, now) : null, now);
+      const c = constat1090(hit, t, hit.liaison ? (telemetriePour(hit.id, now)?.position ?? null) : null, now);
       constats.set(t.id, c);
       t.friendKind = c.ami ? "drone" : undefined;
       t.ownDrone = hit.name;
@@ -1985,7 +1596,6 @@ export function ingestLivePicture(pic: LivePicture) {
       acked: false,
     });
   }
-  raiseSigintAlerts(liveTracks, now, alerts);
   const hotJam = (pic.jam ?? []).filter((j) => j.level === "high");
   if (hotJam.length > 0) {
     const jamId = `al-jam-${hotJam[0]!.lat}-${hotJam[0]!.lon}`;

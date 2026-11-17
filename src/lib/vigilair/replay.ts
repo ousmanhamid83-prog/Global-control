@@ -1,4 +1,4 @@
-import type { EwState, FriendKind, IdState, IffFix, Origin, Track, UasClass } from "./types";
+import type { FriendKind, IdState, IffFix, Origin, SensorKind, Track, UasClass } from "./types";
 
 export const SNAP_MS = 1000;
 export const SNAP_MAX = 480;
@@ -19,11 +19,11 @@ export type SnapTrack = {
   confidence: number;
   classGuess: UasClass | null;
   injected: boolean;
-  ew: EwState;
+  sensors: SensorKind[];
   trail: { lat: number; lon: number }[];
   friendKind?: FriendKind;
   iff?: IffFix | null;
-  feed?: Track["feed"];
+  feed: Track["feed"];
   icaoType?: string | null;
   reg?: string | null;
   emergency?: string | null;
@@ -53,7 +53,7 @@ export function compactTracks(tracks: Track[]): SnapTrack[] {
       confidence: t.confidence,
       classGuess: t.classGuess,
       injected: Boolean(t.injected),
-      ew: t.ew?.state ?? "idle",
+      sensors: t.sensors,
       trail: t.trail.slice(-12),
       friendKind: t.friendKind,
       iff: t.iff ?? null,
@@ -83,28 +83,16 @@ export function expandSnap(snap: Snap): Track[] {
     hypotheses: s.truePlatformId
       ? [{ platformId: s.truePlatformId, score: s.confidence }]
       : [],
-    sensors: [],
+    sensors: s.sensors,
     firstSeen: snap.t,
     lastUpdate: snap.t,
     dwellS: 0,
     confirmedAt: s.idState === "confirme" ? snap.t : null,
-    motion: "transit" as const,
-    loiterCx: s.lat,
-    loiterCy: s.lon,
-    loiterR: 0.02,
-    turnRate: 0,
-    acoustic: null,
-    pilotFix: null,
     cpa: null,
     siteWarned: false,
     launchFix: null,
-    stopFix: null,
     locked: s.locked,
     corridor: s.corridor,
-    ew:
-      s.ew !== "idle"
-        ? { state: s.ew, at: snap.t, note: "AAR — bande enregistrement" }
-        : null,
     injected: s.injected,
     friendKind: s.friendKind,
     iff: s.iff ?? null,

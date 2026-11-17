@@ -158,8 +158,6 @@ export function theaterRank(id: TheaterId): number {
 }
 
 /** Pistes perdues au-delà du théâtre (rayon ~4 200 km, Dakar inclus). */
-export const THEATRE_RADIUS_KM = 4200;
-
 export type SahelCity = {
   name: string;
   lat: number;
@@ -437,10 +435,6 @@ export function formatCoord(lat: number, lon: number): string {
   const ns = lat >= 0 ? "N" : "S";
   const ew = lon >= 0 ? "E" : "W";
   return `${Math.abs(lat).toFixed(5)}° ${ns}  ${Math.abs(lon).toFixed(5)}° ${ew}`;
-}
-
-export function formatCoordShort(lat: number, lon: number): string {
-  return `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
 }
 
 export function formatRange(km: number): string {

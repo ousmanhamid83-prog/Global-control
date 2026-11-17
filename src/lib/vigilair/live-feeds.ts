@@ -1568,7 +1568,7 @@ export const posteDiagnostic = createServerFn({ method: "GET" })
  * Compte rendu de quart (AAR) rédigé par l'IA du poste à partir des VRAIS événements du journal de
  * preuve. Le client fournit des lignes factuelles (champs typés des bulletins, coordonnées
  * comprises), le serveur les met en forme et demande une synthèse structurée au serveur d'IA du
- * réseau du poste : les bulletins ne sortent pas. Les bulletins d'exercice (inject) sont fournis
+ * réseau du poste : les bulletins ne sortent pas. Les bulletins d'exercice ou de rejeu sont fournis
  * marqués « EXERCICE » et ne doivent jamais être présentés comme du trafic réel.
  */
 export const shiftReport = createServerFn({ method: "POST" })
@@ -1591,7 +1591,7 @@ export const shiftReport = createServerFn({ method: "POST" })
       "Rédige un COMPTE RENDU DE QUART en français, factuel, sans markdown, à partir des SEULS bulletins " +
       "fournis — n'invente rien, ne complète pas. Structure : 1) Période et volume (nombre de bulletins). " +
       "2) Faits marquants (pistes, origines, confiance). 3) Points d'attention. 4) Une recommandation pour " +
-      "la relève. Un bulletin marqué EXERCICE est un inject de formation : ne le compte jamais comme trafic " +
+      "la relève. Un bulletin marqué EXERCICE est un exercice ou un rejeu : ne le compte jamais comme trafic " +
       "réel, signale-le comme exercice. Si les données sont minces, dis-le au lieu de broder.";
     const user = `${data.meta ? data.meta + "\n" : ""}Bulletins du journal (les plus récents en tête) :\n${data.events.join("\n")}`;
     try {

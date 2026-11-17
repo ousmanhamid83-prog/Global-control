@@ -495,7 +495,7 @@ Verrou auto sur piste réelle
   Urgence et B6 comptent sur le Tchad, le Darfour et l'AES ; militaire et GNSS sur Tchad et Darfour.
 - Le bandeau « VERROU AUTO » dit pourquoi. Un clic sur une piste reprend la main ; « Rendre au
   verrou auto » la lui redonne ; « Couper le verrou auto » laisse le panneau vide.
-- Un inject ou un rejeu n'est jamais pris par le verrou auto. La carte ne bouge pas toute seule.
+- Un rejeu ou un exercice n'est jamais pris par le verrou auto. La carte ne bouge pas toute seule.
 
 Inject « Rejeu réel »
 - Injecter > Rejeu réel : rejoue de VRAIS avions reçus, pas un scénario. Bande de ce poste (les
@@ -505,9 +505,44 @@ Inject « Rejeu réel »
 - Un rejeu ne compte jamais comme live, ne déclenche pas d'intrusion de zone et n'est pas
   croisé avec la météo du jour. Nouvelle archive : node scripts/rejeu-enregistrer.mjs 12 30
 
+Exercice sur un vrai vol (chef de division) — Capteurs > Changement, ligne du drone
+- Le simulateur de démonstration est RETIRÉ : plus aucune piste, aucun raid ni scénario inventé.
+  Un exercice se fait sur un VRAI vol : le chef choisit l'un de nos drones relié par MAVLink et une
+  plateforme du catalogue à jouer, puis « Lancer l'exercice (2 h) ». Sans liaison, c'est refusé :
+  la piste suit la vraie télémétrie du drone, rien d'autre.
+- Sa piste « EXE <nom> » porte EXERCICE partout : liste, carte, dossier, bulletin PDF (« EXERCICE OU
+  REJEU »), journal des bulles. Les vraies règles s'y appliquent (approche et intrusion de zone,
+  approche d'un site protégé) : c'est ce qu'on exerce.
+- Ses alertes ne partent JAMAIS par Signal ni Telegram et n'ouvrent aucun incident de sécurité ; ses
+  intrusions vont au journal de la Division comme exercice. Le verrou auto ne la prend pas.
+- « Fin d'exercice · retour veille réelle » (bandeau, chef) l'arrête et retire sa piste ; le drone
+  reste mené par les ordres du chef (retour à la base…). Au bout de 2 h, l'exercice s'arrête seul.
+- Essai réel : le programme de vol ArduCopter 4.7.2 (simulateur officiel d'ArduPilot), décollé au
+  sceau du chef et mené en patrouille au-dessus de l'aérodrome : 5 alertes de zone marquées EXERCICE,
+  0 message relayé pendant l'exercice ; juste après, le témoin réel (piste 1090ES à l'adresse d'un
+  de nos drones) est parti au relais en 4 s. L'essai a trouvé un vrai défaut, corrigé : une alerte de
+  zone se redisait chaque seconde quand l'identifiant du drone contenait « : ».
+
+Retiré parce qu'inventé : rien n'est joué pour de faux
+- Le simulateur de démonstration et ses injects (pistes, raids, scénarios), les 29 capteurs fictifs
+  (radars, RF, EO/IR, acoustique) et leurs relèvements, le Mode 4 et la multilatération « du poste »
+  (il n'interroge rien : il entend le 1090ES ; une position MLAT vient du réseau, et c'est écrit),
+  les vues Trace et SIGINT, l'écoute audio jouée, l'effet RF, le télépilote et le point d'arrêt
+  devinés, le brouillage défensif joué, le balayage et la neige du scope, « Doter les équipes » et
+  « Exercice sentinelle » (faux dossiers en base). Les colonnes de ces faux champs sont retirées des
+  bulletins à la mise à jour, la base copiée avant.
+- La liste des pistes, vide, ne prétend plus avoir interrogé des cellules : elle dit si rien n'est
+  encore reçu, si le relevé Internet est coupé, ou si le dernier relevé est vide. Les fiches ASECNA
+  affichaient « IFF Mode 4 » et « Remote ID présent » sur chaque appareil de ligne entendu : c'est
+  ADS-B 1090, Mode S et VHF.
+- Restent, et ils sont réels : le rejeu (vrais appareils reçus, marqué REJ) et l'exercice sur un vrai
+  vol de nos drones (marqué EXE). Un agent Sentinel se vérifie pour de vrai : présenter sa clé sur une
+  autre machine ; l'éjection est réelle.
+
 Symbologie APP-6 et radar
 - Les pistes portent le cadre OTAN APP-6 (le cadre = l'affiliation ; ouvert en bas = aérien).
-  Inconnu est l'état par défaut : sans IFF ami ni mandat levé, une piste reste inconnue.
+  Inconnu est l'état par défaut : ni l'un de nos drones, ni du trafic ASECNA, ni un civil 1090ES
+  confirmé, ni d'une origine sous mandat, une piste reste inconnue.
 - PPI : portées jusqu'à 20 000 km, vecteur vitesse, nord vrai/magnétique, bascule symboles APP-6 /
   formes plateforme. Fiche « interception » : toutes les données reçues. À 8000 km « couverture
   Afrique », à 12 000+ « couverture monde · tous continents ».
@@ -598,7 +633,7 @@ Symbologie APP-6 et radar
     encore tromper : sans antenne, l'heure de ces rapports glissait de 2,2 à 3,7 s à chaque
     rafraîchissement réseau, d'où 172 fausses confirmations d'un coup (mesuré). C'est désormais la
     POSITION seule qui dit si un relevé est neuf ; un avion immobile au sol reste un plot, établi par
-    ses messages. Le compteur « N plots » des vues Trace et Ident dit la même chose.
+    ses messages. Le compteur « N plots » de la vue Ident dit la même chose.
   · le FAUX INDICATIF : quand un avion n'émet pas d'indicatif, le libellé affiché se replie sur son
     immatriculation, et ce repli passait pour un indicatif émis (+3) — 5 avions crédités à tort sur
     7 mesurés. Chaque source porte maintenant le fait d'émission (agrégateur, antenne, rejeu).
@@ -1157,7 +1192,8 @@ Symbologie APP-6 et radar
   militaire, GNSS dégradé (NIC < 5), et tout contact à moins de 300 km de FTTJ — plus la piste
   verrouillée. Exemple mesuré : 128 contacts à 20 000 km → 3 pertinents. La liste et le compteur
   se rafraîchissent aussitôt. Le reste n'est pas supprimé, juste masqué tant que le débruitage est actif.
-- Le « clutter » cosmétique du scope (neige radar) est bas par défaut (6 %), réglable dans Peinture.
+- Plus de neige ni de balayage joués sur le scope : il montre les pistes reçues, chacune à l'heure
+  de son relevé. Le poste n'a pas de radar primaire et ne le fait pas croire.
 - Fond de carte : là où l'imagerie géostationnaire n'existe pas (zoom monde/continent, pôles), le
   poste sert une tuile vide propre au lieu d'erreurs 404 qui polluaient la console — rien à régler.
 
@@ -1468,7 +1504,7 @@ Diagnostic du poste — Capteurs > Outils
 Compte rendu de quart (IA du poste) — Journal de preuve
 - En tête du Journal : bouton « Rédiger le compte rendu ». L'IA du poste rédige un AAR structuré
   (période, volume, faits marquants, points d'attention, recommandation pour la relève) à partir
-  des SEULS bulletins versés. Les injects sont marqués EXERCICE et ne sont jamais comptés comme
+  des SEULS bulletins versés. Exercice et rejeu y sont marqués comme tels, jamais comptés comme
   trafic réel.
 - Les bulletins ne vont qu'au serveur d'IA du réseau du poste (AFRICONTROL_IA). Le compte rendu
   est une aide à relire et valider, pas une pièce scellée : les bulletins hashés restent la preuve.

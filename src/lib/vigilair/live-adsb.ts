@@ -24,7 +24,6 @@ import {
 } from "./integrity.ts";
 import { FRIEND_BY_ID } from "./catalog-friends.ts";
 import { AO, haversineKm, theaterOf } from "./geo.ts";
-import { M4_ABSENT_CIVIL } from "./iff.ts";
 import type { IffFix, ModeSReply, Track, UasClass } from "./types";
 
 export const LIVE_CREDIT =
@@ -343,34 +342,37 @@ export function platformIdForType(t: string | null): string {
   return "asecna-unk";
 }
 
-function mintLiveIff(ac: LiveAc, now: number): IffFix {
-  const reply: ModeSReply = {
-    id: `df17-${ac.hex}-${now}`,
-    df: "DF17",
-    label: "ADS-B squitter 1090ES",
-    icao24: ac.hex.toUpperCase(),
-    at: now,
-    siteId: ac.via === "antenne" ? "antenne-1090" : "live-1090",
-    siteName: ac.via === "antenne" ? "1090ES antenne du poste" : "1090ES réseau",
-    bds: "0,5",
-    payload: `${ac.lat.toFixed(4)} ${ac.lon.toFixed(4)} FL${Math.max(0, Math.round(ac.altM / 30.48))}`,
-    solicited: false,
-  };
+/**
+ * Ce que le transpondeur a dit, sans rien ajouter. Une trame DF17 n'est rapportée que si la
+ * position a vraiment été ÉMISE par l'appareil (ADS-B) ; une position MLAT du réseau, ou de source
+ * non annoncée, ne devient pas un squitter qu'on n'a pas entendu. L'heure est celle de la mesure.
+ */
+function mintLiveIff(ac: LiveAc, posAt: number): IffFix {
+  const icao24 = ac.hex.toUpperCase();
+  const adsb = ac.posSource === "adsb";
+  const replies: ModeSReply[] = adsb
+    ? [
+        {
+          id: `df17-${ac.hex}-${posAt}`,
+          df: "DF17",
+          label: "ADS-B squitter 1090ES",
+          icao24,
+          at: posAt,
+          siteId: ac.via === "antenne" ? "antenne-1090" : "live-1090",
+          siteName: ac.via === "antenne" ? "1090ES antenne du poste" : "1090ES réseau",
+          bds: "0,5",
+          payload: `${ac.lat.toFixed(4)} ${ac.lon.toFixed(4)} FL${Math.max(0, Math.round(ac.altM / 30.48))}`,
+          solicited: false,
+        },
+      ]
+    : [];
   return {
-    mode: "ADS-B",
+    mode: adsb ? "ADS-B" : "S",
     squawk: ac.squawk ?? "0000",
-    icao24: ac.hex.toUpperCase(),
+    icao24,
     flightId: ac.flight,
-    source: "adsb-asecna",
-    m4: "absent",
-    m4At: null,
-    m4Site: null,
-    m4Note: M4_ABSENT_CIVIL,
-    surveillance: "adsb",
-    replies: [reply],
-    mlat: null,
-    adsbClaim: { lat: ac.lat, lon: ac.lon },
-    lastReplyAt: now,
+    surveillance: adsb ? "adsb" : "modes",
+    replies,
   };
 }
 
@@ -482,10 +484,10 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
     confidence: idBase.score,
     confidenceNote: idBase.motif,
     callsignTx,
-    origin: uav ? "XX" : "XX",
+    origin: "XX",
     classGuess: catClass ?? plat.uasClass,
     hypotheses: [{ platformId: plat.id, score: idBase.score }],
-    sensors: [],
+    sensors: [ac.via === "antenne" ? "antenne" : "reseau"],
     firstSeen: prev?.firstSeen ?? now,
     // Heure RÉELLE de l'observation : c'est elle qui dit si la piste est fraîche ou muette.
     lastUpdate: posAt,
@@ -493,13 +495,6 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
     // Heure de la PREMIÈRE confirmation réelle, conservée ensuite : pas l'heure de naissance. Elle
     // n'est posée que sur le statut ARRÊTÉ (`avecStatutId`), jamais sur ce statut provisoire.
     confirmedAt: prev?.confirmedAt ?? null,
-    motion: ac.onGround ? "loiter" : "transit",
-    loiterCx: ac.lat,
-    loiterCy: ac.lon,
-    loiterR: 0.02,
-    turnRate: 0,
-    acoustic: null,
-    pilotFix: null,
     coast: ageS >= FRESH_S ? { silentS: Math.round(ageS), radiusKm: coastRadiusKm(ac.gsKmh, ageS) } : undefined,
     // Le CPA site est calculé par le store après la fusion (il lui faut les zones vivantes).
     cpa: prev?.cpa ?? null,
@@ -510,15 +505,11 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
     launchFix: prev?.launchFix ?? {
       lat: ac.lat,
       lon: ac.lon,
-      at: now,
-      quality: ac.nic != null ? Math.min(95, 40 + ac.nic * 5) : 90,
-      method: "ADS-B 1090ES live",
-      predicted: false,
+      at: posAt,
+      method: ac.via === "antenne" ? "1090ES antenne du poste" : "1090ES réseau",
     },
-    stopFix: null,
     locked: prev?.locked ?? false,
     corridor,
-    ew: null,
     // ASECNA = trafic du théâtre (bande Sahel, AES, Tchad). Ailleurs sur le continent (Maghreb,
     // Égypte, Afrique australe) : civil coopératif, neutre — pas « ami ASECNA ».
     friendKind: uav
@@ -526,7 +517,7 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
       : theaterOf(ac.lat, ac.lon) !== "monde"
         ? (plat.friendKind ?? "asecna")
         : "civil",
-    iff: mintLiveIff(ac, now),
+    iff: mintLiveIff(ac, posAt),
     feed: "adsb",
     icaoType: ac.icaoType,
     reg: ac.reg,

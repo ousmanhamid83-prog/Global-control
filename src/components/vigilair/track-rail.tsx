@@ -7,10 +7,11 @@ import {
 import { originTone, threatTone } from "@/lib/vigilair/format";
 import { friendLabel, isFriend } from "@/lib/vigilair/friends";
 import { passesPaintFilter, passesRailOrigin } from "@/lib/vigilair/iff";
+import { RELEVE_COUPE } from "@/lib/vigilair/live-feeds";
 import { sortTracks, threatOf, useVigilair, type FilterOrigin } from "@/lib/vigilair/store";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { IffBadge, PaintFilters } from "@/components/vigilair/paint-filters";
+import { PaintFilters } from "@/components/vigilair/paint-filters";
 import { cn } from "@/lib/utils";
 
 const FILTERS: { id: FilterOrigin; label: string }[] = [
@@ -33,13 +34,20 @@ export function TrackRail() {
   const showFriends = useVigilair((s) => s.showFriends);
   const showLive = useVigilair((s) => s.showLive);
   const threatFloor = useVigilair((s) => s.threatFloor);
-  const iffFilter = useVigilair((s) => s.iffFilter);
   const select = useVigilair((s) => s.select);
   const setOriginFilter = useVigilair((s) => s.setOriginFilter);
   const setSearch = useVigilair((s) => s.setSearch);
 
   const instruction = useVigilair((s) => s.instruction);
+  const pic = useVigilair((s) => s.livePicture);
   const liveN = tracks.filter((t) => t.feed === "adsb").length;
+  // Ce que le poste sait vraiment de son silence : il ne prétend pas avoir interrogé ce qu'il n'a pas
+  // interrogé (le texte citait des cellules « qui ont répondu » même relevé coupé).
+  const silence = !pic
+    ? "Veille réelle. Aucun relevé reçu pour l'instant."
+    : pic.errors.includes(RELEVE_COUPE)
+      ? "Veille réelle. Aucune piste : l'antenne du poste n'entend rien, et le relevé Internet est coupé (le chef l'active dans Capteurs › Outils)."
+      : "Veille réelle. Aucune piste dans le dernier relevé.";
   const q = search.trim().toLowerCase();
   const visible = sortTracks(tracks).filter((t) => {
     if (
@@ -47,7 +55,6 @@ export function TrackRail() {
         showFriends,
         showLive,
         threatFloor,
-        iffFilter,
         selectedId,
       })
     ) {
@@ -56,7 +63,7 @@ export function TrackRail() {
     if (!passesRailOrigin(t, originFilter, showFriends)) return false;
     if (!q) return true;
     const plat = PLATFORM_BY_ID[t.hypotheses[0]?.platformId ?? ""];
-    const blob = `${t.callsign} ${plat?.name ?? ""} ${plat?.manufacturer ?? ""} ${t.origin ?? ""} ${t.friendKind ?? ""} ${t.iff?.squawk ?? ""} ${t.iff?.m4 ?? ""} AMI FATL ASECNA M4`.toLowerCase();
+    const blob = `${t.callsign} ${plat?.name ?? ""} ${plat?.manufacturer ?? ""} ${t.origin ?? ""} ${t.friendKind ?? ""} ${t.iff?.squawk ?? ""} ${t.iff?.icao24 ?? ""} AMI ASECNA`.toLowerCase();
     return blob.includes(q);
   });
 
@@ -100,17 +107,11 @@ export function TrackRail() {
       <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-3">
         {visible.length === 0 ? (
           <li className="px-2 py-8 text-center text-sm text-muted-foreground">
-            {liveN === 0 && !instruction
-              ? "Veille réelle. Les cellules 1090ES ont répondu : aucun squitter entendu sur FTTJ, Lagos, Niamey, Khartoum."
-              : "Aucune piste sur ce filtre."}
+            {liveN === 0 && !instruction ? silence : "Aucune piste sur ce filtre."}
           </li>
         ) : (
           visible.map((t) => {
-            const plat =
-              PLATFORM_BY_ID[t.hypotheses[0]?.platformId ?? ""] ??
-              (t.idState === "hors-mandat"
-                ? PLATFORM_BY_ID[t.truePlatformId]
-                : undefined);
+            const plat = PLATFORM_BY_ID[t.hypotheses[0]?.platformId ?? ""];
             const threat = threatOf(t);
             const active = t.id === selectedId;
             const ami = isFriend(t);
@@ -163,8 +164,8 @@ export function TrackRail() {
                         {t.friendKind === "civil" ? "CIVIL" : `AMI ${friendLabel(t.friendKind!)}`}
                       </Badge>
                     ) : null}
-                    {t.iff ? <IffBadge m4={t.iff.m4} /> : null}
-                    {t.feed === "rejeu" ? <Badge tone="warn">REJ</Badge> : t.injected ? <Badge tone="warn">INJ</Badge> : null}
+                    {t.iff ? <Badge>{t.iff.surveillance === "adsb" ? "ADS-B" : "Mode S"}</Badge> : null}
+                    {t.feed === "rejeu" ? <Badge tone="warn">REJ</Badge> : t.feed === "exercice" ? <Badge tone="warn">EXE</Badge> : null}
                   </div>
                 </button>
               </li>

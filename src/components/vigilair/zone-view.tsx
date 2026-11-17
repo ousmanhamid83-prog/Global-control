@@ -217,16 +217,18 @@ export function ZoneView() {
           <ul className="max-h-80 space-y-1 overflow-y-auto">
             {breaches.length === 0 ? (
               <li className="text-sm text-muted-foreground">
-                Aucune intrusion encore. Un inject « périurbain » ou une piste
-                UAS dans le rayon verse une ligne ici.
+                Aucune intrusion encore. Une piste UAS dans le rayon (catégorie B6
+                en 1090ES, ou un vol d'exercice) verse une ligne ici.
               </li>
             ) : (
               breaches.map((r) => (
                 <li
                   key={r.id}
                   className="flex flex-wrap items-baseline justify-between gap-2 rounded-md border border-border/60 px-3 py-2"
+                  data-breche-exercice={r.exercice ? "1" : undefined}
                 >
                   <span className="text-sm">
+                    {r.exercice ? <span className="text-warn">EXERCICE · </span> : null}
                     <span className={r.kind === "inside" && r.uas ? "text-crit" : "text-warn"}>
                       {r.kind === "inside" ? "DANS" : "APP"}
                     </span>{" "}

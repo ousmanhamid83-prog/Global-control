@@ -5,15 +5,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PLATFORM_BY_ID, classLabel, originLabel } from "@/lib/vigilair/catalog";
 import { AO, formatCoord, haversineKm, headingBetween } from "@/lib/vigilair/geo";
-import { iffModesLine, m4Label, m4Tone, passesPaintFilter } from "@/lib/vigilair/iff";
-import { PPI_RANGES, TIME_VECTORS, prfHz, type PpiRangeKm } from "@/lib/vigilair/ppi";
+import { iffModesLine, passesPaintFilter } from "@/lib/vigilair/iff";
+import { surveillanceLabel } from "@/lib/vigilair/mode-s";
+import { PPI_RANGES, TIME_VECTORS, type PpiRangeKm } from "@/lib/vigilair/ppi";
 import { useStaff } from "@/lib/vigilair/staff-context";
 import { affiliationLabel, affiliationOf } from "@/lib/vigilair/app6";
 import { rejeuClock } from "@/lib/vigilair/rejeu";
 import { threatOf, useVigilair } from "@/lib/vigilair/store";
 import type { Track } from "@/lib/vigilair/types";
 import { cn } from "@/lib/utils";
-import { Crosshair, EyeOff, Fingerprint } from "lucide-react";
+import { Crosshair, EyeOff } from "lucide-react";
 import { useMemo } from "react";
 
 export function RadarView() {
@@ -24,10 +25,9 @@ export function RadarView() {
   const lockTrack = useVigilair((s) => s.lockTrack);
   const selected = tracks.find((t) => t.id === selectedId);
   // S'abonner aux filtres de peinture pour que la liste et le compteur se rafraîchissent
-  // IMMÉDIATEMENT au basculement (débruitage, menace, IFF, amis, live), pas au relevé suivant.
+  // IMMÉDIATEMENT au basculement (débruitage, menace, amis, live), pas au relevé suivant.
   const declutter = useVigilair((s) => s.declutter);
   const threatFloor = useVigilair((s) => s.threatFloor);
-  const iffFilter = useVigilair((s) => s.iffFilter);
   const showFriends = useVigilair((s) => s.showFriends);
   const showLive = useVigilair((s) => s.showLive);
   // On applique le filtre de peinture avec les valeurs NOMMÉES plutôt que via trackVisible, qui les
@@ -36,12 +36,11 @@ export function RadarView() {
   const live = useMemo(
     () =>
       tracks.filter((t) =>
-        passesPaintFilter(t, { declutter, threatFloor, iffFilter, showFriends, showLive, selectedId }),
+        passesPaintFilter(t, { declutter, threatFloor, showFriends, showLive, selectedId }),
       ),
-    [tracks, selectedId, declutter, threatFloor, iffFilter, showFriends, showLive],
+    [tracks, selectedId, declutter, threatFloor, showFriends, showLive],
   );
   const { isSuperadmin } = useStaff();
-  const requestM4 = useVigilair((s) => s.requestM4);
 
   return (
     <div className="grid min-h-0 flex-1 overscroll-contain grid-cols-[minmax(0,1fr)_300px] grid-rows-[minmax(0,1fr)] overflow-hidden">
@@ -57,13 +56,13 @@ export function RadarView() {
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Paramètres PPI
             </p>
-            <h2 className="text-base font-semibold">Écran radar FTTJ</h2>
+            <h2 className="text-base font-semibold">Écran des pistes FTTJ</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              PPI + coupe altitude RHI — pistes 1090ES / antenne live, pas un
-              radar primaire FATL. Symboles APP-6 (le cadre = l'affiliation).
-              Réception seule : AfriControl n'émet pas. Espace = pause · L =
-              verrouiller · F = amis · T = menace · I = IFF · M = Mode 4 · D =
-              débruitage · 1–9 = portée · ← → AAR.
+              PPI + coupe altitude RHI — pistes 1090ES reçues en direct (antenne du poste et
+              relevé réseau). Le poste n'a pas de radar primaire : aucun balayage n'est simulé.
+              Symboles APP-6 (le cadre = l'affiliation). Réception seule : AfriControl n'émet
+              pas. Espace = pause · L = verrouiller · F = amis · T = menace · D = débruitage ·
+              1–9 = portée · ← → AAR.
             </p>
           </div>
 
@@ -93,39 +92,13 @@ export function RadarView() {
             <PaintFilters variant="rail" />
           </div>
 
-          <Param
-            label={`Balayage · ${ppi.rpm} tr/min`}
-            value={ppi.rpm}
-            min={4}
-            max={20}
-            step={1}
-            onChange={(v) => setPpi({ rpm: v })}
-          />
-          <Param
-            label={`Gain · ${ppi.gain.toFixed(2)}`}
-            value={ppi.gain}
-            min={0.4}
-            max={1.6}
-            step={0.05}
-            onChange={(v) => setPpi({ gain: v })}
-          />
-          <Param
-            label={`Clutter · ${Math.round(ppi.clutter * 100)} %`}
-            value={ppi.clutter}
-            min={0}
-            max={0.6}
-            step={0.02}
-            onChange={(v) => setPpi({ clutter: v })}
-          />
-
           <div className="grid grid-cols-2 gap-1">
             {(
               [
                 ["symbols", "Symboles APP-6"],
-                ["afterglow", "Afterglow"],
                 ["labels", "Étiquettes"],
                 ["trails", "Trajectoires"],
-                ["iff", "IFF / ADS-B"],
+                ["iff", "Squawk"],
                 ["northTrue", ppi.northTrue ? "Nord vrai" : "Nord mag."],
               ] as const
             ).map(([key, lab]) => (
@@ -169,8 +142,6 @@ export function RadarView() {
           {ppi.symbols ? <App6Legend /> : null}
 
           <dl className="grid grid-cols-2 gap-2 text-xs">
-            <Item label="PRF" value={`${prfHz(ppi.rangeKm)} Hz`} />
-            <Item label="Période" value={`${(60 / ppi.rpm).toFixed(1)} s`} />
             <Item label="Site" value="FTTJ" />
             <Item label="Pistes dans le PPI" value={`${live.filter((t) => haversineKm(AO.airport.lat, AO.airport.lon, t.lat, t.lon) <= ppi.rangeKm).length}`} />
             {/* Pistes dont la position est EXTRAPOLÉE (transpondeur muet), et relevés refusés comme
@@ -189,7 +160,7 @@ export function RadarView() {
               Silencieux
             </Badge>
             {isSuperadmin ? (
-              <Badge>Chef · effecteur</Badge>
+              <Badge>Chef de division</Badge>
             ) : (
               <Badge>Admin · détection</Badge>
             )}
@@ -233,16 +204,12 @@ export function RadarView() {
               </p>
               {selected.iff ? (
                 <div className="flex flex-wrap items-center gap-1">
-                  <Badge tone={m4Tone(selected.iff.m4)}>
-                    {m4Label(selected.iff.m4)}
-                  </Badge>
+                  <Badge>{surveillanceLabel(selected.iff.surveillance)}</Badge>
                   <span className="text-xs text-muted-foreground">
                     {iffModesLine(selected.iff)}
                   </span>
                 </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">Sans transpondeur IFF.</p>
-              )}
+              ) : null}
               <Intercept t={selected} />
               <Button
                 variant={selected.locked ? "default" : "outline"}
@@ -252,20 +219,6 @@ export function RadarView() {
               >
                 <Crosshair />
                 {selected.locked ? "Trajectoire verrouillée" : "Verrouiller"}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full"
-                disabled={selected.iff?.m4 === "demande"}
-                onClick={() => requestM4(selected.id)}
-              >
-                <Fingerprint />
-                {selected.iff?.m4 === "demande"
-                  ? "Mode 4 en cours"
-                  : selected.iff?.m4 === "valid"
-                    ? "Réinterroger Mode 4"
-                    : "Demander Mode 4"}
               </Button>
             </div>
           ) : (
@@ -280,7 +233,7 @@ export function RadarView() {
 }
 
 const APP6_LEGEND: { a: string; label: string; color: string; shape: string }[] = [
-  { a: "ami", label: "Ami (FATL / ASECNA)", color: "var(--color-ok)", shape: "arc" },
+  { a: "ami", label: "Ami (nos drones / ASECNA)", color: "var(--color-ok)", shape: "arc" },
   { a: "hostile", label: "Hostile (mandat + menace)", color: "var(--color-crit)", shape: "diamond" },
   { a: "suspect", label: "Suspect (à lever)", color: "var(--color-warn)", shape: "diamond" },
   { a: "neutre", label: "Neutre (civil hors mandat)", color: "var(--color-series-2)", shape: "square" },
@@ -323,8 +276,8 @@ function App6Legend() {
         ))}
       </ul>
       <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
-        Le cadre dit l'affiliation, ouvert en bas = aérien. Inconnu est l'état assumé : sans IFF
-        ami ni mandat levé, une piste reste inconnue, jamais hostile par défaut.
+        Le cadre dit l'affiliation, ouvert en bas = aérien. Inconnu est l'état assumé : sans
+        affiliation amie ni mandat levé, une piste reste inconnue, jamais hostile par défaut.
       </p>
     </div>
   );
@@ -344,22 +297,20 @@ const AFFIL_TONE: Record<string, "ok" | "crit" | "warn" | "default"> = {
  */
 function Intercept({ t }: { t: Track }) {
   const { affiliation, reason } = affiliationOf(t, threatOf(t));
-  const hex = t.feed === "adsb" || t.feed === "rejeu" ? t.id.replace(/^(live|rej)-/, "").toUpperCase() : null;
+  const hex = t.feed === "exercice" ? "—" : t.id.replace(/^(live|rej)-/, "").toUpperCase();
   const fl = Math.round(t.altM / 30.48);
   const via =
-    t.iff?.replies?.[0]?.siteId === "antenne-1090"
-      ? "Antenne du poste"
-      : t.feed === "adsb"
-        ? "1090ES réseau"
-        : t.feed === "rid"
-          ? "Remote ID"
-          : t.feed === "rejeu" && t.rejeu
-            ? `REJEU RÉEL · reçu le ${rejeuClock(t.rejeu.posAt)}`
-            : "COP";
+    t.feed === "rejeu" && t.rejeu
+      ? `REJEU RÉEL · reçu le ${rejeuClock(t.rejeu.posAt)}`
+      : t.exercice
+        ? `EXERCICE · liaison MAVLink de ${t.exercice.drone}`
+        : t.sensors.includes("antenne")
+          ? "Antenne du poste"
+          : "1090ES réseau";
   const rows: [string, string][] = [
     ["Affiliation", `${affiliationLabel(affiliation)} · ${reason}`],
     ["Reçu par", via],
-    ["ICAO24", hex ?? "—"],
+    ["ICAO24", hex],
     ["Indicatif", t.callsign || "—"],
     ["Type / immat.", `${t.icaoType ?? "—"}${t.reg ? ` · ${t.reg}` : ""}`],
     ["Nationalité", t.nation ?? "—"],
@@ -397,37 +348,6 @@ function Intercept({ t }: { t: Track }) {
         Lecture passive 1090ES / Mode S. AfriControl n'interroge pas et n'émet pas.
       </p>
     </div>
-  );
-}
-
-function Param({
-  label,
-  value,
-  min,
-  max,
-  step,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-xs text-muted-foreground">{label}</span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="h-11 w-full"
-      />
-    </label>
   );
 }
 

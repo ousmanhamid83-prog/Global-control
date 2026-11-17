@@ -11,7 +11,6 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AbriRouteImport } from './routes/abri'
-import { Route as AudioRouteImport } from './routes/audio'
 import { Route as CapteursRouteImport } from './routes/capteurs'
 import { Route as CatalogueRouteImport } from './routes/catalogue'
 import { Route as DivisionRouteImport } from './routes/division'
@@ -23,7 +22,6 @@ import { Route as QuartRouteImport } from './routes/quart'
 import { Route as RadarRouteImport } from './routes/radar'
 import { Route as SentinelleRouteImport } from './routes/sentinelle'
 import { Route as TableauRouteImport } from './routes/tableau'
-import { Route as TraceRouteImport } from './routes/trace'
 import { Route as ZonesRouteImport } from './routes/zones'
 import { Route as ApiMosaiqueRouteImport } from './routes/api/mosaique'
 import { Route as ApiMosaiqueCouvertureRouteImport } from './routes/api/mosaique-couverture'
@@ -40,11 +38,6 @@ const IndexRoute = IndexRouteImport.update({
 const AbriRoute = AbriRouteImport.update({
   id: '/abri',
   path: '/abri',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AudioRoute = AudioRouteImport.update({
-  id: '/audio',
-  path: '/audio',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CapteursRoute = CapteursRouteImport.update({
@@ -102,11 +95,6 @@ const TableauRoute = TableauRouteImport.update({
   path: '/tableau',
   getParentRoute: () => rootRouteImport,
 } as any)
-const TraceRoute = TraceRouteImport.update({
-  id: '/trace',
-  path: '/trace',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ZonesRoute = ZonesRouteImport.update({
   id: '/zones',
   path: '/zones',
@@ -146,7 +134,6 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/abri': typeof AbriRoute
-  '/audio': typeof AudioRoute
   '/capteurs': typeof CapteursRoute
   '/catalogue': typeof CatalogueRoute
   '/division': typeof DivisionRoute
@@ -158,7 +145,6 @@ export interface FileRoutesByFullPath {
   '/radar': typeof RadarRoute
   '/sentinelle': typeof SentinelleRoute
   '/tableau': typeof TableauRoute
-  '/trace': typeof TraceRoute
   '/zones': typeof ZonesRoute
   '/api/mosaique': typeof ApiMosaiqueRoute
   '/api/mosaique-couverture': typeof ApiMosaiqueCouvertureRoute
@@ -170,7 +156,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/abri': typeof AbriRoute
-  '/audio': typeof AudioRoute
   '/capteurs': typeof CapteursRoute
   '/catalogue': typeof CatalogueRoute
   '/division': typeof DivisionRoute
@@ -182,7 +167,6 @@ export interface FileRoutesByTo {
   '/radar': typeof RadarRoute
   '/sentinelle': typeof SentinelleRoute
   '/tableau': typeof TableauRoute
-  '/trace': typeof TraceRoute
   '/zones': typeof ZonesRoute
   '/api/mosaique': typeof ApiMosaiqueRoute
   '/api/mosaique-couverture': typeof ApiMosaiqueCouvertureRoute
@@ -195,7 +179,6 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/abri': typeof AbriRoute
-  '/audio': typeof AudioRoute
   '/capteurs': typeof CapteursRoute
   '/catalogue': typeof CatalogueRoute
   '/division': typeof DivisionRoute
@@ -207,7 +190,6 @@ export interface FileRoutesById {
   '/radar': typeof RadarRoute
   '/sentinelle': typeof SentinelleRoute
   '/tableau': typeof TableauRoute
-  '/trace': typeof TraceRoute
   '/zones': typeof ZonesRoute
   '/api/mosaique': typeof ApiMosaiqueRoute
   '/api/mosaique-couverture': typeof ApiMosaiqueCouvertureRoute
@@ -221,7 +203,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/abri'
-    | '/audio'
     | '/capteurs'
     | '/catalogue'
     | '/division'
@@ -233,7 +214,6 @@ export interface FileRouteTypes {
     | '/radar'
     | '/sentinelle'
     | '/tableau'
-    | '/trace'
     | '/zones'
     | '/api/mosaique'
     | '/api/mosaique-couverture'
@@ -245,7 +225,6 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/abri'
-    | '/audio'
     | '/capteurs'
     | '/catalogue'
     | '/division'
@@ -257,7 +236,6 @@ export interface FileRouteTypes {
     | '/radar'
     | '/sentinelle'
     | '/tableau'
-    | '/trace'
     | '/zones'
     | '/api/mosaique'
     | '/api/mosaique-couverture'
@@ -269,7 +247,6 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/abri'
-    | '/audio'
     | '/capteurs'
     | '/catalogue'
     | '/division'
@@ -281,7 +258,6 @@ export interface FileRouteTypes {
     | '/radar'
     | '/sentinelle'
     | '/tableau'
-    | '/trace'
     | '/zones'
     | '/api/mosaique'
     | '/api/mosaique-couverture'
@@ -294,7 +270,6 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AbriRoute: typeof AbriRoute
-  AudioRoute: typeof AudioRoute
   CapteursRoute: typeof CapteursRoute
   CatalogueRoute: typeof CatalogueRoute
   DivisionRoute: typeof DivisionRoute
@@ -306,7 +281,6 @@ export interface RootRouteChildren {
   RadarRoute: typeof RadarRoute
   SentinelleRoute: typeof SentinelleRoute
   TableauRoute: typeof TableauRoute
-  TraceRoute: typeof TraceRoute
   ZonesRoute: typeof ZonesRoute
   ApiMosaiqueRoute: typeof ApiMosaiqueRoute
   ApiMosaiqueCouvertureRoute: typeof ApiMosaiqueCouvertureRoute
@@ -330,13 +304,6 @@ declare module '@tanstack/react-router' {
       path: '/abri'
       fullPath: '/abri'
       preLoaderRoute: typeof AbriRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/audio': {
-      id: '/audio'
-      path: '/audio'
-      fullPath: '/audio'
-      preLoaderRoute: typeof AudioRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/capteurs': {
@@ -416,13 +383,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TableauRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/trace': {
-      id: '/trace'
-      path: '/trace'
-      fullPath: '/trace'
-      preLoaderRoute: typeof TraceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/zones': {
       id: '/zones'
       path: '/zones'
@@ -478,7 +438,6 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AbriRoute: AbriRoute,
-  AudioRoute: AudioRoute,
   CapteursRoute: CapteursRoute,
   CatalogueRoute: CatalogueRoute,
   DivisionRoute: DivisionRoute,
@@ -490,7 +449,6 @@ const rootRouteChildren: RootRouteChildren = {
   RadarRoute: RadarRoute,
   SentinelleRoute: SentinelleRoute,
   TableauRoute: TableauRoute,
-  TraceRoute: TraceRoute,
   ZonesRoute: ZonesRoute,
   ApiMosaiqueRoute: ApiMosaiqueRoute,
   ApiMosaiqueCouvertureRoute: ApiMosaiqueCouvertureRoute,

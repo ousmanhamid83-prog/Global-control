@@ -26,7 +26,7 @@ export const Route = createRootRoute({
       {
         name: "description",
         content:
-          "AfriControl — COP C-UAS réel, poste installable. 1090ES live, METAR/SIGMET NOAA, FTTJ AWC, GNSS NIC, IFF Mode 4 FATL.",
+          "AfriControl — COP C-UAS réel, poste installable. 1090ES live, METAR/SIGMET NOAA, FTTJ AWC, GNSS NIC, nos drones MAVLink.",
       },
       { name: "theme-color", content: "#09090b" },
       { name: "referrer", content: "no-referrer" },

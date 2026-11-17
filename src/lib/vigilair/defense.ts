@@ -1,5 +1,4 @@
 import { PLATFORM_BY_ID, threatRank } from "./catalog";
-import { canRequestEw } from "./ew";
 import { isFriend } from "./friends";
 import { detectRaids } from "./raid";
 import type { DefensePosture, Threat, Track } from "./types";
@@ -42,7 +41,7 @@ export function computePosture(tracks: Track[]): {
     return {
       posture: "veille",
       reason: "Aucune piste active dans l'AO.",
-      recs: ["Maintenir la couverture capteurs.", "Journaler les contacts hors mandat."],
+      recs: ["Maintenir l'écoute 1090 du poste.", "Journaler les contacts hors mandat."],
     };
   }
 
@@ -61,25 +60,22 @@ export function computePosture(tracks: Track[]): {
       reason: `Raid ${r.corridor} · ${r.count} pistes · ${r.originLabels.join(" / ")}`,
       recs: [
         "Traiter comme une salve coordonnée, pas des contacts isolés.",
-        "Verrouiller la piste de tête et corréler SIGINT / Sentinel du couloir.",
-        "Rester silencieux — le télépilote ne doit pas savoir qu'il est découvert.",
-        "Armer l'effecteur RF seulement sur ordre du chef de division (CN / TR / RU).",
+        "Verrouiller la piste de tête et alerter le chef de division.",
+        "Verser un bulletin de preuve par piste confirmée.",
+        "Le poste n'émet pas : aucune rétroaction vers les appareils.",
       ],
     };
   }
 
   if (imminent) {
-    const ew = canRequestEw(worst);
     return {
       posture: "menace",
       reason: `${worst.callsign} se rapproche de ${cpa?.name} · ${cpa?.distKm.toFixed(1)} km`,
       recs: [
         "Alerter l'unité C-UAS et le poste de commandement.",
-        `Verrouiller le personnel en toiture / ${cpa?.name}.`,
-        "Corréler EO/IR, gonio RF et scène Sentinel de la source C2.",
-        ew.ok
-          ? "Armer l'effecteur RF si autorisé — le télépilote ne saura pas qu'il est intercepté."
-          : "Pas d'effet autonome — rester silencieux. Écoute SIGINT seulement.",
+        `Mettre à couvert le personnel exposé · ${cpa?.name}.`,
+        "Lever le doute avec un de nos drones, sur ordre scellé du chef de division.",
+        "Verser un bulletin de preuve dès la confirmation.",
       ],
     };
   }
@@ -94,10 +90,9 @@ export function computePosture(tracks: Track[]): {
       posture: "alerte",
       reason: `${worst.callsign} · ${plat ? `${plat.manufacturer} ${plat.name}` : "non identifié"}`,
       recs: [
-        "Maintenir le lock multi-capteurs et l'écoute SIGINT.",
-        "Rester silencieux — aucune rétroaction vers le contrôleur.",
-        "Verser un bulletin de preuve Sentinel si confirmation.",
-        "Pas d'effet autonome — armer l'effecteur seulement sur ordre.",
+        "Maintenir le verrou sur la piste.",
+        "Le poste n'émet pas : aucune rétroaction vers l'appareil.",
+        "Verser un bulletin de preuve si confirmation.",
       ],
     };
   }
@@ -105,18 +100,6 @@ export function computePosture(tracks: Track[]): {
   return {
     posture: "veille",
     reason: "Contacts de routine — identification en cours.",
-    recs: [
-      "Surveiller les BPF acoustiques des quads urbains.",
-      "Classer hors mandat sans dossier d'effet.",
-    ],
+    recs: ["Surveiller l'approche des zones protégées.", "Classer hors mandat sans dossier."],
   };
-}
-
-export function sopForTrack(track: Track): string[] {
-  const global = computePosture([track]);
-  const ew = canRequestEw(track);
-  const extra = ew.ok
-    ? ["Demander un effet RF à l'autorité pour CN / TR / RU — AfriControl n'émet pas."]
-    : [ew.reason];
-  return [...global.recs, ...extra];
 }

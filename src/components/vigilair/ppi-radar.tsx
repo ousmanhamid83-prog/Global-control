@@ -1,14 +1,13 @@
 import { useEffect, useRef, type MouseEvent } from "react";
 import { PLATFORM_BY_ID } from "@/lib/vigilair/catalog";
 import { AO, haversineKm, headingBetween } from "@/lib/vigilair/geo";
-import { MAG_DECLINATION_DEG, prfHz, type PpiParams } from "@/lib/vigilair/ppi";
+import { MAG_DECLINATION_DEG, type PpiParams } from "@/lib/vigilair/ppi";
 import { affiliationColorVar, affiliationOf, drawApp6Air, type Affiliation } from "@/lib/vigilair/app6";
 import { detectRaids, raidTrackIds } from "@/lib/vigilair/raid";
 import { getLiveZones } from "@/lib/vigilair/zones";
 import { peekTracks, threatOf, trackVisible, useVigilair } from "@/lib/vigilair/store";
 import { isFriend } from "@/lib/vigilair/friends";
 import { totalUncertaintyKm } from "@/lib/vigilair/integrity";
-import { m4Short } from "@/lib/vigilair/iff";
 import type { Origin, Track, UasClass } from "@/lib/vigilair/types";
 import { cn } from "@/lib/utils";
 
@@ -29,12 +28,6 @@ function hexAlpha(hex: string, a: number) {
 function polar(cx: number, cy: number, bearing: number, r: number) {
   const rad = (bearing * Math.PI) / 180;
   return { x: cx + r * Math.sin(rad), y: cy - r * Math.cos(rad) };
-}
-
-function swept(prev: number, next: number, bearing: number) {
-  const b = ((bearing % 360) + 360) % 360;
-  if (next >= prev) return b >= prev && b <= next;
-  return b >= prev || b <= next;
 }
 
 function drawBlip(
@@ -100,8 +93,11 @@ function drawBlip(
   ctx.restore();
 }
 
-type Paint = { glow: number; last: number };
-
+/**
+ * Écran polaire des pistes RÉELLES, centré sur FTTJ. Le poste n'a pas de radar primaire : rien ici
+ * ne simule un balayage, un écho ou un fouillis. Chaque piste est dessinée à sa dernière position
+ * connue, à chaque image — c'est le direct de l'antenne 1090 et du relevé réseau.
+ */
 export function PpiRadar({ className }: { className?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const selectedId = useVigilair((s) => s.selectedId);
@@ -115,55 +111,20 @@ export function PpiRadar({ className }: { className?: string }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const paints = new Map<string, Paint>();
-    const flashes: { x: number; y: number; born: number }[] = [];
-    const clutter: { brg: number; r: number }[] = [];
-    for (let i = 0; i < 90; i++) {
-      clutter.push({ brg: Math.random() * 360, r: 0.35 + Math.random() * 0.62 });
-    }
-    let sweep = 0;
-    let prevSweep = 0;
-    let last = performance.now();
     let raf = 0;
-    const reduced =
-      typeof window !== "undefined" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    const phosphor = document.createElement("canvas");
     const resize = () => {
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
       canvas.width = Math.max(1, Math.floor(w * dpr));
       canvas.height = Math.max(1, Math.floor(h * dpr));
-      phosphor.width = canvas.width;
-      phosphor.height = canvas.height;
     };
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
 
-    const tick = (t: number) => {
-      const dt = Math.min(0.05, (t - last) / 1000);
-      last = t;
-      const params = ppiRef.current;
-      const degPerS = reduced ? 0 : params.rpm * 6;
-      prevSweep = sweep;
-      sweep = (sweep + degPerS * dt) % 360;
-      drawFrame(
-        canvas,
-        phosphor,
-        peekTracks(),
-        selRef.current,
-        sweep,
-        prevSweep,
-        params,
-        paints,
-        flashes,
-        clutter,
-        t,
-        reduced,
-      );
+    const tick = () => {
+      drawFrame(canvas, peekTracks(), selRef.current, ppiRef.current);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -268,27 +229,17 @@ function scopeGeom(w: number, h: number) {
 
 function drawFrame(
   canvas: HTMLCanvasElement,
-  phosphor: HTMLCanvasElement,
   tracks: Track[],
   selectedId: string | null,
-  sweep: number,
-  prevSweep: number,
   params: PpiParams,
-  paints: Map<string, Paint>,
-  flashes: { x: number; y: number; born: number }[],
-  clutter: { brg: number; r: number }[],
-  now: number,
-  reduced: boolean,
 ) {
   const ctx = canvas.getContext("2d");
-  const pctx = phosphor.getContext("2d");
-  if (!ctx || !pctx) return;
+  if (!ctx) return;
   const dpr = canvas.width / Math.max(1, canvas.clientWidth);
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
   if (w < 8 || h < 8) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   const root = document.documentElement;
   const bg = token(root, "--color-bg", "#09090b");
@@ -335,30 +286,6 @@ function drawFrame(
   ctx.arc(cx, cy, radius, 0, Math.PI * 2);
   ctx.clip();
 
-  if (params.afterglow && !reduced) {
-    pctx.globalCompositeOperation = "source-over";
-    pctx.fillStyle = "rgba(9,9,11,0.08)";
-    pctx.fillRect(0, 0, w, h);
-    pctx.save();
-    pctx.beginPath();
-    pctx.arc(cx, cy, radius, 0, Math.PI * 2);
-    pctx.clip();
-    const span = 18;
-    const a0 = ((sweep - span) * Math.PI) / 180 - Math.PI / 2;
-    const a1 = (sweep * Math.PI) / 180 - Math.PI / 2;
-    const grd = pctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-    grd.addColorStop(0, hexAlpha(ok, 0.18));
-    grd.addColorStop(1, hexAlpha(ok, 0.02));
-    pctx.fillStyle = grd;
-    pctx.beginPath();
-    pctx.moveTo(cx, cy);
-    pctx.arc(cx, cy, radius, a0, a1, false);
-    pctx.closePath();
-    pctx.fill();
-    pctx.restore();
-    ctx.drawImage(phosphor, 0, 0, w, h);
-  }
-
   const rings = [0.25, 0.5, 0.75, 1];
   ctx.strokeStyle = hexAlpha(ok, 0.28);
   ctx.lineWidth = 1;
@@ -399,26 +326,9 @@ function drawFrame(
     }
   }
 
-  const gain = Math.max(0.4, Math.min(1.6, params.gain));
-  if (params.clutter > 0) {
-    ctx.fillStyle = hexAlpha(ok, 0.12 * params.clutter * gain);
-    for (const c of clutter) {
-      if (!reduced && !swept(prevSweep, sweep, c.brg) && !params.afterglow) continue;
-      const p = polar(cx, cy, c.brg, c.r * radius);
-      ctx.fillRect(p.x, p.y, 1.4, 1.4);
-    }
-  }
-
-  const beam = polar(cx, cy, sweep, radius);
-  ctx.strokeStyle = hexAlpha(ok, 0.85);
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(cx, cy);
-  ctx.lineTo(beam.x, beam.y);
-  ctx.stroke();
-
   const selected = tracks.find((t) => t.id === selectedId) ?? null;
   const raidIds = raidTrackIds(detectRaids(tracks));
+  let shown = 0;
 
   for (const tr of tracks) {
     if (!trackVisible(tr, selectedId)) continue;
@@ -427,21 +337,7 @@ function drawFrame(
     if (rng > params.rangeKm) continue;
     const brg = headingBetween(AO.airport.lat, AO.airport.lon, tr.lat, tr.lon);
     const p = polar(cx, cy, brg, (rng / params.rangeKm) * radius);
-    const hit = reduced || swept(prevSweep, sweep, brg);
-    let paint = paints.get(tr.id);
-    if (!paint) {
-      paint = { glow: reduced ? 1 : 0.15, last: now };
-      paints.set(tr.id, paint);
-    }
-    if (hit) {
-      paint.glow = 1;
-      paint.last = now;
-      flashes.push({ x: p.x, y: p.y, born: now });
-    } else {
-      paint.glow = Math.max(0.12, paint.glow * (params.afterglow ? 0.985 : 0.92));
-    }
-    const vis = Math.min(1, paint.glow * gain);
-    if (vis < 0.08) continue;
+    shown += 1;
     const plat = PLATFORM_BY_ID[tr.hypotheses[0]?.platformId ?? tr.truePlatformId];
     const origin = tr.origin ?? plat?.origin ?? "XX";
     const affil = affiliationOf(tr, threatOf(tr)).affiliation;
@@ -452,7 +348,6 @@ function drawFrame(
         : params.iff
           ? origins[origin]
           : ok;
-    ctx.globalAlpha = vis;
     if (tr.locked && params.trails) {
       ctx.strokeStyle = hexAlpha(warn, 0.5);
       ctx.setLineDash([4, 4]);
@@ -538,56 +433,32 @@ function drawFrame(
       ctx.arc(p.x, p.y, 11, 0, Math.PI * 2);
       ctx.stroke();
     }
-    if (tr.iff?.m4 === "invalid") {
-      ctx.strokeStyle = hexAlpha(crit, 0.8);
-      ctx.setLineDash([3, 2]);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 14, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-    if (params.labels && vis > 0.45 && !quiet) {
+    if (params.labels && !quiet) {
       ctx.fillStyle = fg;
       ctx.font = "10px IBM Plex Mono, ui-monospace, monospace";
       ctx.textAlign = "left";
       ctx.textBaseline = "top";
       const tag =
         params.iff && tr.iff
-          ? `${tr.callsign}  ${tr.iff.squawk} ${m4Short(tr.iff.m4)}`
+          ? `${tr.callsign}  ${tr.iff.squawk}`
           : `${tr.callsign}  ${Math.round(tr.altM)}m`;
       ctx.fillText(tag, p.x + 8, p.y - 10);
-      if (plat && vis > 0.7) {
+      if (plat) {
         ctx.fillStyle = muted;
         ctx.fillText(
           ami
-            ? `${tr.friendKind === "fatl" ? "FATL" : "ADS-B"} · ${plat.name}`
+            ? `${tr.iff?.surveillance === "adsb" ? "ADS-B" : "Mode S"} · ${plat.name}`
             : `${plat.origin} · ${Math.round(tr.speedKmh)}km/h`,
           p.x + 8,
           p.y + 2,
         );
       }
     }
-    ctx.globalAlpha = 1;
     if (selected && selected.id === tr.id) {
       ctx.strokeStyle = warn;
       ctx.lineWidth = 1.2;
       ctx.strokeRect(p.x - 14, p.y - 14, 28, 28);
     }
-  }
-
-  const alive = now;
-  for (let i = flashes.length - 1; i >= 0; i--) {
-    const f = flashes[i];
-    const age = (alive - f.born) / 600;
-    if (age > 1) {
-      flashes.splice(i, 1);
-      continue;
-    }
-    ctx.strokeStyle = hexAlpha(ok, 0.45 * (1 - age));
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(f.x, f.y, 6 + age * 16, 0, Math.PI * 2);
-    ctx.stroke();
   }
 
   ctx.restore();
@@ -635,8 +506,7 @@ function drawFrame(
   ctx.fillStyle = muted;
   ctx.font = "11px IBM Plex Mono, ui-monospace, monospace";
   legend(`FTTJ  N'DJAMENA  ·  ${params.rangeKm} km`, 11, 16, 40);
-  legend(`BALAYAGE ${params.rpm} tr/min  ·  PRF ${prfHz(params.rangeKm)} Hz`, 11, 16, 56);
-  const azShown = params.northTrue ? sweep : (sweep - MAG_DECLINATION_DEG + 360) % 360;
+  legend(`EN DIRECT  ·  ${shown} PISTE${shown > 1 ? "S" : ""} À L'ÉCRAN`, 11, 16, 56);
   const coverage =
     params.rangeKm >= 12000
       ? "COUVERTURE MONDE · TOUS CONTINENTS"
@@ -644,7 +514,7 @@ function drawFrame(
         ? "COUVERTURE AFRIQUE"
         : params.rangeKm >= 2500
           ? "THÉÂTRE SAHEL · AES INCLUS"
-          : `AZ ${azShown.toFixed(0).padStart(3, "0")}° ${params.northTrue ? "VRAI" : "MAG"}`;
+          : `NORD ${params.northTrue ? "VRAI" : "MAGNÉTIQUE"}`;
   legend(coverage, 11, 16, 72, false);
 
   ctx.textAlign = "right";
@@ -703,12 +573,6 @@ function drawFrame(
   ctx.textAlign = "left";
   ctx.fillStyle = muted;
   ctx.font = "10px IBM Plex Sans, sans-serif";
-  legend("Poste FTTJ · coverage PPI · télépilote non informé", 10, 16, h - 16, false, true);
-
-  if (selected?.ew?.state === "effet") {
-    ctx.fillStyle = crit;
-    ctx.font = "11px IBM Plex Sans, sans-serif";
-    legend("EFFET RF EXTERNE", 11, 16, h - 32, false, true);
-  }
+  legend("Poste FTTJ · pistes 1090 reçues, pas de radar primaire", 10, 16, h - 16, false, true);
   legends = seen;
 }

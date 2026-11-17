@@ -41,7 +41,7 @@ const CONSIGNE =
   "n'émet rien et ne commande aucun capteur. Si l'info n'est pas dans les données, dis-le. " +
   "Les données viennent des commandes du poste que tu as consultées : « non reçu » ou « inconnu » " +
   "veut dire que la source n'a rien donné — ne conclus jamais qu'il n'y a rien. " +
-  "Une piste marquée INJECT est un exercice de formation, une piste REJEU est une position enregistrée " +
+  "Une piste marquée EXERCICE est un vol d'exercice, une piste REJEU est une position enregistrée " +
   "(pas un contact live) : ne les présente jamais comme du trafic réel en cours. " +
   "Chaque contact porte sa distance au poste : n'appelle pas « proche » un contact lointain. " +
   "Des extraits de la notice du poste peuvent suivre : pour une question sur l'usage de la console, " +

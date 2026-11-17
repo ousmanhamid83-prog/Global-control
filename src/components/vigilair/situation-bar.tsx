@@ -38,7 +38,6 @@ export function SituationBar() {
   const setLock = useVigilair((s) => s.setCopLock);
   const zonePicture = useVigilair((s) => s.zonePicture);
   const instruction = useVigilair((s) => s.instruction);
-  const ewArmed = useVigilair((s) => s.ewArmed);
   const lockTrack = useVigilair((s) => s.lockTrack);
   const { isSuperadmin } = useStaff();
 
@@ -46,7 +45,7 @@ export function SituationBar() {
   const raid = detectRaids(tracks)[0];
   const intrusion = zonePicture.filter((z) => z.level === "intrusion");
   const approche = zonePicture.filter((z) => z.level === "approche");
-  const inj = instruction ? "INJECT · " : "";
+  const inj = instruction ? "EXERCICE · " : "";
   const zoneLine = (list: typeof zonePicture) =>
     list
       .map((z) => {
@@ -99,7 +98,7 @@ export function SituationBar() {
     title = raid
       ? `${inj}Raid ${raid.corridor} · ${raid.count} pistes`
       : instruction
-        ? "INJECT · Menace (formation)"
+        ? "EXERCICE · Menace"
         : "Menace proche";
     body = raid
       ? `${raid.leadCallsign} · ${raid.originLabels.join(" / ")} · couloir ${raid.corridor}`
@@ -115,9 +114,6 @@ export function SituationBar() {
           <button type="button" className={ACTION} onClick={() => lockTrack(raid.trackIds[0] ?? null)}>
             Verrouiller
           </button>
-        ) : null}
-        {isSuperadmin && !ewArmed ? (
-          <span className="text-xs text-muted-foreground">Effecteur RF désarmé</span>
         ) : null}
         <Link to="/radar" className={cn(ACTION, "bg-secondary")}>
           <Radar className="mr-1.5 size-3.5" aria-hidden />

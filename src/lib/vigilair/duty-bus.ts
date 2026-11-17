@@ -1,17 +1,7 @@
 /** Bus client : le COP signale une action, DutyWatch la verse au serveur. */
 
 export type DutyKind =
-  | "lock"
-  | "ident"
-  | "m4"
-  | "bulletin"
-  | "ew"
-  | "clip"
-  | "download"
-  | "copy"
-  | "print"
-  | "delete_denied"
-  | "replay";
+  "lock" | "ident" | "bulletin" | "download" | "copy" | "print" | "delete_denied" | "replay";
 
 export type DutyEvent = {
   kind: DutyKind;

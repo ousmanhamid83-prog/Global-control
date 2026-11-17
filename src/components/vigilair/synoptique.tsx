@@ -213,7 +213,6 @@ export function Synoptique({ sentinel }: { sentinel: SentinelStats | null }) {
   const watch = useVigilair((s) => s.watch);
   const watchLoaded = useVigilair((s) => s.watchLoaded);
   const copLock = useVigilair((s) => s.copLock);
-  const ewArmed = useVigilair((s) => s.ewArmed);
   const now = useVigilair((s) => s.now);
   const { isSuperadmin } = useStaff();
   const { lastOk, samples } = useTelemetry();
@@ -365,17 +364,6 @@ export function Synoptique({ sentinel }: { sentinel: SentinelStats | null }) {
       tone: "ok",
       to: "/journal",
     },
-    {
-      id: "rf",
-      col: 4,
-      y: 210,
-      h: 78,
-      title: "Effecteur RF",
-      value: ewArmed ? "armé" : "désarmé",
-      detail: ewArmed ? "demande chef · externe" : "AfriControl n'émet pas",
-      tone: ewArmed ? "warn" : "idle",
-      to: "/division",
-    },
   ];
 
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -410,7 +398,6 @@ export function Synoptique({ sentinel }: { sentinel: SentinelStats | null }) {
       side: true,
     },
     { from: "alertes", to: "journal", tone: "ok", flow: false },
-    { from: "poste", to: "rf", tone: ewArmed ? "warn" : "idle", flow: ewArmed },
     {
       from: "sentinelle",
       to: "journal",

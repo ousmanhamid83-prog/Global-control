@@ -34,11 +34,6 @@ export function formatWatHm(ms: number): string {
 }
 
 /** Niveau de vol : altitude / 100 ft. 1 FL = 30,48 m. */
-export function formatFl(altM: number): string {
-  const fl = Math.max(0, Math.round(altM / 30.48));
-  return `FL${String(fl).padStart(3, "0")}`;
-}
-
 export function altToFl(altM: number): number {
   return Math.max(0, altM / 30.48);
 }

@@ -22,6 +22,8 @@ export type ZoneBreachRow = {
   distKm: number;
   kind: "inside" | "approach";
   uas: boolean;
+  /** Intrusion d'une piste d'exercice : un vrai vol de notre drone, joué comme intrus. */
+  exercice: boolean;
   actor: string;
   at: string;
 };
@@ -226,10 +228,11 @@ export const listZoneBreaches = createServerFn({ method: "GET" })
       dist_km: number;
       kind: string;
       uas: boolean;
+      exercice: boolean;
       actor: string;
       created_at: string;
     }>`
-      select id, zone_id, zone_name, track_id, callsign, dist_km, kind, uas, actor,
+      select id, zone_id, zone_name, track_id, callsign, dist_km, kind, uas, exercice, actor,
              created_at::text as created_at
       from zone_breach
       order by created_at desc
@@ -244,6 +247,7 @@ export const listZoneBreaches = createServerFn({ method: "GET" })
       distKm: Number(r.dist_km),
       kind: r.kind === "approach" ? "approach" : "inside",
       uas: Boolean(r.uas),
+      exercice: Boolean(r.exercice),
       actor: r.actor,
       at: r.created_at,
     }));
@@ -259,6 +263,7 @@ export const reportZoneBreach = createServerFn({ method: "POST" })
     distKm?: number;
     kind?: string;
     uas?: boolean;
+    exercice?: boolean;
   }) => ({
     zoneId: String(raw.zoneId ?? "").slice(0, 40),
     zoneName: String(raw.zoneName ?? "").slice(0, 80),
@@ -267,6 +272,7 @@ export const reportZoneBreach = createServerFn({ method: "POST" })
     distKm: Number(raw.distKm) || 0,
     kind: raw.kind === "approach" ? "approach" : "inside",
     uas: Boolean(raw.uas),
+    exercice: raw.exercice === true,
   }))
   .handler(async ({ context, data }): Promise<{ ok: true; fresh: boolean }> => {
     const staff = await loadStaff(context.userId);
@@ -284,13 +290,26 @@ export const reportZoneBreach = createServerFn({ method: "POST" })
     if (recent[0]) return { ok: true, fresh: false };
     const id = await mintId();
     await sql`
-      insert into zone_breach (id, zone_id, zone_name, track_id, callsign, dist_km, kind, uas, actor)
+      insert into zone_breach (id, zone_id, zone_name, track_id, callsign, dist_km, kind, uas, exercice, actor)
       values (
         ${id}, ${data.zoneId}, ${data.zoneName}, ${data.trackId}, ${data.callsign},
-        ${data.distKm}, ${data.kind}, ${data.uas}, ${staff.label}
+        ${data.distKm}, ${data.kind}, ${data.uas}, ${data.exercice}, ${staff.label}
       )
     `;
-    if (data.uas && data.kind === "inside") {
+    if (data.exercice) {
+      // Exercice : au journal, marqué comme tel — ni incident de sûreté, ni alerte du chef par Signal.
+      await insertOpsLog({
+        userId: staff.userId,
+        actor: staff.label,
+        role: staff.role,
+        team: staff.team,
+        kind: "zone",
+        title: `EXERCICE · ${data.kind === "approach" ? "Approche" : "Intrusion"} · ${data.zoneName} · ${data.callsign}`,
+        detail: `${data.distKm.toFixed(2)} km · vol d'exercice de notre drone, pas un contact réel`,
+        trackId: data.trackId,
+        severity: "info",
+      });
+    } else if (data.uas && data.kind === "inside") {
       const title = `Intrusion · ${data.zoneName} · ${data.callsign}`;
       const detail = `${data.callsign} dans la bulle ${data.zoneName} (${data.distKm.toFixed(2)} km du centre). AfriControl n'émet pas.`;
       const incident = await insertSecurityIncident({

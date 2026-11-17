@@ -6,6 +6,7 @@
 import { dronesSnapshot, hydrateDrones } from "./drones";
 import {
   droneConfirmer1090,
+  droneExercice,
   droneFond,
   droneLiaison,
   droneOrdre,
@@ -95,11 +96,16 @@ const RELEVE_FRAIS_MS = 15_000;
 export function telemetriePour(
   id: string,
   maintenant: number,
-): { lat: number; lon: number } | null {
+): { position: NonNullable<EtatDrone["position"]>; ageMs: number } | null {
   if (maintenant - suivi.recu > 2000) void releverSuivi();
   if (maintenant - suivi.recu > RELEVE_FRAIS_MS) return null;
   const e = suivi.etats.find((x) => x.id === id);
-  return e && liaisonVivante(e, suivi.a) ? e.position : null;
+  if (!e?.position || !liaisonVivante(e, suivi.a)) return null;
+  // Âge de la mesure à l'horloge du poste, plus le temps écoulé depuis ce relevé côté console.
+  return {
+    position: e.position,
+    ageMs: Math.max(0, suivi.a - e.position.a) + Math.max(0, maintenant - suivi.recu),
+  };
 }
 
 export function designerPoint(point: { lat: number; lon: number } | null): void {
@@ -198,6 +204,10 @@ export const reglerFond = (id: string, fond: Calage | null): Promise<string | nu
 
 export const confirmerPiste1090 = (id: string, confirmer: boolean): Promise<string | null> =>
   regler(() => droneConfirmer1090({ data: { id, confirmer } }));
+
+/** Le chef fait jouer à ce drone un intrus du catalogue (exercice), ou y met fin (null). */
+export const reglerExercice = (id: string, plateforme: string | null): Promise<string | null> =>
+  regler(() => droneExercice({ data: { id, plateforme } }));
 
 export async function reglerPilotage(r: ReglagesPilotage): Promise<string | null> {
   try {

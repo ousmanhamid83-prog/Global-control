@@ -33,29 +33,20 @@ function ac(id: string, over: Partial<Track>): Track {
     lastUpdate: NOW - 5_000,
     dwellS: 0,
     confirmedAt: NOW,
-    motion: "transit",
-    loiterCx: 0,
-    loiterCy: 0,
-    loiterR: 0,
-    turnRate: 0,
-    acoustic: null,
-    pilotFix: null,
     cpa: null,
     siteWarned: true,
     launchFix: null,
-    stopFix: null,
     locked: false,
     corridor: null,
-    ew: null,
     feed: "adsb",
     ...over,
   } as Track;
 }
 
 describe("verrou automatique", () => {
-  it("rien de réel : pas de verrou (un inject n'est jamais candidat)", () => {
-    const inj = ac("inj-1", { feed: "sim", injected: true });
-    assert.equal(autoLockPick([inj], NOW), null);
+  it("rien de direct : pas de verrou (une piste rejouée n'est jamais candidate)", () => {
+    const rej = ac("rej-1", { feed: "rejeu", injected: true });
+    assert.equal(autoLockPick([rej], NOW), null);
     assert.equal(isAutoCandidate(ac("live-x", { injected: true }), NOW), false);
   });
 

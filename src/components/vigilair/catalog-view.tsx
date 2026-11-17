@@ -73,8 +73,8 @@ export function CatalogView() {
         </h1>
         <p className="max-w-2xl text-sm text-muted-foreground">
           Mandat CN / TR / RU / IR : drones commerciaux, UAS militaires et
-          chasse. Couche amis FATL / ASECNA à part — l'affiliation IFF n'est
-          pas l'origine constructeur.
+          chasse. Couche amis FATL / ASECNA à part — l'affiliation n'est pas
+          l'origine constructeur.
         </p>
         <p className="font-mono text-xs text-muted-foreground">
           {counts.CN} CN · {counts.TR} TR · {counts.RU} RU · {counts.IR} IR ·{" "}

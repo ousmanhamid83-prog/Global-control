@@ -18,7 +18,7 @@ function track(over: Partial<Track>): Track {
     climbMs: 0,
     trail: [],
     truePlatformId: "adsb-uav",
-    idState: "confirme",
+    idState: "detecte",
     confidence: 90,
     origin: null,
     classGuess: null,
@@ -28,20 +28,12 @@ function track(over: Partial<Track>): Track {
     lastUpdate: 0,
     dwellS: 0,
     confirmedAt: 0,
-    motion: "transit",
-    loiterCx: 12,
-    loiterCy: 15,
-    loiterR: 0,
-    turnRate: 0,
-    acoustic: null,
-    pilotFix: null,
     cpa: null,
     siteWarned: true,
     launchFix: null,
-    stopFix: null,
     locked: false,
     corridor: "",
-    ew: null,
+    feed: "adsb",
     ...over,
   } as Track;
 }
@@ -51,9 +43,9 @@ describe("affiliation APP-6", () => {
     assert.equal(affiliationOf(track({ friendKind: "asecna" }), FAIBLE).affiliation, "ami");
   });
 
-  it("un ami FATL au Mode 4 invalide devient SUSPECT", () => {
-    const t = track({ friendKind: "fatl", iff: { m4: "invalid" } as Track["iff"] });
-    assert.equal(affiliationOf(t, FAIBLE).affiliation, "suspect");
+  it("notre drone inscrit est AMI, et son nom est donné", () => {
+    const r = affiliationOf(track({ friendKind: "drone", ownDrone: "Aile-03" }), FAIBLE);
+    assert.deepEqual(r, { affiliation: "ami", reason: "Notre drone · Aile-03" });
   });
 
   it("une piste sans IFF ni mandat reste INCONNU, jamais hostile par défaut", () => {

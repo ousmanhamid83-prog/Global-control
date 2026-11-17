@@ -14,7 +14,6 @@ import {
   insertSecurityIncident,
   killUserSessions,
   loadStaff,
-  mintId,
   requireSuperadmin,
   touchLastSeen,
   type AssignableRole,
@@ -23,7 +22,7 @@ import {
   type StaffTeam,
 } from "./staff";
 import { requireCopOpen } from "./cop-lock";
-import { POSTE_ETRANGER, POSTE_EXERCICE, POSTE_LABEL, sanitizeMachineLabel, scrubSessionIps } from "./privacy";
+import { POSTE_LABEL, sanitizeMachineLabel, scrubSessionIps } from "./privacy";
 import { CHEF_SESSION_CAP, pruneOldSessions, requireChefSeal } from "./seal";
 import type { EtatBase } from "@/lib/base-poste.server";
 import type { Integrite } from "@/lib/controle-copies.server";
@@ -43,10 +42,7 @@ export type OpsKind =
   | "logout"
   | "lock"
   | "ident"
-  | "m4"
   | "bulletin"
-  | "ew"
-  | "clip"
   | "download"
   | "copy"
   | "print"
@@ -145,7 +141,6 @@ export type TeamRecapRow = {
   ejected: number;
   ident: number;
   bulletin: number;
-  m4: number;
   lock: number;
   incidents: number;
 };
@@ -155,7 +150,6 @@ export type AgentRecap = {
   actions: number;
   ident: number;
   bulletin: number;
-  m4: number;
   lock: number;
   download: number;
   incidents: number;
@@ -195,10 +189,7 @@ export const INCIDENT_LABEL: Record<string, string> = {
 const DUTY_KINDS = new Set<string>([
   "lock",
   "ident",
-  "m4",
   "bulletin",
-  "ew",
-  "clip",
   "download",
   "copy",
   "print",
@@ -631,7 +622,6 @@ export const reportIncident = createServerFn({ method: "POST" })
         detail: data.detail || data.title,
         machineLabel: data.machineLabel || null,
         fpHash: data.fingerprint || null,
-        drill: false,
       });
       return { ok: true, ejected: result.ejected, incidentId: result.incidentId };
     },
@@ -647,7 +637,6 @@ async function punishSabotage(opts: {
   detail: string;
   machineLabel: string | null;
   fpHash: string | null;
-  drill: boolean;
 }): Promise<{ incidentId: string; ejected: boolean; pdfSha: string; chainSha: string }> {
   const sql = await getSql();
   const target = await loadStaff(opts.userId);
@@ -685,7 +674,6 @@ async function punishSabotage(opts: {
     machineLabel: opts.machineLabel,
     fpHash: opts.fpHash,
     autoEjected: canEject,
-    drill: opts.drill,
   });
   await insertOpsLog({
     userId: opts.userId,
@@ -903,7 +891,6 @@ export const teamRecap = createServerFn({ method: "GET" })
         ejected: st?.ejected ?? 0,
         ident: pick("ident") + pick("lock"),
         bulletin: pick("bulletin"),
-        m4: pick("m4"),
         lock: pick("lock"),
         incidents: inc.find((x) => x.team === team)?.n ?? 0,
       };
@@ -958,7 +945,6 @@ export const agentRecap = createServerFn({ method: "GET" })
       actions: counts.reduce((s, r) => s + r.n, 0),
       ident: pick("ident"),
       bulletin: pick("bulletin"),
-      m4: pick("m4"),
       lock: pick("lock"),
       download: pick("download"),
       incidents: inc[0]?.n ?? 0,
@@ -978,100 +964,6 @@ export const agentRecap = createServerFn({ method: "GET" })
       })),
     };
   });
-
-export const provisionDemoTeam = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
-  .handler(
-    async ({
-      context,
-    }): Promise<{ created: number; keys: { label: string; key: string; role: string }[] }> => {
-      const chef = await requireSuperadmin(context.userId);
-      await requireChefSeal(context.userId);
-      await requireCopOpen();
-      const sql = await getSql();
-      const existing = await sql<{ n: number }>`
-        select count(*)::int as n from staff where role <> 'superadmin'
-      `;
-      if ((existing[0]?.n ?? 0) >= 3) {
-        return { created: 0, keys: [] };
-      }
-      const specs: { label: string; role: AssignableRole; team: StaffTeam; email: string; grade: string; unit: string }[] = [
-        { label: "Sgt. Haroun Moussa", role: "operateur", team: "cop", email: "haroun.moussa@division.td", grade: "Sergent", unit: "COP FTTJ" },
-        { label: "Adj. Amina Hassan", role: "analyste", team: "ident", email: "amina.hassan@division.td", grade: "Adjudant", unit: "Ident IFF" },
-        { label: "Cne. Issa Padacké", role: "admin", team: "radar", email: "issa.padacke@division.td", grade: "Capitaine", unit: "Radar AES" },
-      ];
-      const keys: { label: string; key: string; role: string }[] = [];
-      for (const spec of specs) {
-        const already = await sql<{ user_id: string }>`
-          select user_id from staff where label = ${spec.label} limit 1
-        `;
-        if (already[0]) continue;
-        const { createKeyedAgent } = await import("./staff-ops.server");
-        const row = await createKeyedAgent({
-          label: spec.label,
-          role: spec.role,
-          team: spec.team,
-          createdBy: chef.userId,
-          email: spec.email,
-          grade: spec.grade,
-          unit: spec.unit,
-        });
-        keys.push({ label: spec.label, key: row.key, role: spec.role });
-        const seeds: { kind: OpsKind; title: string; detail: string; agoMin: number }[] = [
-          {
-            kind: "prise_poste",
-            title: "Prise de poste",
-            detail: `Clé VA émise par ${chef.label}`,
-            agoMin: 180,
-          },
-          {
-            kind: "lock",
-            title: "Verrou piste T-014",
-            detail: "Piste confirmée, origine CN.",
-            agoMin: 95,
-          },
-          {
-            kind: "ident",
-            title: "Identification CH-4B",
-            detail: "Corrélation FATL / Mode 4.",
-            agoMin: 80,
-          },
-          {
-            kind: "m4",
-            title: "Demande Mode 4",
-            detail: "Interrogateur secondaire, AfriControl n'émet pas.",
-            agoMin: 70,
-          },
-          {
-            kind: "bulletin",
-            title: "Dossier de preuve versé",
-            detail: "SHA-256 scellé, chaîne de custody.",
-            agoMin: 40,
-          },
-        ];
-        if (spec.role === "analyste") {
-          seeds.push({
-            kind: "clip",
-            title: "Clip SIGINT 8 s",
-            detail: "Écoute passive, pas de contrôle.",
-            agoMin: 25,
-          });
-        }
-        for (const s of seeds) {
-          const id = await mintId();
-          await sql`
-            insert into ops_log (id, user_id, actor, role, team, kind, title, detail, severity, created_at)
-            values (
-              ${id}, ${row.userId}, ${spec.label}, ${spec.role}, ${spec.team},
-              ${s.kind}, ${s.title}, ${s.detail}, 'info',
-              now() - (${s.agoMin}::text || ' minutes')::interval
-            )
-          `;
-        }
-      }
-      return { created: keys.length, keys };
-    },
-  );
 
 export const bindMyMachine = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
@@ -1227,160 +1119,6 @@ export const getSentinelPdf = createServerFn({ method: "GET" })
         sha256: row.pdf_sha256 ?? "",
         title: row.title,
         filename: `AfriControl-SENTINELLE-${row.actor.replace(/\s+/g, "_")}-${id.slice(0, 8)}.pdf`,
-      };
-    },
-  );
-
-export const drillExfil = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
-  .validator((raw: { kind: string }) => {
-    const kind = String(raw.kind ?? "");
-    if (kind !== "software" && kind !== "folder" && kind !== "machine") {
-      throw new Error("Exercice inconnu");
-    }
-    return { kind: kind as "software" | "folder" | "machine" };
-  })
-  .handler(
-    async ({
-      context,
-      data,
-    }): Promise<{
-      incidentId: string;
-      ejected: boolean;
-      actor: string;
-      pdfSha: string;
-      chainSha: string;
-      title: string;
-    }> => {
-      const chef = await requireSuperadmin(context.userId);
-      await requireCopOpen();
-      const sql = await getSql();
-      let agents = await sql<{
-        user_id: string;
-        label: string;
-        role: string;
-        team: string;
-        ejected: boolean;
-      }>`
-        select user_id, label, role, team, ejected
-        from staff
-        where role <> 'superadmin'
-        order by ejected asc, created_at asc
-      `;
-      if (agents.length === 0) {
-        const { createKeyedAgent } = await import("./staff-ops.server");
-        const row = await createKeyedAgent({
-          label: "Sgt. Haroun Moussa",
-          role: "operateur",
-          team: "cop",
-          createdBy: chef.userId,
-          email: "haroun.moussa@division.td",
-          grade: "Sergent",
-          unit: "COP FTTJ",
-        });
-        agents = [
-          {
-            user_id: row.userId,
-            label: row.label,
-            role: "operateur",
-            team: "cop",
-            ejected: false,
-          },
-        ];
-      }
-      const target = agents.find((a) => !a.ejected) ?? agents[0]!;
-      const specs = {
-        software: {
-          kind: "sabotage_software" as IncidentKind,
-          title: `Copie du logiciel AfriControl · ${target.label}`,
-          detail:
-            "Ctrl+S / inspection : tentative d'emporter le COP hors du poste scellé. Exercice chef de division.",
-          machineLabel: POSTE_EXERCICE,
-        },
-        folder: {
-          kind: "sabotage_folder" as IncidentKind,
-          title: `Copie d'un dossier de preuve · ${target.label}`,
-          detail:
-            "Glisser-déposer / extraction PDF en rafale d'un dossier SRC-TEL-ARR. Exercice chef de division.",
-          machineLabel: POSTE_EXERCICE,
-        },
-        machine: {
-          kind: "key_clone" as IncidentKind,
-          title: `Clé VA- présentée sur un autre poste · ${target.label}`,
-          detail:
-            "Même clé, empreinte différente. Le poste scellé reste à Farcha ; tentative depuis un portable personnel.",
-          machineLabel: POSTE_ETRANGER,
-        },
-      }[data.kind];
-      const fakeFp =
-        data.kind === "machine"
-          ? "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-          : null;
-      if (data.kind === "machine") {
-        const existing = await sql<{ n: number }>`
-          select count(*)::int as n from device_bindings where user_id = ${target.user_id}
-        `;
-        if ((existing[0]?.n ?? 0) === 0) {
-          const id = await mintId();
-          await sql`
-            insert into device_bindings (id, user_id, fp_hash, label)
-            values (
-              ${id}, ${target.user_id},
-              'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-              ${POSTE_LABEL}
-            )
-            on conflict (user_id) do nothing
-          `;
-        }
-        const bind = await bindOrRejectDevice({
-          userId: target.user_id,
-          actor: target.label,
-          role: target.role,
-          team: target.team,
-          fingerprint: fakeFp!,
-          machineLabel: specs.machineLabel,
-        });
-        if (!bind.ok) {
-          const last = await sql<{
-            id: string;
-            chain_sha256: string | null;
-            pdf_sha256: string | null;
-            title: string;
-          }>`
-            select id, chain_sha256, pdf_sha256, title
-            from security_incidents
-            where user_id = ${target.user_id}
-            order by created_at desc limit 1
-          `;
-          return {
-            incidentId: last[0]?.id ?? "",
-            ejected: true,
-            actor: target.label,
-            pdfSha: last[0]?.pdf_sha256 ?? "",
-            chainSha: last[0]?.chain_sha256 ?? "",
-            title: last[0]?.title ?? specs.title,
-          };
-        }
-      }
-      const result = await punishSabotage({
-        userId: target.user_id,
-        actor: target.label,
-        role: target.role,
-        team: target.team,
-        kind: specs.kind,
-        title: specs.title,
-        detail: specs.detail,
-        machineLabel: specs.machineLabel,
-        fpHash: fakeFp,
-        drill: true,
-      });
-      return {
-        incidentId: result.incidentId,
-        ejected: result.ejected,
-        actor: target.label,
-        pdfSha: result.pdfSha,
-        chainSha: result.chainSha,
-        title: specs.title,
       };
     },
   );

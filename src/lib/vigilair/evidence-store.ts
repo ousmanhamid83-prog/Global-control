@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql } from "@/lib/db";
-import { originLabel } from "./catalog";
+import { originLabel, sensorLabel } from "./catalog";
 import type { PdfBlock } from "./evidence-pdf";
 import { formatCoord } from "./geo";
 import { ensureStaffRow, insertOpsLog } from "./staff";
@@ -27,19 +27,6 @@ export type EvidenceDraft = {
   launchAt: number | null;
   launchMethod: string | null;
   launchTile: string | null;
-  c2Lat: number | null;
-  c2Lon: number | null;
-  c2Method: string | null;
-  c2Tile: string | null;
-  stopLat: number | null;
-  stopLon: number | null;
-  stopAt: number | null;
-  stopMethod: string | null;
-  stopTile: string | null;
-  satCredit: string;
-  sarNote: string;
-  sceneNote: string;
-  ewNote: string | null;
   corridor: string | null;
   injected: boolean;
   iffNote?: string | null;
@@ -57,15 +44,11 @@ export type BulletinRow = {
   altM: number;
   heading: number;
   speedKmh: number;
-  sensors: SensorKind[];
+  /** Lu en base : un ancien bulletin peut porter des valeurs d'avant la version réelle. */
+  sensors: string[];
   method: string;
   launchLat: number | null;
   launchLon: number | null;
-  c2Lat: number | null;
-  c2Lon: number | null;
-  stopLat: number | null;
-  stopLon: number | null;
-  ewNote: string | null;
   corridor: string | null;
   injected: boolean;
   filedBy: string;
@@ -75,9 +58,6 @@ export type BulletinRow = {
   chainSha256: string;
   pdfSha256: string;
   at: number;
-  satCredit: string;
-  sarNote: string;
-  sceneNote: string;
 };
 
 function round5(n: number): number {
@@ -103,10 +83,6 @@ function validateDraft(raw: EvidenceDraft): EvidenceDraft {
     platformName: clampStr(raw.platformName, 80),
     manufacturer: clampStr(raw.manufacturer, 80),
     method: clampStr(raw.method, 400),
-    satCredit: clampStr(raw.satCredit, 200),
-    sarNote: clampStr(raw.sarNote, 400),
-    sceneNote: clampStr(raw.sceneNote, 500),
-    ewNote: raw.ewNote ? clampStr(raw.ewNote, 400) : null,
     corridor: raw.corridor ? clampStr(raw.corridor, 80) : null,
     iffNote: raw.iffNote ? clampStr(raw.iffNote, 500) : null,
     sensors: raw.sensors.slice(0, 8),
@@ -114,12 +90,7 @@ function validateDraft(raw: EvidenceDraft): EvidenceDraft {
     lon: round5(raw.lon),
     launchLat: raw.launchLat == null ? null : round5(raw.launchLat),
     launchLon: raw.launchLon == null ? null : round5(raw.launchLon),
-    c2Lat: raw.c2Lat == null ? null : round5(raw.c2Lat),
-    c2Lon: raw.c2Lon == null ? null : round5(raw.c2Lon),
-    stopLat: raw.stopLat == null ? null : round5(raw.stopLat),
-    stopLon: raw.stopLon == null ? null : round5(raw.stopLon),
     launchAt: raw.launchAt == null ? null : Math.round(raw.launchAt),
-    stopAt: raw.stopAt == null ? null : Math.round(raw.stopAt),
     confidence: Math.max(0, Math.min(100, Math.round(raw.confidence))),
     injected: Boolean(raw.injected),
   };
@@ -152,12 +123,6 @@ function canonical(draft: EvidenceDraft): string {
     sensors: draft.sensors,
     method: draft.method,
     launch: [draft.launchLat, draft.launchLon, draft.launchAt, draft.launchTile],
-    c2: [draft.c2Lat, draft.c2Lon, draft.c2Tile],
-    stop: [draft.stopLat, draft.stopLon, draft.stopAt, draft.stopTile],
-    satCredit: draft.satCredit,
-    sarNote: draft.sarNote,
-    sceneNote: draft.sceneNote,
-    ewNote: draft.ewNote,
     corridor: draft.corridor,
     injected: draft.injected,
     iffNote: draft.iffNote ?? null,
@@ -187,32 +152,24 @@ function pdfLines(
   layout: (blocks: PdfBlock[]) => string[],
 ): string[] {
   const oLabel = originLabel(draft.origin);
-  const src =
+  const premier =
     draft.launchLat != null && draft.launchLon != null
-      ? `${formatCoord(draft.launchLat, draft.launchLon)} · ${formatWhen(draft.launchAt)} · tuile ${draft.launchTile ?? "—"}`
-      : "non fixé";
-  const tel =
-    draft.c2Lat != null && draft.c2Lon != null
-      ? `${formatCoord(draft.c2Lat, draft.c2Lon)} · ${draft.c2Method ?? "gonio"} · tuile ${draft.c2Tile ?? "—"}`
-      : "non géolocalisée";
-  const arr =
-    draft.stopLat != null && draft.stopLon != null
-      ? `${formatCoord(draft.stopLat, draft.stopLon)} · ${formatWhen(draft.stopAt)} · tuile ${draft.stopTile ?? "—"}`
+      ? `${formatCoord(draft.launchLat, draft.launchLon)} · ${formatWhen(draft.launchAt)} · ${draft.launchMethod ?? "1090ES"} · tuile ${draft.launchTile ?? "—"}`
       : "non fixé";
   const blocks: PdfBlock[] = [
     { kind: "h", text: "AfriControl — dossier de preuve C-UAS" },
-    { kind: "p", text: "DIFFUSION RESTREINTE · COP N'Djamena · detection / identification" },
-    { kind: "p", text: "AfriControl n'emet pas. Pas de prise de controle. Pas d'injection C2." },
+    { kind: "p", text: "DIFFUSION RESTREINTE · COP N'Djamena · détection / identification" },
+    { kind: "p", text: "AfriControl n'émet pas. Réception seule : 1090 MHz (ADS-B / Mode S)." },
     { kind: "gap" },
     { kind: "k", text: `Bulletin  ${meta.id}` },
-    { kind: "k", text: `Verse     ${formatWhen(meta.at)} WAT  ·  ${meta.filedBy} (${meta.role})` },
+    { kind: "k", text: `Versé     ${formatWhen(meta.at)} WAT  ·  ${meta.filedBy} (${meta.role})` },
     { kind: "k", text: `Indicatif ${draft.callsign}  ·  couloir ${draft.corridor ?? "—"}` },
     { kind: "gap" },
-    { kind: "h", text: "Chaine de custody" },
+    { kind: "h", text: "Chaîne de custody" },
     { kind: "mono", text: `contenu   SHA-256 ${meta.contentSha}` },
     { kind: "mono", text: `precedent SHA-256 ${meta.prevSha ?? "GENESIS"}` },
     { kind: "mono", text: `chaine    SHA-256 ${meta.chainSha}` },
-    { kind: "p", text: "Le hash document (octets PDF) est calcule apres generation et figure au journal." },
+    { kind: "p", text: "Le hash document (octets PDF) est calculé après génération et figure au journal." },
     { kind: "gap" },
     { kind: "h", text: "Identification" },
     {
@@ -221,46 +178,22 @@ function pdfLines(
     },
     {
       kind: "p",
-      text: `Position ${formatCoord(draft.lat, draft.lon)} · ${Math.round(draft.altM)} m · ${Math.round(draft.speedKmh)} km/h · cap ${Math.round(draft.heading)} deg`,
+      text: `Position ${formatCoord(draft.lat, draft.lon)} · ${Math.round(draft.altM)} m · ${Math.round(draft.speedKmh)} km/h · cap ${Math.round(draft.heading)}°`,
     },
-    { kind: "p", text: `Capteurs ${draft.sensors.join(", ") || "—"}` },
+    { kind: "p", text: `Entendu par ${draft.sensors.map(sensorLabel).join(", ") || "—"}` },
     { kind: "p", text: draft.method },
     { kind: "gap" },
-    { kind: "h", text: "Tracabilite SRC / TEL / ARR" },
-    { kind: "p", text: `SRC lancement  ${src}` },
-    { kind: "p", text: `TEL source C2  ${tel}` },
-    { kind: "p", text: `ARR arret      ${arr}` },
+    { kind: "h", text: "Premier relevé" },
+    { kind: "p", text: premier },
     { kind: "gap" },
-    { kind: "h", text: "Appui satellite" },
-    { kind: "p", text: draft.satCredit },
-    { kind: "p", text: draft.sceneNote },
-    { kind: "p", text: draft.sarNote },
+    { kind: "h", text: "Transpondeur" },
+    { kind: "p", text: draft.iffNote ?? "Pas de transpondeur entendu." },
     { kind: "gap" },
-    { kind: "h", text: "IFF / Mode S / MLAT" },
-    {
-      kind: "p",
-      text:
-        draft.iffNote ??
-        "Pas de transpondeur IFF corrélé. AfriControl n'émet pas le challenge Mode 4.",
-    },
-    { kind: "gap" },
-    { kind: "h", text: "SIGINT / effecteur" },
-    {
-      kind: "p",
-      text: draft.ewNote ?? "Ecoute passive seulement. Aucun effet RF consigne.",
-    },
     {
       kind: "p",
       text: draft.injected
-        ? "PISTE INJECTEE — formation / AAR. Ne pas traiter comme contact reel."
-        : /1090ES live/.test(draft.method)
-          ? "Piste 1090ES live (adsb.lol / readsb). Pas un UAS injecte. AfriControl n'emet pas."
-          : "Piste issue d'un inject de formation. Ne pas traiter comme contact reel.",
-    },
-    { kind: "gap" },
-    {
-      kind: "p",
-      text: "Mandat : detection et identification CN / TR / RU / IR. Hors mandat marque XX. Effecteur RF = demande a l'autorite, jamais une emission AfriControl.",
+        ? "EXERCICE OU REJEU — données réelles rejouées ou vol d'exercice. Ne pas traiter comme contact réel."
+        : "Piste reçue en direct. AfriControl n'émet pas.",
     },
   ];
   return layout(blocks);
@@ -282,11 +215,6 @@ function mapRow(r: {
   method: string;
   launch_lat: number | null;
   launch_lon: number | null;
-  c2_lat: number | null;
-  c2_lon: number | null;
-  stop_lat: number | null;
-  stop_lon: number | null;
-  ew_note: string | null;
   corridor: string | null;
   injected: boolean;
   filed_by: string;
@@ -296,9 +224,6 @@ function mapRow(r: {
   chain_sha256: string;
   pdf_sha256: string;
   created_at: string;
-  sat_credit: string;
-  sar_note: string;
-  scene_note: string;
 }): BulletinRow {
   return {
     id: r.id,
@@ -312,15 +237,10 @@ function mapRow(r: {
     altM: r.alt_m,
     heading: r.heading,
     speedKmh: r.speed_kmh,
-    sensors: (r.sensors ? r.sensors.split(",") : []) as SensorKind[],
+    sensors: r.sensors ? r.sensors.split(",") : [],
     method: r.method,
     launchLat: r.launch_lat,
     launchLon: r.launch_lon,
-    c2Lat: r.c2_lat,
-    c2Lon: r.c2_lon,
-    stopLat: r.stop_lat,
-    stopLon: r.stop_lon,
-    ewNote: r.ew_note,
     corridor: r.corridor,
     injected: Boolean(r.injected),
     filedBy: r.filed_by,
@@ -330,9 +250,6 @@ function mapRow(r: {
     chainSha256: r.chain_sha256,
     pdfSha256: r.pdf_sha256,
     at: Date.parse(r.created_at) || Date.now(),
-    satCredit: r.sat_credit,
-    sarNote: r.sar_note,
-    sceneNote: r.scene_note,
   };
 }
 
@@ -352,11 +269,6 @@ export function bulletinToJournal(row: BulletinRow): JournalEntry {
     method: row.method,
     launchLat: row.launchLat ?? undefined,
     launchLon: row.launchLon ?? undefined,
-    c2Lat: row.c2Lat ?? undefined,
-    c2Lon: row.c2Lon ?? undefined,
-    stopLat: row.stopLat ?? undefined,
-    stopLon: row.stopLon ?? undefined,
-    ewNote: row.ewNote ?? undefined,
     filedBy: row.filedBy,
     contentSha256: row.contentSha256,
     prevSha256: row.prevSha256,
@@ -376,10 +288,9 @@ export const listBulletins = createServerFn({ method: "GET" })
       select
         id, track_id, callsign, platform_id, origin, confidence,
         lat, lon, alt_m, heading, speed_kmh, sensors, method,
-        launch_lat, launch_lon, c2_lat, c2_lon, stop_lat, stop_lon,
-        ew_note, corridor, injected, filed_by, role,
+        launch_lat, launch_lon, corridor, injected, filed_by, role,
         content_sha256, prev_sha256, chain_sha256, pdf_sha256,
-        created_at::text as created_at, sat_credit, sar_note, scene_note
+        created_at::text as created_at
       from bulletins
       order by created_at desc
       limit 200
@@ -435,9 +346,7 @@ async function sealBulletin(userId: string, data: EvidenceDraft): Promise<Bullet
       id, user_id, filed_by, role, track_id, callsign, platform_id, origin,
       confidence, lat, lon, alt_m, heading, speed_kmh, sensors, method,
       launch_lat, launch_lon, launch_at, launch_method, launch_tile,
-      c2_lat, c2_lon, c2_method, c2_tile,
-      stop_lat, stop_lon, stop_at, stop_method, stop_tile,
-      sat_credit, sar_note, scene_note, ew_note, corridor, injected,
+      corridor, injected,
       payload_json, content_sha256, prev_sha256, chain_sha256, pdf_sha256, pdf_b64
     ) values (
       ${id}, ${userId}, ${staff.label}, ${staff.role}, ${data.trackId},
@@ -445,9 +354,6 @@ async function sealBulletin(userId: string, data: EvidenceDraft): Promise<Bullet
       ${data.lat}, ${data.lon}, ${data.altM}, ${data.heading}, ${data.speedKmh},
       ${sensors}, ${data.method},
       ${data.launchLat}, ${data.launchLon}, ${data.launchAt}, ${data.launchMethod}, ${data.launchTile},
-      ${data.c2Lat}, ${data.c2Lon}, ${data.c2Method}, ${data.c2Tile},
-      ${data.stopLat}, ${data.stopLon}, ${data.stopAt}, ${data.stopMethod}, ${data.stopTile},
-      ${data.satCredit}, ${data.sarNote}, ${data.sceneNote}, ${data.ewNote},
       ${data.corridor}, ${data.injected},
       ${payload}, ${contentSha}, ${prevSha}, ${chainSha}, ${pdfSha}, ${pdfB64}
     )
@@ -468,11 +374,6 @@ async function sealBulletin(userId: string, data: EvidenceDraft): Promise<Bullet
     method: data.method,
     launchLat: data.launchLat,
     launchLon: data.launchLon,
-    c2Lat: data.c2Lat,
-    c2Lon: data.c2Lon,
-    stopLat: data.stopLat,
-    stopLon: data.stopLon,
-    ewNote: data.ewNote,
     corridor: data.corridor,
     injected: data.injected,
     filedBy: staff.label,
@@ -482,9 +383,6 @@ async function sealBulletin(userId: string, data: EvidenceDraft): Promise<Bullet
     chainSha256: chainSha,
     pdfSha256: pdfSha,
     at: now,
-    satCredit: data.satCredit,
-    sarNote: data.sarNote,
-    sceneNote: data.sceneNote,
   };
 }
 

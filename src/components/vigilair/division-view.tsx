@@ -18,7 +18,6 @@ import {
   listIncidents,
   listOpsLog,
   listRoster,
-  provisionDemoTeam,
   setStaffRole,
   setStaffTeam,
   teamRecap,
@@ -140,7 +139,7 @@ function OwnDesk() {
             <Stat k="Actions" v={String(recap.actions)} />
             <Stat k="Ident" v={String(recap.ident)} />
             <Stat k="Bulletins" v={String(recap.bulletin)} />
-            <Stat k="Mode 4" v={String(recap.m4)} />
+            <Stat k="Verrous" v={String(recap.lock)} />
           </dl>
           <ul className="space-y-1">
             {recap.recent.length === 0 ? (
@@ -368,11 +367,6 @@ function RosterPanel() {
   const [rows, setRows] = useState<RosterRow[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [demoKeys, setDemoKeys] = useState<{ label: string; key: string; role: string }[] | null>(
-    null,
-  );
-  const [busy, setBusy] = useState(false);
-
   const reload = () => {
     listRoster()
       .then(setRows)
@@ -384,8 +378,6 @@ function RosterPanel() {
     const id = window.setInterval(reload, 8000);
     return () => window.clearInterval(id);
   }, []);
-
-  const agents = rows.filter((r) => r.role !== "superadmin");
 
   const onRole = async (userId: string, role: AssignableRole) => {
     setErr(null);
@@ -422,20 +414,6 @@ function RosterPanel() {
     }
   };
 
-  const onDemo = async () => {
-    setBusy(true);
-    setErr(null);
-    try {
-      const r = await withChefSeal(() => provisionDemoTeam());
-      setDemoKeys(r.keys.length ? r.keys : null);
-      reload();
-    } catch (ex) {
-      setErr(ex instanceof Error ? ex.message : "Dotation impossible");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -449,27 +427,8 @@ function RosterPanel() {
             clé, alerte si l'agent insiste.
           </p>
         </div>
-        {agents.length === 0 ? (
-          <Button variant="outline" size="sm" disabled={busy} onClick={() => void onDemo()}>
-            Doter les équipes
-          </Button>
-        ) : null}
       </div>
       {err ? <p className="text-sm text-crit">{err}</p> : null}
-      {demoKeys ? (
-        <div className="rounded-md border border-ok/40 bg-ok/10 p-3">
-          <p className="text-xs text-muted-foreground">
-            Clés à transmettre une seule fois — elles ne seront plus affichées.
-          </p>
-          <ul className="mt-2 space-y-1 font-mono text-sm">
-            {demoKeys.map((k) => (
-              <li key={k.key}>
-                {k.label} · {k.key}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
       <ul className="space-y-2">
         {rows.map((r) => (
           <li
@@ -592,8 +551,8 @@ function TeamRecapPanel() {
       <div>
         <h2 className="text-lg font-semibold">Récapitulatif des équipes</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Travail réel versé au journal — identifications, dossiers, Mode 4,
-          verrous, incidents.
+          Travail réel versé au journal — identifications, dossiers, verrous,
+          incidents.
         </p>
       </div>
       <ul className="grid gap-2 grid-cols-2">
@@ -611,7 +570,6 @@ function TeamRecapPanel() {
             <dl className="mt-2 grid grid-cols-2 gap-1 text-xs text-muted-foreground">
               <div>Ident {r.ident}</div>
               <div>Bulletins {r.bulletin}</div>
-              <div>Mode 4 {r.m4}</div>
               <div>Verrous {r.lock}</div>
               {r.ejected > 0 ? (
                 <div className="text-crit">Éjectés {r.ejected}</div>

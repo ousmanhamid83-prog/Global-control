@@ -19,7 +19,8 @@ import dgram from "node:dgram";
 import { randomUUID } from "node:crypto";
 import { ecrireFichierPoste, lireFichierPoste, listeJson } from "../disque-poste.server.ts";
 import path from "node:path";
-import { effectiveUrl, extractFirstJpeg, normIdent, type OwnDrone, type Patrouille, type SourceKind } from "./drones-core";
+import { PLATFORM_BY_ID } from "./catalog.ts";
+import { effectiveUrl, EXERCICE_MS, extractFirstJpeg, normIdent, refusExercice, type OwnDrone, type Patrouille, type SourceKind } from "./drones-core";
 import { lireCalage, type Calage } from "./drones-fond.ts";
 import { synchroniserLiaisons } from "./drones-liaison.server.ts";
 import { CONFIRMATION_1090_MS, lireLiaison, reglagesValides, type ReglagesPilotage } from "./drones-pilotage.ts";
@@ -215,6 +216,28 @@ export async function setDroneConfirme1090Server(
   if (!list.some((d) => d.id === id && d.kind !== "camera")) return { ok: false, error: "drone inconnu" };
   const ami1090Jusqua = confirmer ? Date.now() + CONFIRMATION_1090_MS : undefined;
   const next = list.map((d) => (d.id === id ? { ...d, ami1090Jusqua } : d));
+  await persist(next);
+  return { ok: true, drones: next };
+}
+
+/**
+ * Le chef fait jouer à ce drone un intrus du catalogue (pour le temps d'un vol), ou met fin à
+ * l'exercice (plateforme null). Les conditions sont celles de refusExercice.
+ */
+export async function setDroneExerciceServer(
+  id: string,
+  plateforme: string | null,
+): Promise<{ ok: boolean; error?: string; drones?: OwnDrone[] }> {
+  const list = await load();
+  const drone = list.find((d) => d.id === id && d.kind !== "camera");
+  if (!drone) return { ok: false, error: "drone inconnu" };
+  let exercice: OwnDrone["exercice"];
+  if (plateforme !== null) {
+    const refus = refusExercice(drone, PLATFORM_BY_ID[plateforme]);
+    if (refus) return { ok: false, error: refus };
+    exercice = { plateforme, jusqua: Date.now() + EXERCICE_MS };
+  }
+  const next = list.map((d) => (d.id === id ? { ...d, exercice } : d));
   await persist(next);
   return { ok: true, drones: next };
 }

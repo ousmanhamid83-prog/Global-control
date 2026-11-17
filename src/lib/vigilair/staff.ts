@@ -316,7 +316,6 @@ export async function insertSecurityIncident(row: {
   machineLabel?: string | null;
   fpHash?: string | null;
   autoEjected?: boolean;
-  drill?: boolean;
 }): Promise<{ id: string; title: string; detail: string; contentSha: string; chainSha: string; pdfSha: string }> {
   const sql = await getSql();
   const id = await mintId();
@@ -358,7 +357,6 @@ export async function insertSecurityIncident(row: {
     { kind: "k", text: `Agent     ${row.actor}` },
     { kind: "k", text: `Nature    ${row.kind}` },
     { kind: "k", text: `Coupure   ${row.autoEjected ? "OUI — session et clé mortes" : "non"}` },
-    { kind: "k", text: `Exercice  ${row.drill ? "oui — formation chef de division" : "non — événement réel"}` },
     { kind: "gap" },
     { kind: "h", text: "Fait" },
     { kind: "p", text: title },
@@ -386,12 +384,12 @@ export async function insertSecurityIncident(row: {
     insert into security_incidents (
       id, user_id, actor, kind, title, detail, work_recap,
       machine_label, fp_hash, content_sha256, prev_sha256, chain_sha256,
-      pdf_sha256, pdf_b64, auto_ejected, drill
+      pdf_sha256, pdf_b64, auto_ejected
     )
     values (
       ${id}, ${row.userId}, ${row.actor}, ${row.kind}, ${title}, ${detail}, ${recap},
       ${machine}, ${row.fpHash ?? null}, ${contentSha}, ${prevSha}, ${chainSha},
-      ${pdfShaBytes}, ${pdfB64}, ${Boolean(row.autoEjected)}, ${Boolean(row.drill)}
+      ${pdfShaBytes}, ${pdfB64}, ${Boolean(row.autoEjected)}
     )
   `;
   return { id, title, detail, contentSha, chainSha, pdfSha: pdfShaBytes };
@@ -412,7 +410,7 @@ export async function buildWorkRecap(userId: string): Promise<string> {
   const lines = [
     `Agent: ${staff?.label ?? userId} · ${ROLE_LABEL[staff?.role ?? "admin"]} · ${TEAM_LABEL[staff?.team ?? "cop"]}`,
     `Statut: ${staff?.ejected ? "ÉJECTÉ — reconnexion interdite" : "en poste"}`,
-    `Travail: ${pick("ident")} ident · ${pick("bulletin")} bulletins · ${pick("m4")} Mode 4 · ${pick("lock")} verrous · ${pick("download")} extraits`,
+    `Travail: ${pick("ident")} ident · ${pick("bulletin")} bulletins · ${pick("lock")} verrous · ${pick("download")} extraits`,
   ];
   if (last.length > 0) {
     lines.push("Dernières actions:");

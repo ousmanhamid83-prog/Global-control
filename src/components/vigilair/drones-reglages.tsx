@@ -12,9 +12,12 @@ import {
   subscribeDrones,
   type OwnDrone,
 } from "@/lib/vigilair/drones";
+import { originLabel, PLATFORM_BY_ID, PLATFORMS } from "@/lib/vigilair/catalog";
+import { exerciceEnCours } from "@/lib/vigilair/drones-core";
 import { ORDRES_DRONE, type ReglagesPilotage } from "@/lib/vigilair/drones-pilotage";
 import {
   confirmerPiste1090,
+  reglerExercice,
   reglerLiaison,
   reglerPatrouille,
   reglerPilotage,
@@ -25,6 +28,9 @@ import {
 import { useStaff } from "@/lib/vigilair/staff-context";
 
 const nombre = (s: string): number => Number(s.trim().replace(",", "."));
+
+/** Ce qu'un drone peut jouer en exercice : les drones du catalogue (un avion de chasse, non). */
+const PLATEFORMES_EXERCICE = PLATFORMS.filter((p) => p.uasClass !== "chasse");
 
 /** « 12.1345, 15.0345 » par ligne → points ; null si une ligne ne se lit pas. */
 function lirePoints(texte: string): { lat: number; lon: number }[] | null {
@@ -58,8 +64,11 @@ function FicheDrone({
   const [tours, setTours] = useState(String(drone.patrouille?.tours ?? 1));
   const [dit, setDit] = useState<{ ok: boolean; texte: string } | null>(null);
   const [occupe, setOccupe] = useState(false);
+  const [plateforme, setPlateforme] = useState(PLATEFORMES_EXERCICE[0]?.id ?? "");
   // L'heure du poste, comme pour les battements ; avant le premier relevé, celle de la console.
   const confirmee = (drone.ami1090Jusqua ?? 0) > (maintenant || Date.now());
+  const joue = exerciceEnCours(drone, maintenant || Date.now());
+  const jouee = joue ? PLATFORM_BY_ID[joue] : undefined;
 
   const faire = async (quoi: string, appel: () => Promise<string | null>) => {
     setOccupe(true);
@@ -208,6 +217,46 @@ function FicheDrone({
           }
         >
           {confirmee ? "Retirer la confirmation" : "Confirmer (2 h)"}
+        </Button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+        {joue ? (
+          <span data-drone-exercice-etat className="text-warn">
+            EXERCICE : vole pour de vrai et joue{" "}
+            {jouee ? `${jouee.manufacturer} ${jouee.name}` : joue} jusqu'à{" "}
+            {new Date(drone.exercice!.jusqua).toISOString().slice(11, 16)} Z — piste EXE, jamais
+            relayée par Signal
+          </span>
+        ) : (
+          <>
+            <span>Exercice : lui faire jouer un intrus (vrai vol, vraie télémétrie)</span>
+            <select
+              data-drone-exercice-plateforme
+              className="h-7 max-w-[14rem] rounded-sm border border-border bg-bg px-1 text-[11px] text-fg"
+              value={plateforme}
+              disabled={!chef}
+              onChange={(e) => setPlateforme(e.target.value)}
+            >
+              {PLATEFORMES_EXERCICE.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.manufacturer} {p.name} · {originLabel(p.origin)}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
+        <Button
+          data-drone-exercice
+          size="sm"
+          variant="outline"
+          disabled={!chef || occupe || (!joue && !drone.liaison)}
+          onClick={() =>
+            void faire(joue ? "exercice terminé" : "exercice lancé pour 2 h", () =>
+              reglerExercice(drone.id, joue ? null : plateforme),
+            )
+          }
+        >
+          {joue ? "Fin d'exercice" : "Lancer l'exercice (2 h)"}
         </Button>
       </div>
       {dit ? (

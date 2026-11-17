@@ -32,7 +32,6 @@ import {
   RANGE_AXES,
   axisLeg,
 } from "@/lib/vigilair/terrain";
-import { ACOUSTIC_SITES, SENSOR_SITES } from "@/lib/vigilair/sensors";
 import { getLiveZones } from "@/lib/vigilair/zones";
 import { peekTracks, threatOf, trackVisible, useVigilair } from "@/lib/vigilair/store";
 import { satCredit, drawTiles, liveGsd, pixelBudgetLine, formatPx, pixelSpan, pixelDetections, pixelClassLabel, scanCenterTile, localImageryShare, LOCAL_CREDIT } from "@/lib/vigilair/tiles";
@@ -47,7 +46,6 @@ import { dronesPeek } from "@/lib/vigilair/drones";
 import { dessinerFonds, dessinerNosDrones } from "@/lib/vigilair/drones-dessin";
 import { designerPoint, poserCoin, suiviSnapshot } from "@/lib/vigilair/drones-suivi";
 import { affiliationColorVar, affiliationOf, drawApp6Air } from "@/lib/vigilair/app6";
-import { m4Short } from "@/lib/vigilair/iff";
 import type { Origin, Track } from "@/lib/vigilair/types";
 import { cn } from "@/lib/utils";
 
@@ -689,8 +687,8 @@ function draw(
     );
   }
 
-  const radar = SENSOR_SITES.find((s) => s.id === "rad-1");
-  const ringAt = st.capture || !isHomeOrigin(origin) ? origin : radar;
+  // Anneaux de distance : autour de l'aérodrome FTTJ (le poste n'a pas de radar à centrer).
+  const ringAt = st.capture || !isHomeOrigin(origin) ? origin : AO.airport;
   if (ringAt && scale !== "monde") {
     const rp = pj(ringAt.lat, ringAt.lon);
     for (const km of cfg.rings) {
@@ -791,31 +789,6 @@ function draw(
 
   drawMines(ctx, pj, w, h, sizeKm, scale, ice, fg, muted, warn, crit, st.mineId);
   drawNavRoute(ctx, pj, ice, crit, fg, muted);
-
-  const sensors =
-    close || scale === "veille"
-      ? SENSOR_SITES
-      : scale === "monde"
-        ? []
-        : SENSOR_SITES.filter((s) => s.kind === "radar" || s.id === "rf-c");
-  for (const s of sensors) {
-    const p = pj(s.lat, s.lon);
-    if (p.x < -8 || p.x > w + 8 || p.y < -8 || p.y > h + 8) continue;
-    ctx.fillStyle = ice;
-    ctx.globalAlpha = 0.9;
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y - 4);
-    ctx.lineTo(p.x + 3.5, p.y);
-    ctx.lineTo(p.x, p.y + 4);
-    ctx.lineTo(p.x - 3.5, p.y);
-    ctx.closePath();
-    ctx.fill();
-    ctx.globalAlpha = 0.5;
-    ctx.fillStyle = muted;
-    ctx.font = "400 8px 'IBM Plex Mono', monospace";
-    ctx.fillText(s.name, p.x + 6, p.y + 3);
-    ctx.globalAlpha = 1;
-  }
 
   const peaksOn =
     !close &&
@@ -947,43 +920,6 @@ function draw(
 
   const selected = tracks.find((t) => t.id === selectedId) ?? tracks.find((t) => t.locked);
 
-  if (selected?.acoustic?.locked && close) {
-    ctx.setLineDash([3, 5]);
-    ctx.lineWidth = 1;
-    for (const b of selected.acoustic.bearings) {
-      const site = ACOUSTIC_SITES.find((s) => s.id === b.siteId);
-      if (!site) continue;
-      const a = pj(site.lat, site.lon);
-      const bxy = pj(selected.lat, selected.lon);
-      ctx.strokeStyle = "rgba(125,155,134,0.55)";
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(bxy.x, bxy.y);
-      ctx.stroke();
-    }
-    ctx.setLineDash([]);
-  }
-
-  if (selected?.pilotFix) {
-    const pf = pj(selected.pilotFix.lat, selected.pilotFix.lon);
-    const tp = pj(selected.lat, selected.lon);
-    ctx.strokeStyle = ice;
-    ctx.setLineDash([2, 3]);
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(pf.x, pf.y);
-    ctx.lineTo(tp.x, tp.y);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = ice;
-    ctx.beginPath();
-    ctx.rect(pf.x - 3, pf.y - 3, 6, 6);
-    ctx.fill();
-    ctx.fillStyle = muted;
-    ctx.font = "400 9px 'IBM Plex Mono', monospace";
-    ctx.fillText("TEL", pf.x + 7, pf.y + 3);
-  }
-
   if (selected?.launchFix) {
     const lf = pj(selected.launchFix.lat, selected.launchFix.lon);
     const tp = pj(selected.lat, selected.lon);
@@ -1010,20 +946,8 @@ function draw(
       selected.lat,
       selected.lon,
     );
-    ctx.fillText(cl.clipped ? `SRC ${dSrc.toFixed(0)} km` : "SRC", cl.x + 7, cl.y + 3);
-  }
-
-  if (selected?.stopFix) {
-    const sf = pj(selected.stopFix.lat, selected.stopFix.lon);
-    if (sf.x > -20 && sf.x < w + 20 && sf.y > -20 && sf.y < h + 20) {
-      ctx.strokeStyle = ice;
-      ctx.globalAlpha = 0.7;
-      ctx.strokeRect(sf.x - 4, sf.y - 4, 8, 8);
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = muted;
-      ctx.font = "400 9px 'IBM Plex Mono', monospace";
-      ctx.fillText(selected.stopFix.predicted ? "ARR?" : "ARR", sf.x + 8, sf.y + 3);
-    }
+    // Premier relevé de la piste : où le poste l'a entendue la première fois (pas un lieu d'envoi).
+    ctx.fillText(cl.clipped ? `1er relevé ${dSrc.toFixed(0)} km` : "1er relevé", cl.x + 7, cl.y + 3);
   }
 
   if (selected && (selected.locked || selected.id === selectedId)) {
@@ -1099,14 +1023,6 @@ function draw(
       ctx.arc(p.x, p.y, 14, 0, Math.PI * 2);
       ctx.stroke();
     }
-    if (t.ew?.state === "effet") {
-      ctx.strokeStyle = "rgba(196,92,92,0.7)";
-      ctx.setLineDash([3, 3]);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 20, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
     if (t.emergency) {
       ctx.strokeStyle = crit;
       ctx.globalAlpha = 0.9;
@@ -1133,24 +1049,6 @@ function draw(
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
-    if (t.iff?.m4 === "invalid") {
-      ctx.strokeStyle = crit;
-      ctx.globalAlpha = 0.85;
-      ctx.setLineDash([3, 3]);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 18, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 1;
-    } else if (t.iff?.m4 === "demande") {
-      ctx.strokeStyle = warn;
-      ctx.globalAlpha = 0.7;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 16, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-
     // Cadre APP-6 (affiliation) autour du marqueur, non pivoté ; le glyphe plateforme reste dessous.
     if (symbols) {
       drawApp6Air(ctx, p.x, p.y, t.locked ? 13 : wide ? 6 : 11, affil, color, hexA(color, 0.1));
@@ -1217,19 +1115,15 @@ function draw(
     const tag =
       t.feed === "rejeu"
         ? `${t.callsign} REJ`
-        : t.feed === "adsb"
-        ? `${t.callsign}${t.military ? " MIL" : ""}${t.category?.toUpperCase() === "B6" ? " UAV" : ""} 1090`
-        : ami
-          ? `${t.callsign} AMI`
-          : t.injected
-            ? `${t.callsign} INJ`
-            : t.callsign;
+        : t.feed === "exercice"
+          ? `${t.callsign} EXERCICE`
+          : `${t.callsign}${t.military ? " MIL" : ""}${t.category?.toUpperCase() === "B6" ? " UAV" : ""} 1090`;
     ctx.fillText(tag, p.x + 10, p.y - 6);
     ctx.fillStyle = muted;
     ctx.font = "400 9px 'IBM Plex Mono', monospace";
     if (t.iff) {
       ctx.fillText(
-        `${t.iff.mode}  ${t.iff.squawk}  ${m4Short(t.iff.m4)}`,
+        `${t.iff.mode}  ${t.iff.squawk}`,
         p.x + 10,
         p.y + 6,
       );

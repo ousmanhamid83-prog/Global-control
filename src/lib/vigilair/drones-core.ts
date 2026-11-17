@@ -49,8 +49,36 @@ export type OwnDrone = {
   ami1090Jusqua?: number;
   /** Son image posée en fond de carte : quatre coins au sol, ou emprise calculée de sa télémétrie. */
   fond?: Calage;
+  /**
+   * Exercice : le chef fait jouer à ce drone — vrai vol, vraie télémétrie — un intrus du catalogue
+   * (`plateforme`), jusqu'à cette heure (ms). Sa piste est marquée EXERCICE : ses alertes ne partent
+   * jamais par Signal et ses intrusions sont versées au journal comme exercice.
+   */
+  exercice?: { plateforme: string; jusqua: number };
   at: number;
 };
+
+/** Durée d'un exercice posé par le chef : le temps d'un vol, comme une confirmation 1090ES. */
+export const EXERCICE_MS = 2 * 3600_000;
+
+/**
+ * Pourquoi ce drone ne peut pas jouer cette plateforme en exercice ; null s'il le peut. Il faut une
+ * liaison (l'exercice suit la VRAIE télémétrie, jamais une trajectoire inventée), et une plateforme
+ * du catalogue des drones : un avion de chasse ne se joue pas avec un drone.
+ */
+export function refusExercice(
+  drone: Pick<OwnDrone, "liaison">,
+  plateforme: { uasClass: string } | undefined,
+): string | null {
+  if (!drone.liaison) return "liaison requise : l'exercice suit la vraie télémétrie du drone";
+  if (!plateforme || plateforme.uasClass === "chasse") return "plateforme inconnue au catalogue des drones";
+  return null;
+}
+
+/** La plateforme que joue ce drone en exercice, si un exercice est en cours ; sinon null. */
+export function exerciceEnCours(d: Pick<OwnDrone, "exercice">, maintenant: number): string | null {
+  return d.exercice && d.exercice.jusqua > maintenant ? d.exercice.plateforme : null;
+}
 
 /** Les zones effectives d'une source : `zones` si présentes (≥ 3 sommets), sinon l'ancienne `roi`,
  *  sinon aucune (toute l'image est surveillée). Pur : partagé par la veille et l'UI. */
