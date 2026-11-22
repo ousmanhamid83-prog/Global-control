@@ -1,6 +1,7 @@
 import { formatGsdM, latToTileY, lonToTileX, tileToLat, tileToLon, visGsdM } from "./geo";
 import { sceneAgeLabel, type SatLayer, type SatMeta } from "./sat";
 import { scanFlames } from "./flame";
+import { garderTraces } from "./traces-gabarit";
 import { creerFile, type FileTuiles } from "./file-tuiles";
 import { couvre, type RectTuiles } from "./mosaique-couverture";
 
@@ -408,6 +409,8 @@ export type GabaritHit = {
   lon: number;
   px: number;
   cls: PixelClass;
+  /** Contraste moyen de la trace (écart à la moyenne locale, en niveaux de gris) : les plus nettes sont montrées. */
+  force: number;
 };
 
 export type FireKind = "vehicule" | "naturel";
@@ -724,6 +727,7 @@ function measureTile(
     }
   }
   const hot = new Uint8Array(S * S);
+  const contraste = new Float32Array(S * S);
   const R = 2;
   for (let y = R; y < S - R; y++) {
     for (let x = R; x < S - R; x++) {
@@ -737,7 +741,8 @@ function measureTile(
         integ[(y1 + 1) * stride + x0]! +
         integ[y0 * stride + x0]!;
       const mean = sum / ((x1 - x0 + 1) * (y1 - y0 + 1));
-      if (Math.abs(lum[y * S + x]! - mean) > 22) hot[y * S + x] = 1;
+      contraste[y * S + x] = Math.abs(lum[y * S + x]! - mean);
+      if (contraste[y * S + x]! > 22) hot[y * S + x] = 1;
     }
   }
   const seen = new Uint8Array(S * S);
@@ -745,7 +750,7 @@ function measureTile(
   let homme = 0;
   let voiture = 0;
   let pirogue = 0;
-  const hits: GabaritHit[] = [];
+  const candidates: GabaritHit[] = [];
   const hommeCls = pixelSpan(gsd, "homme").cls;
   const voitureCls = pixelSpan(gsd, "voiture").cls;
   const pirogueCls = pixelSpan(gsd, "pirogue").cls;
@@ -762,6 +767,7 @@ function measureTile(
     let maxY = 0;
     let sx = 0;
     let sy = 0;
+    let somme = 0;
     let edge = false;
     while (stack.length) {
       const p = stack.pop()!;
@@ -775,6 +781,7 @@ function measureTile(
       if (y > maxY) maxY = y;
       sx += x;
       sy += y;
+      somme += contraste[p]!;
       const tryPush = (q: number, qx: number) => {
         if (q < 0 || q >= S * S || seen[q] || !hot[q]) return;
         if (Math.abs(qx - x) > 1) return;
@@ -817,16 +824,17 @@ function measureTile(
     if (id === "homme") homme++;
     else if (id === "voiture") voiture++;
     else pirogue++;
-    if (hits.filter((h) => h.id === id).length < 4 && hits.length < 8) {
-      hits.push({
-        id,
-        lat: tileToLat(ty + (sy / n + 0.5) / S, z),
-        lon: tileToLon(tx + (sx / n + 0.5) / S, z),
-        px: major,
-        cls,
-      });
-    }
+    candidates.push({
+      id,
+      lat: tileToLat(ty + (sy / n + 0.5) / S, z),
+      lon: tileToLon(tx + (sx / n + 0.5) / S, z),
+      px: major,
+      cls,
+      force: somme / n,
+    });
   }
+  // Les comptes ci-dessus sont les totaux ; la carte en montre les plus nettes, pas les premières lues.
+  const hits = garderTraces(candidates, { parSorte: 4, total: 8 });
   return { homme, voiture, pirogue, hits, ...readFires(src, S, z, tx, ty, gsd) };
 }
 
@@ -888,9 +896,7 @@ export function scanCenterTile(
       pirogue += measured.pirogue;
       feuVehicule += measured.feuVehicule;
       feuNaturel += measured.feuNaturel;
-      for (const h of measured.hits) {
-        if (hits.length < 12) hits.push(h);
-      }
+      hits.push(...measured.hits);
       for (const f of measured.fires) {
         if (fires.length < 8) fires.push(f);
       }
@@ -904,7 +910,7 @@ export function scanCenterTile(
     pirogue,
     feuVehicule,
     feuNaturel,
-    hits,
+    hits: garderTraces(hits, { total: 12 }),
     fires,
   });
   return scanState;

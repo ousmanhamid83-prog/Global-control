@@ -552,17 +552,27 @@ La carte du poste — MapLibre GL JS (bibliothèque de cartographie libre)
   carte ; le nord reste en haut (ni rotation ni bascule).
 - POINTEUR : sous la souris, coordonnées, carré MGRS, finesse de l'image à cet endroit, distance et
   azimut depuis l'aérodrome de référence du poste.
+- TRACES MESURÉES DANS L'IMAGE (« V détection », « H … », « P … ») : en vue rapprochée sur
+  l'imagerie Visible, le poste mesure dans les tuiles du centre les contrastes de la taille d'une
+  voiture, d'un homme ou d'une pirogue — une classe de taille sur une image d'archive, jamais une
+  identité. Les nombres affichés sont les totaux ; la carte en montre au plus 12, les plus
+  contrastées (au plus 4 d'une même sorte et 8 par tuile). Elle montrait les premières lues, ligne à
+  ligne depuis le haut de chaque tuile : sur la vraie carte, vue rapprochée de l'aérodrome, 12
+  traces sur 12 dans la rangée de tuiles du haut, collées au bord haut de leur tuile (hauteur
+  moyenne 0,01 sur 1). Choisies au contraste, elles sont réparties sur les trois rangées (5, 3 et
+  4), hauteur moyenne 0,51.
 - Navigateur sans WebGL : la carte le dit, et comment l'activer, au lieu de rester noire.
 - Le poste ne précharge plus de tuiles au démarrage : il le faisait pour l'ancien dessin (Visible,
   IR et Thermique, zooms 2 à 5, même quand la couche n'était pas affichée). Mesuré sur la même
   séquence (monde, AES, vue rapprochée, 33 s) : 410 tuiles demandées avant, dont 89 thermiques jamais
   montrées ; 152 après — celles que la carte affiche.
 - Essai réel sur le serveur construit (comptes actifs), relevé Internet allumé : 269 à 297 vraies
-  pistes 1090ES sur la carte du monde selon l'heure (deux essais) ; pointeur lu avec 1,1 m d'écart (moins d'un pixel) ; caméra de site posée
-  par ses quatre coins, image entre eux au pixel (4/4) ; caméra vue de biais redressée (voir Nos
-  drones) ; drone sur le vrai programme de vol ArduCopter décollé au sceau du chef, envoyé à un point
-  cliqué sur la carte (lu avec 1,1 m d'écart), image de sa nacelle posée de sa télémétrie, puis rentré
-  et posé ; mesure 335 m pour 334 m attendus (un pixel d'écart) ; capture PNG du COP ; 0 erreur console.
+  pistes 1090ES sur la carte du monde selon l'heure (deux essais) ; pointeur lu avec 1,1 m d'écart
+  (moins d'un pixel) ; caméra de site posée par ses quatre coins, image entre eux au pixel (4/4) ;
+  caméra vue de biais redressée (voir Nos drones) ; drone sur le vrai programme de vol ArduCopter
+  décollé au sceau du chef, envoyé à un point cliqué sur la carte (lu avec 1,1 m d'écart), image de
+  sa nacelle posée de sa télémétrie, puis rentré et posé ; mesure 335 m pour 334 m attendus (un
+  pixel d'écart) ; capture PNG du COP ; 0 erreur console.
 - Trouvés par l'essai et corrigés : la carte restait noire et sourde au pointeur (son conteneur
   faisait 0 pixel de haut) ; un UAV réel entendu au loin (catégorie B6, à 3454 km) faisait sauter la
   carte sur lui — la capture auto ne vaut plus que pour un B6 né sur le théâtre tchadien ; à la
