@@ -637,17 +637,43 @@ fi
 # disques_de CHEMIN : les disques physiques (sda, nvme0n1…) qui portent CHEMIN, un par ligne ;
 # rien quand ils ne se lisent pas (dossier réseau, ZFS, conteneur…). Par le numéro du périphérique
 # de son montage, lu dans /sys — pas par son nom : la racine se dit souvent « /dev/root », qui
-# n'existe pas. Un montage sans périphérique propre (btrfs, « 0:… ») : celui de sa source.
+# n'existe pas. findmnt aligne ce numéro d'espaces (« ··7:0·· ») : ôtés ; deux montages au même
+# endroit : le dernier, celui qu'on voit. Un montage sans périphérique propre (btrfs, « 0:… ») :
+# celui de sa source. Un disque loop (un fichier image monté comme un disque) : le disque de ce
+# fichier, souvent celui du poste. La mémoire vive sans disque (tmpfs, ramfs) se dit par son type ;
+# un disque en mémoire vive (zram) garde son nom : en_memoire_vive reconnaît les deux.
 disques_de() {
-  local numero source periph
-  numero=$(findmnt -no MAJ:MIN -T "$1" 2>/dev/null) || return 0
+  local profondeur=${2:-0} numero source periph nom type image
+  [ "$profondeur" -le 8 ] || return 0
+  case "$(findmnt -no FSTYPE -T "$1" 2>/dev/null | tail -n 1)" in
+    tmpfs | ramfs)
+      findmnt -no FSTYPE -T "$1" | tail -n 1
+      return 0
+      ;;
+  esac
+  numero=$(findmnt -no MAJ:MIN -T "$1" 2>/dev/null | tail -n 1 | tr -d ' ') || return 0
   periph=$(readlink -f "/sys/dev/block/$numero" 2>/dev/null) || periph=""
-  if [ -z "$periph" ] || [ ! -e "$periph" ]; then
-    source=$(findmnt -no SOURCE -T "$1" 2>/dev/null) || return 0
+  if [ -z "$numero" ] || [ ! -e "$periph" ]; then
+    source=$(findmnt -no SOURCE -T "$1" 2>/dev/null | tail -n 1) || return 0
     [ -b "$source" ] || return 0
     periph=$(readlink -f "$source")
   fi
-  lsblk -rsno NAME,TYPE "/dev/${periph##*/}" 2>/dev/null | awk '$2 == "disk" { print $1 }' | sort -u
+  lsblk -rsno NAME,TYPE "/dev/${periph##*/}" 2>/dev/null | while read -r nom type; do
+    case "$type" in
+      disk) echo "$nom" ;;
+      loop)
+        # Effacé depuis, le noyau l'écrit « … (deleted) » : introuvable, on ne sait plus.
+        image=$(cat "/sys/block/$nom/loop/backing_file" 2>/dev/null) || continue
+        disques_de "$image" $((profondeur + 1))
+        ;;
+    esac
+  done | sort -u
+}
+
+# en_memoire_vive DISQUES : l'un d'eux en mémoire vive (zram, disque RAM, tmpfs, ramfs) — un arrêt
+# ou une coupure de courant l'efface : jamais un disque pour les copies.
+en_memoire_vive() {
+  printf '%s\n' "$1" | grep -Eqx '(zram|ram)[0-9]+|tmpfs|ramfs'
 }
 
 # disque_interne DISQUES : chacun ni amovible ni sur USB (une clé, un disque USB s'en vont).
@@ -660,8 +686,8 @@ disque_interne() {
 }
 
 # autre_disque : un AUTRE disque interne que celui du poste pour ses copies — un système de
-# fichiers Linux monté en écriture, hors des points du système, 10 Go libres au moins ; le plus de
-# place. Écrit « Ko-libres point-de-montage », ou rien.
+# fichiers Linux monté en écriture, hors des points du système et de la mémoire vive, 10 Go libres
+# au moins ; le plus de place. Écrit « Ko-libres point-de-montage », ou rien.
 autre_disque() {
   local poste point fs options d libre meilleur="" max=0
   poste=$(disques_de data)
@@ -674,7 +700,8 @@ autre_disque() {
       / | /boot | /boot/* | /efi | /usr | /usr/* | /var | /var/* | /tmp | /tmp/* | /snap/* | /media/* | /run/*) continue ;;
     esac
     d=$(disques_de "$point")
-    if [ -z "$d" ] || [ -n "$(comm -12 <(echo "$poste") <(echo "$d"))" ] || ! disque_interne "$d"; then
+    if [ -z "$d" ] || en_memoire_vive "$d" || [ -n "$(comm -12 <(echo "$poste") <(echo "$d"))" ] ||
+      ! disque_interne "$d"; then
       continue
     fi
     libre=$(df -Pk "$point" | awk 'NR == 2 { print $4 }')
@@ -738,7 +765,12 @@ else
   fi
   DISQUES_POSTE=$(disques_de data)
   DISQUES_COPIES=$(disques_de "$DOSSIER_COPIES")
-  if [ -z "$DISQUES_POSTE" ] || [ -z "$DISQUES_COPIES" ]; then
+  if en_memoire_vive "$DISQUES_POSTE"; then
+    A_FAIRE+=("Le poste est en mémoire vive (${DISQUES_POSTE//$'\n'/ }) : un arrêt ou une coupure de courant effacerait tout ce qu'il garde — l'installer sur un vrai disque.")
+  fi
+  if en_memoire_vive "$DISQUES_COPIES"; then
+    A_FAIRE+=("Copies du poste en mémoire vive (${DISQUES_COPIES//$'\n'/ }) : un arrêt ou une coupure de courant les effacerait. Les mettre sur un vrai disque : relancer avec --copies /chemin/sur/ce/disque.")
+  elif [ -z "$DISQUES_POSTE" ] || [ -z "$DISQUES_COPIES" ]; then
     A_FAIRE+=("Copies du poste : le disque de $DOSSIER_COPIES n'a pas pu être comparé à celui du poste — s'assurer qu'il est autre.")
   elif [ -n "$(comm -12 <(echo "$DISQUES_POSTE") <(echo "$DISQUES_COPIES"))" ]; then
     A_FAIRE+=("Copies du poste sur le même disque que lui (${DISQUES_POSTE//$'\n'/ }) : sa panne emporterait les deux. Brancher un autre disque, puis relancer avec --copies /chemin/sur/ce/disque.")

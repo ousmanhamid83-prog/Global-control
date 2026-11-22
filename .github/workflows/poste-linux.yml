@@ -1,10 +1,12 @@
 # Le script de préparation du poste sur une VRAIE machine Linux (GitHub, Ubuntu), lancé par un
 # compte qui n'est pas root (runner) mais a sudo, comme un opérateur. Ces machines n'ont qu'un
-# disque : le script ne doit rien inventer, et le dire. Puis un second disque est branché, monté
-# par le système (à root) : il doit être choisi seul pour les copies, son dossier créé par sudo puis
-# rendu au seul compte (700) ; disparu (disque remplacé), recréé de même au relancement. Un compte
-# sans droit sudo : le refus dit, rien de créé. La racine s'y dit « /dev/root », qui n'existe pas :
-# le disque se lit par /sys. Le serveur doit voir deux disques. Le code de sortie du script compte.
+# disque (leur « / ») : le script ne doit rien inventer, et le dire. Puis, montés par le système (à
+# root) : une mémoire vive (zram) et deux disques loop, des fichiers image posés sur ce même disque
+# (l'un partitionné). Aucun n'est un autre disque : rien n'est choisi seul ; forcés par --copies, le
+# script dit « mémoire vive » ou « même disque » (celui de leur image), le serveur aussi. Le dossier
+# des copies y est créé par sudo puis rendu au seul compte (700) ; disparu, recréé de même au
+# relancement. Un compte sans droit sudo : le refus dit, rien de créé. Script et serveur disent les
+# mêmes disques pour chaque montage de la machine. Le code de sortie du script compte.
 name: Poste sous Linux
 
 on:
@@ -15,6 +17,8 @@ on:
       - "scripts/poste/phonie-vhf.mjs"
       - "scripts/poste/phonie-vhf.test.mjs"
       - "src/lib/disque-physique.server.ts"
+      - "src/lib/disque-physique.test.ts"
+      - "src/lib/disque-poste.server.ts"
       - ".github/workflows/poste-linux.yml"
   workflow_dispatch:
 
@@ -60,59 +64,101 @@ jobs:
           esac
           id -nG "$(id -un)" | tr ' ' '\n' | grep -qx dialout
 
-      # Comme un disque monté par le système : son point de montage appartient à root.
-      - name: Un second disque branché (zram de 12 Go), monté à root sur /srv/disque-copies
+      # Comme des disques montés par le système : leurs points de montage appartiennent à root.
+      - name: Une mémoire vive (zram de 12 Go) et deux disques loop (images sur le disque de la machine), montés à root
         run: |
           [ -e /sys/class/zram-control ] || sudo modprobe zram || { sudo apt-get install -y "linux-modules-extra-$(uname -r)" && sudo modprobe zram; }
           dev=$(sudo zramctl --find --size 12G)
           sudo mkfs.ext4 -q "$dev"
-          sudo mkdir -p /srv/disque-copies
-          sudo mount "$dev" /srv/disque-copies
-          lsblk -o NAME,TYPE,SIZE,MOUNTPOINTS "$dev"
-          ls -ld /srv/disque-copies
+          sudo mkdir -p /srv/zram /srv/disque-loop /srv/loop-parts
+          sudo mount "$dev" /srv/zram
+          # 12 Go, creux : assez de place pour être candidat. Son image : sur le disque de la machine.
+          sudo truncate -s 12G /var/lib/disque-loop.img
+          sudo mkfs.ext4 -q -F /var/lib/disque-loop.img
+          sudo mount -o loop /var/lib/disque-loop.img /srv/disque-loop
+          # Un loop partitionné (table DOS, une partition Linux).
+          sudo truncate -s 64M /var/lib/loop-parts.img
+          echo ',,L' | sudo sfdisk -q /var/lib/loop-parts.img
+          boucle=$(sudo losetup -fP --show /var/lib/loop-parts.img)
+          sudo udevadm settle
+          sudo mkfs.ext4 -q "${boucle}p1"
+          sudo mount "${boucle}p1" /srv/loop-parts
+          lsblk -o NAME,TYPE,SIZE,MOUNTPOINTS
+          losetup -a
+          ls -ld /srv/zram /srv/disque-loop /srv/loop-parts
 
-      - name: Le script choisit seul l'autre disque, crée le dossier par sudo et le rend au seul compte
+      - name: Ni la mémoire vive ni les loops ne sont choisis — les copies restent sur le poste, et c'est dit
         run: |
           set -o pipefail
-          bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief | tee bilan.txt
-          if grep -F "dialout" bilan.txt; then exit 1; fi # déjà dans le groupe : rien à refaire
-          grep -F "dossier des copies créé par sudo sur /srv/disque-copies (à root), rendu à $(id -un) seul" bilan.txt
-          grep -F "copies du poste sur un autre disque interne, choisi seul : /srv/disque-copies/AfriControl-copies" bilan.txt
-          grep -Fx "AFRICONTROL_COPIES=/srv/disque-copies/AfriControl-copies" poste.env
-          test "$(stat -c '%U %a' /srv/disque-copies/AfriControl-copies)" = "$(id -un) 700"
-          touch /srv/disque-copies/AfriControl-copies/ecrit
+          bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief | tee aucun.txt
+          if grep -F "dialout" aucun.txt; then exit 1; fi # déjà dans le groupe : rien à refaire
+          grep -F "copies du poste dans data/copies (défaut)" aucun.txt
+          grep -F "Copies du poste sur le même disque que lui (" aucun.txt
+          if grep -F "choisi seul" aucun.txt; then exit 1; fi
+          if grep -s "^AFRICONTROL_COPIES=" poste.env; then exit 1; fi
 
-      - name: Le serveur voit deux disques physiques, le poste et ses copies
+      - name: --copies en mémoire vive (zram) — dossier créé par sudo, et dit en mémoire vive
+        run: |
+          set -o pipefail
+          bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief --copies /srv/zram/AfriControl-copies | tee vive.txt
+          grep -F "dossier des copies créé par sudo sur /srv/zram (à root), rendu à $(id -un) seul" vive.txt
+          grep -E "Copies du poste en mémoire vive \(zram[0-9]+\) : un arrêt ou une coupure de courant les effacerait" vive.txt
+
+      - name: --copies sur un loop — dossier créé par sudo, rendu au seul compte ; dit sur le disque du poste, celui de son image
+        run: |
+          set -o pipefail
+          bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief --copies /srv/loop-parts/AfriControl-copies | tee parts.txt
+          grep -F "Copies du poste sur le même disque que lui (" parts.txt
+          bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief --copies /srv/disque-loop/AfriControl-copies | tee loop.txt
+          grep -F "dossier des copies créé par sudo sur /srv/disque-loop (à root), rendu à $(id -un) seul" loop.txt
+          grep -F "Copies du poste sur le même disque que lui (" loop.txt
+          grep -Fx "AFRICONTROL_COPIES=/srv/disque-loop/AfriControl-copies" poste.env
+          test "$(stat -c '%U %a' /srv/disque-loop/AfriControl-copies)" = "$(id -un) 700"
+          touch /srv/disque-loop/AfriControl-copies/ecrit
+
+      - name: Le serveur — chaque loop a le disque de son image (celui du poste), la mémoire vive se reconnaît
         run: |
           node --experimental-strip-types --no-warnings --input-type=module -e '
-            const { disquesPhysiques } = await import("./src/lib/disque-physique.server.ts");
-            const poste = await disquesPhysiques("data");
-            const copies = await disquesPhysiques("/srv/disque-copies/AfriControl-copies");
-            console.log("Disques vus par le serveur (poste, copies) :", JSON.stringify([poste, copies]));
-            if (!poste?.length || !copies?.length || poste.some((d) => copies.includes(d))) process.exit(1);
+            const { disquesPhysiques, enMemoireVive } = await import("./src/lib/disque-physique.server.ts");
+            const { placeDisques } = await import("./src/lib/disque-poste.server.ts");
+            const chemins = { poste: "data", loop: "/srv/disque-loop/AfriControl-copies", partitionne: "/srv/loop-parts", zram: "/srv/zram", shm: "/dev/shm" };
+            const vus = {};
+            for (const [nom, d] of Object.entries(chemins)) vus[nom] = await disquesPhysiques(d);
+            console.log("Disques vus par le serveur :", JSON.stringify(vus));
+            const meme = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+            if (!vus.poste?.length || enMemoireVive(vus.poste)) process.exit(1);
+            if (!meme(vus.loop, vus.poste) || !meme(vus.partitionne, vus.poste)) process.exit(1);
+            if (!enMemoireVive(vus.zram) || !meme(vus.shm, ["tmpfs"])) process.exit(1);
+            process.env.AFRICONTROL_COPIES = "/srv/disque-loop/AfriControl-copies";
+            const loop = await placeDisques();
+            process.env.AFRICONTROL_COPIES = "/srv/zram";
+            const vive = await placeDisques();
+            console.log("Division (même disque, mémoire vive) :", JSON.stringify({ loop: [loop.memeDisque, loop.memoireVive], zram: [vive.memeDisque, vive.memoireVive] }));
+            if (!loop.memeDisque || loop.memoireVive.copies || vive.memeDisque || !vive.memoireVive.copies) process.exit(1);
           '
 
-      - name: Un compte sans droit sudo — le refus dit, rien de créé, les copies laissées sur le poste
+      - name: Un compte sans droit sudo — le refus dit, rien de créé
         run: |
-          set -o pipefail
           sudo useradd -m sansudo
-          sudo rm -rf /srv/disque-copies/AfriControl-copies
+          sudo rm -rf /srv/disque-loop/AfriControl-copies
           sudo cp -r "$PWD" /home/sansudo/poste
           sudo rm -rf /home/sansudo/poste/poste.env /home/sansudo/poste/data
           sudo chown -R sansudo: /home/sansudo/poste
-          sudo -u sansudo env PATH="$PATH" bash -c 'cd /home/sansudo/poste && bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief' < /dev/null | tee refus.txt
-          grep -F "appartient à root et sudo a refusé" refus.txt
-          grep -F "copies du poste dans data/copies (défaut)" refus.txt
+          code=0
+          sudo -u sansudo env PATH="$PATH" bash -c 'cd /home/sansudo/poste && bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief --copies /srv/disque-loop/AfriControl-copies' < /dev/null > refus.txt 2>&1 || code=$?
+          cat refus.txt
+          test "$code" = 1
+          grep -F "✗ copies : /srv/disque-loop/AfriControl-copies impossible à créer, même par sudo" refus.txt
           grep -F "Radio de télémétrie des drones : sudo usermod -aG dialout sansudo, puis nouvelle session" refus.txt
-          test ! -e /srv/disque-copies/AfriControl-copies
+          test ! -e /srv/disque-loop/AfriControl-copies
 
       - name: Le dossier réglé a disparu (disque remplacé, remonté à root) — recréé par sudo au relancement
         run: |
           set -o pipefail
           bash scripts/poste/preparer-poste.sh --sans-build --sans-ia --sans-relief | tee relance.txt
-          grep -F "AFRICONTROL_COPIES déjà réglé dans poste.env (/srv/disque-copies/AfriControl-copies), gardé" relance.txt
-          grep -F "dossier des copies créé par sudo sur /srv/disque-copies (à root), rendu à $(id -un) seul" relance.txt
-          test "$(stat -c '%U %a' /srv/disque-copies/AfriControl-copies)" = "$(id -un) 700"
+          grep -F "AFRICONTROL_COPIES déjà réglé dans poste.env (/srv/disque-loop/AfriControl-copies), gardé" relance.txt
+          grep -F "dossier des copies créé par sudo sur /srv/disque-loop (à root), rendu à $(id -un) seul" relance.txt
+          test "$(stat -c '%U %a' /srv/disque-loop/AfriControl-copies)" = "$(id -un) 700"
 
       # Pas de clé radio sur cette machine : le récepteur est installé par sudo, réglé, mis au
       # démarrage ; le script dit qu'aucune clé n'est branchée et que rien n'écoute encore.
@@ -175,7 +221,10 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8001/phonie.mp3)" = 503
           ! curl -s -m 2 "http://$(hostname -I | cut -d' ' -f1):8001/etat"
 
+      # Avec la mémoire vive, les loops et les snaps de la machine montés : script et serveur doivent
+      # dire les mêmes disques pour chacun de ses montages.
       - name: Tests des scripts
         run: |
           node --test scripts/poste/preparer-poste.test.mjs
           node --test scripts/poste/phonie-vhf.test.mjs
+          node --experimental-strip-types --no-warnings --test src/lib/disque-physique.test.ts

@@ -1386,12 +1386,32 @@ Base du poste et journal d'activité — Division
   jour) — le tout doublé. Ce qui ne sert plus qu'en archive est compressé (voir COMPRESSION). La
   Division compare les disques PHYSIQUES, pas les volumes : deux partitions d'un même disque sont
   signalées comme le même disque. Linux : le montage du dossier remonté dans /sys jusqu'à ses
-  disques (partition, LVM, chiffrement, RAID) ; Windows : la lettre du lecteur reliée à son disque
-  par CIM (Windows PowerShell lancé sans shell, lettre vérifiée, réponse gardée 10 min). Un dossier
-  des copies injoignable (clé retirée, effacé) n'a pas de disque : sous Windows, il passait pour
-  celui de sa lettre — trouvé par l'essai sur un vrai Windows, corrigé. Disques pas reconnus
-  (dossier réseau) : les volumes sont comparés, et la Division le dit. Le nom du disque est affiché :
-  « disque du poste (vda) … ; disque des copies (zram0) … ».
+  disques (partition, LVM, chiffrement, RAID) ; un disque loop (un fichier image monté comme un
+  disque) a le disque de son fichier — le plus souvent celui du poste, et c'est dit ; image effacée
+  depuis : on ne sait pas. Windows : la lettre du lecteur reliée à son disque par CIM (Windows
+  PowerShell lancé sans shell, lettre vérifiée, réponse gardée 10 min) ; un disque virtuel (VHD) y
+  garde son numéro, sans le disque de son fichier. Un dossier des copies injoignable (clé retirée,
+  effacé) n'a pas de disque : sous Windows, il passait pour celui de sa lettre — trouvé par l'essai
+  sur un vrai Windows, corrigé. Disques pas reconnus (dossier réseau) : les volumes sont comparés,
+  et la Division le dit. Le nom du disque est affiché (« disque du poste (vda) … »).
+- MÉMOIRE VIVE. Un zram, un disque RAM, un tmpfs (/dev/shm, souvent /tmp) ou un ramfs ne sont PAS
+  des disques : un arrêt ou une coupure de courant les efface. Copies (ou poste) en mémoire vive :
+  la Division le dit en rouge (« Les copies sont en mémoire vive (zram0) : un arrêt ou une coupure
+  de courant les effacerait ») ; le script de préparation ne les choisit jamais et, imposées par
+  --copies, le met au bilan. C'était une erreur de ma version précédente : le script prenait un zram
+  pour « un autre disque interne », la Division aussi ; et mes essais d'un « second disque » sur ce
+  poste étaient des zram (voir COPIES SUR UN AUTRE DISQUE). Trouvé en comparant le disque d'un loop
+  à celui du poste, corrigé. Essayé ici sur de vrais périphériques : un loop de 12 Go dont l'image
+  est sur vda (avant : « loop2 », un autre disque ; après : vda, le disque du poste), un loop à
+  l'image effacée (inconnu), un loop dont l'image est en tmpfs (mémoire vive), un zram de 12 Go
+  (avant : choisi seul pour les copies ; après : jamais), /dev/shm, un ramfs, deux montages au même
+  endroit, une image cachée sous son propre montage (pas de boucle sans fin). Le script et le
+  serveur disent les mêmes disques pour chaque montage de la machine — essayé ici, et refait par la
+  CI Linux de GitHub à chaque changement (avec un loop partitionné, que ce noyau ne sait pas lire).
+  Trouvé aussi : findmnt aligne le numéro du périphérique d'espaces (« ··7:0·· »), qui faisaient
+  échouer sa lecture dans /sys ; une racine dite « /dev/root » n'avait plus de disque. Ôtés. Mutants
+  : 24 sur 24 lancés attrapés ; un test du script qui ne changeait rien (image effacée) retiré ; un
+  25e, sans la garde de profondeur, pas lancé : il ferait tourner une chaîne de processus sans fin.
 - COMPRESSION (gzip), sans rien risquer : chaque compressé est écrit à part, forcé sur le disque,
   relu et comparé à l'original ; alors seulement l'original est effacé. Coupé n'importe où,
   l'original ou le compressé entier reste. Fait au contrôle des copies (toutes les 5 min ; le plus
@@ -1415,14 +1435,17 @@ Base du poste et journal d'activité — Division
   dit quand les copies restent sur le disque du poste (sa panne emporterait les deux). Essayé sur
   un vrai Windows (GitHub Actions, deux disques) : poste sur D: (disque 1), copies mises seules dans
   C:\AfriControl-copies (disque 0), copie du jour faite là en 2,1 à 2,8 s, reprise de là après une
-  base abîmée ; sous Linux, un second disque de 12 Go branché : choisi seul (zram0, le poste étant
-  sur vda), gardé au relancement ; trop petit (1 Go), pas choisi. Lancé par de vrais comptes sans
-  droits root, le disque monté à root : avec sudo, le dossier créé sur ce disque et rendu à ce
-  seul compte (700), poste.env réglé ; sans sudo, le refus dit, rien de créé. Refait à chaque
-  changement du script sur une machine Linux neuve de GitHub Actions (compte sans droits root) :
-  un seul disque, rien d'inventé et c'est dit ; un second disque branché à root, choisi seul, le
-  dossier créé par sudo et rendu (700) ; disparu, recréé au relancement ; sans droit sudo, refus
-  dit. Cette CI a trouvé un défaut, corrigé : un dossier réglé puis disparu n'était pas recréé. Un
+  base abîmée. Sous Linux, aucune machine d'essai (ni ce poste ni celles de GitHub) n'a de second
+  disque libre : le « second disque de 12 Go choisi seul » de ma version précédente était un zram,
+  en mémoire vive — à tort (voir MÉMOIRE VIVE). Le choix seul d'un autre disque n'est donc pas
+  essayé sous Linux sur un vrai second disque. Lancé par de vrais comptes sans droits root, le
+  dossier imposé sous un point de montage à root : avec sudo, créé et rendu à ce seul compte (700),
+  poste.env réglé ; sans sudo, le refus dit, rien de créé. Refait à chaque changement du script
+  sur une machine Linux neuve de GitHub Actions (compte sans droits root) : un seul disque, rien
+  d'inventé et c'est dit ; un zram et deux loops (leurs images sur le disque de la machine) montés
+  à root, jamais choisis ; imposés, dits « mémoire vive » ou « même disque », le dossier créé par
+  sudo et rendu (700) ; disparu, recréé au relancement ; sans droit sudo, refus dit. Cette CI a
+  trouvé un défaut, corrigé : un dossier réglé puis disparu n'était pas recréé. Un
   dossier des copies changé (autre disque, autre clé, vidé) reçoit tout ce que le poste gardait
   déjà, au contenu (voir CONTRÔLE AU CONTENU) — sans cela, le trafic du jour n'y aurait reçu que
   ses lignes nouvelles. La base y a sa copie du jour au premier contrôle.
@@ -1447,7 +1470,9 @@ Base du poste et journal d'activité — Division
   des 5 min (« depuis » gardé, dernier essai avancé) ; puis C → D, B toujours absent : C rapatrié
   (1082 fichiers, 57,9 Mo), B toujours en attente avec sa date ; B rebranché : rapatrié au
   contrôle suivant (2161 fichiers, 62,6 Mo), les 2161 identiques à ce qu'il gardait (SHA-256,
-  relus à part), file vide, Division sans défaut. Mutants : 27 sur 27 attrapés.
+  relus à part), file vide, Division sans défaut. A, B, C et D étaient des zram de ce poste (de la
+  mémoire vive) branchés puis retirés pour de bon : la file est prouvée, pas la survie à la panne
+  d'un disque. Mutants : 27 sur 27 attrapés.
 - CONTRÔLE AU CONTENU, EMPREINTES SCELLÉES. Chaque version finie d'un fichier gardé (un registre,
   AVANT son écriture ; un segment de phonie fermé ; le journal d'un jour compressé) a son empreinte :
   taille et SHA-256, scellées par la clé du poste (HMAC-SHA256) dans data/empreintes.jsonl, un
@@ -1468,7 +1493,7 @@ Base du poste et journal d'activité — Division
   de chaque côté au plus par jour, repris où il s'était arrêté — entre deux, à la taille. Les
   fichiers gardés avant les empreintes sont scellés au premier contrôle, le poste faisant foi.
   Essayé sur le serveur construit, avec le relevé Internet allumé (≈ 240 vrais aéronefs par image) :
-  le poste relancé sur un second disque, le trafic du jour (6 images) y est recopié en entier, et la
+  le poste relancé sur un zram (en mémoire vive), le trafic du jour (6 images) y est recopié, et la
   copie reste identique pendant que les images arrivent (9, 10, 11 images, 277 Ko) ; 3241 fichiers
   de l'ancien dossier (169,6 Mo) rapatriés et comparés un à un, data/copies retiré du disque du
   poste ; contrôle au contenu en 12 à 16 ms (7 fichiers). Une copie de registre trafiquée à taille

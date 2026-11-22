@@ -4,10 +4,13 @@
  * compte, pas le volume.
  *   - Linux : le montage du dossier (le plus long de /proc/self/mountinfo qui le contient), son
  *     périphérique remonté dans /sys jusqu'au(x) disque(s) : une partition donne son disque ; LVM,
- *     chiffrement ou RAID donnent ceux qui les portent (…/slaves).
+ *     chiffrement ou RAID donnent ceux qui les portent (…/slaves) ; un disque loop (un fichier image
+ *     monté comme un disque) donne le disque de ce fichier — souvent celui du poste. Un disque en
+ *     mémoire vive (zram, disque RAM) garde son nom ; un système de fichiers en mémoire vive (tmpfs,
+ *     ramfs), sans disque, se dit par son type : enMemoireVive reconnaît les deux.
  *   - Windows : la lettre du lecteur, reliée à son disque par CIM (Win32_LogicalDiskToPartition),
  *     par Windows PowerShell — chemin absolu, sans shell, lettre vérifiée, 15 s au plus, réponse
- *     gardée 10 min.
+ *     gardée 10 min. Un disque virtuel (VHD) y garde son numéro, sans le disque de son fichier.
  * null : on ne sait pas le dire (dossier injoignable, dossier réseau, conteneur, autre système) ;
  * les volumes sont alors comparés, et la Division le dit.
  */
@@ -30,18 +33,34 @@ const decoder = (s: string) =>
 const majeurMineur = (d: bigint) =>
   `${((d >> 8n) & 0xfffn) | ((d >> 32n) & ~0xfffn)}:${(d & 0xffn) | ((d >> 12n) & ~0xffn)}`;
 
+/** En mémoire vive (zram, disque RAM, tmpfs, ramfs) : vidé à chaque arrêt, ce n'est pas un disque. */
+export function enMemoireVive(disques: readonly string[] | null): boolean {
+  return disques !== null && disques.some((d) => /^(zram\d+|ram\d+|tmpfs|ramfs)$/.test(d));
+}
+
 /** Remonte un périphérique de /sys jusqu'à ses disques. */
-async function remonter(lien: string, profondeur = 0): Promise<string[]> {
+async function remonter(
+  lien: string,
+  racines: RacinesLinux,
+  profondeur: number,
+): Promise<string[]> {
   const d = await realpath(lien).catch(() => null);
   if (d === null || profondeur > 8) return [];
+  // Une partition : son disque, qui peut être lui-même un loop ou un RAID.
   if (await stat(path.join(d, "partition")).catch(() => null)) {
-    return [path.basename(path.dirname(d))];
+    return remonter(path.dirname(d), racines, profondeur + 1);
   }
+  // Un disque loop : un fichier image monté comme un disque. Le vrai disque est celui du fichier ;
+  // effacé ou injoignable (« … (deleted) »), on ne sait pas.
+  const image = (
+    await readFile(path.join(d, "loop", "backing_file"), "utf8").catch(() => "")
+  ).trim();
+  if (image) return (await disquesLinux(image, racines, profondeur + 1)) ?? [];
   const portants = await readdir(path.join(d, "slaves")).catch(() => [] as string[]);
   if (portants.length === 0) return [path.basename(d)];
   const disques: string[] = [];
   for (const p of portants)
-    disques.push(...(await remonter(path.join(d, "slaves", p), profondeur + 1)));
+    disques.push(...(await remonter(path.join(d, "slaves", p), racines, profondeur + 1)));
   return disques;
 }
 
@@ -49,10 +68,11 @@ async function remonter(lien: string, profondeur = 0): Promise<string[]> {
 export async function disquesLinux(
   dossier: string,
   racines: RacinesLinux = { mountinfo: "/proc/self/mountinfo", sys: "/sys" },
+  profondeur = 0,
 ): Promise<string[] | null> {
   const chemin = await realpath(dossier).catch(() => null);
   if (chemin === null) return null;
-  let montage: { point: string; numero: string; source: string } | null = null;
+  let montage: { point: string; numero: string; type: string; source: string } | null = null;
   for (const ligne of (await readFile(racines.mountinfo, "utf8").catch(() => "")).split("\n")) {
     const champs = ligne.split(" ");
     const tiret = champs.indexOf("-");
@@ -61,10 +81,17 @@ export async function disquesLinux(
     const dedans = point === "/" || chemin === point || chemin.startsWith(`${point}/`);
     // Le plus long l'emporte ; deux au même endroit : le dernier monté.
     if (dedans && (montage === null || point.length >= montage.point.length)) {
-      montage = { point, numero: champs[2]!, source: decoder(champs[tiret + 2]!) };
+      montage = {
+        point,
+        numero: champs[2]!,
+        type: champs[tiret + 1]!,
+        source: decoder(champs[tiret + 2]!),
+      };
     }
   }
   if (montage === null) return null;
+  // En mémoire vive, sans disque : son support se dit par son type.
+  if (montage.type === "tmpfs" || montage.type === "ramfs") return [montage.type];
   let numero = montage.numero;
   if (numero.startsWith("0:")) {
     // Sans périphérique propre (btrfs, réseau…) : celui de sa source, si c'en est un.
@@ -72,7 +99,11 @@ export async function disquesLinux(
     if (!s?.isBlockDevice()) return null;
     numero = majeurMineur(s.rdev);
   }
-  const disques = await remonter(path.join(racines.sys, "dev", "block", numero));
+  const disques = await remonter(
+    path.join(racines.sys, "dev", "block", numero),
+    racines,
+    profondeur,
+  );
   return disques.length > 0 ? [...new Set(disques)].sort() : null;
 }
 

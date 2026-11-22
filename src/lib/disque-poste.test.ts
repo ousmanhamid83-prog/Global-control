@@ -196,6 +196,7 @@ describe("disque du poste : rien d'écrit à moitié, tout doublé aussitôt", (
     assert.ok(p.poste && p.poste.total > 0 && p.poste.libre > 0 && p.poste.libre <= p.poste.total);
     assert.ok(p.copies && p.copies.total > 0);
     assert.equal(p.memeDisque, true, "data/copies : sur le disque du poste");
+    assert.deepEqual(p.memoireVive, { poste: false, copies: false });
     if (process.platform === "linux") {
       assert.ok(p.disques.poste?.length, "son disque physique reconnu");
       assert.deepEqual(p.disques.copies, p.disques.poste);
@@ -205,7 +206,27 @@ describe("disque du poste : rien d'écrit à moitié, tout doublé aussitôt", (
     assert.equal(q.copies, null);
     assert.equal(q.disques.copies, null);
     assert.equal(q.memeDisque, false);
+    assert.deepEqual(q.memoireVive, { poste: false, copies: false });
   });
+
+  it(
+    "COPIES EN MÉMOIRE VIVE (le vrai tmpfs /dev/shm) : un arrêt les efface — dit, pas pris pour un autre disque",
+    { skip: process.platform !== "linux" },
+    async () => {
+      const vive = mkdtempSync(path.join("/dev/shm", "copies-"));
+      process.env.AFRICONTROL_COPIES = vive;
+      try {
+        await ecrireFichierPoste(registre(), "[6]");
+        const p = await placeDisques();
+        assert.deepEqual(p.disques.copies, ["tmpfs"]);
+        assert.deepEqual(p.memoireVive, { poste: false, copies: true });
+        assert.equal(p.memeDisque, false, "la mémoire vive n'est pas le disque du poste");
+      } finally {
+        delete process.env.AFRICONTROL_COPIES;
+        rmSync(vive, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("MÊME DISQUE : un disque physique en commun — deux partitions d'un disque, un RAID qui le contient ; pas reconnus, le même volume", () => {
     assert.equal(surLeMemeDisque(["sda"], ["sda"], 2049, 2050), true, "deux partitions de sda");

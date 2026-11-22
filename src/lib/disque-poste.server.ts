@@ -41,7 +41,7 @@ import {
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGunzip, createGzip } from "node:zlib";
-import { disquesPhysiques } from "./disque-physique.server.ts";
+import { disquesPhysiques, enMemoireVive } from "./disque-physique.server.ts";
 import {
   cleDuPoste,
   type Empreinte,
@@ -76,9 +76,11 @@ export type Place = { libre: number; total: number };
 export type PlaceDisques = {
   poste: Place | null;
   copies: Place | null;
-  /** Les disques physiques de chacun (sda, nvme0n1 ; sous Windows leur numéro) ; null : pas
-   * reconnus, les volumes sont alors comparés. */
+  /** Les disques physiques de chacun (sda, nvme0n1 ; sous Windows leur numéro ; « tmpfs » pour
+   * la mémoire vive sans disque) ; null : pas reconnus, les volumes sont alors comparés. */
   disques: { poste: string[] | null; copies: string[] | null };
+  /** En mémoire vive (zram, tmpfs…) : un arrêt ou une coupure de courant l'efface. */
+  memoireVive: { poste: boolean; copies: boolean };
   memeDisque: boolean;
 };
 
@@ -94,8 +96,9 @@ async function place(dossier: string): Promise<Place | null> {
 /**
  * Tout est gardé sans limite : la place libre est donc montrée dans la Division, avant que le
  * disque plein n'empêche de rien garder. Le même disque PHYSIQUE pour le poste et ses copies est
- * signalé — deux partitions d'un même disque comprises : sa panne emporterait les deux. Disques pas
- * reconnus (dossier réseau, autre système) : les volumes sont comparés.
+ * signalé — deux partitions d'un même disque comprises, et un disque loop par le disque de son
+ * fichier : sa panne emporterait les deux. La mémoire vive aussi : rien n'y survit à un arrêt.
+ * Disques pas reconnus (dossier réseau, autre système) : les volumes sont comparés.
  */
 export async function placeDisques(): Promise<PlaceDisques> {
   const poste = dossierRegistres();
@@ -117,6 +120,7 @@ export async function placeDisques(): Promise<PlaceDisques> {
     poste: p,
     copies: c,
     disques: { poste: dp, copies: dc },
+    memoireVive: { poste: enMemoireVive(dp), copies: enMemoireVive(dc) },
     memeDisque: surLeMemeDisque(dp, dc, vp, vc),
   };
 }

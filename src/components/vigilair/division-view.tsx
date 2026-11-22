@@ -618,23 +618,34 @@ const nomDisque = (d: string[] | null) =>
   d ? ` (${d.every((n) => /^\d+$/.test(n)) ? "n° " : ""}${d.join(" + ")})` : "";
 
 /** La place libre du poste et de ses copies : tout est gardé sans limite, le disque plein se voit
- * venir ; le même disque physique pour les deux est signalé. */
+ * venir ; le même disque physique pour les deux est signalé, et la mémoire vive (rien n'y survit à
+ * un arrêt) en rouge. */
 function PlaceLibre({ place }: { place: PlaceDuPoste }) {
-  const { poste, copies, memeDisque, disques } = place;
+  const { poste, copies, memeDisque, disques, memoireVive } = place;
   if (!poste) return null;
   const basse = placeBasse(poste) || (copies !== null && placeBasse(copies));
-  const couleur = basse ? "text-crit" : memeDisque ? "text-warn" : "text-muted-foreground";
+  const vive = memoireVive.poste || memoireVive.copies;
+  const couleur =
+    basse || vive ? "text-crit" : memeDisque ? "text-warn" : "text-muted-foreground";
   return (
     <p className={`mt-1 flex items-start gap-1.5 text-xs ${couleur}`}>
-      {basse || memeDisque ? <AlertTriangle className="mt-0.5 size-3.5 shrink-0" /> : null}
+      {basse || vive || memeDisque ? (
+        <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+      ) : null}
       <span>
         Place libre :{" "}
         {memeDisque || !copies
           ? `${enGo(poste.libre)} sur ${enGo(poste.total)}`
           : `disque du poste${nomDisque(disques.poste)} ${enGo(poste.libre)} sur ${enGo(poste.total)} ; disque des copies${nomDisque(disques.copies)} ${enGo(copies.libre)} sur ${enGo(copies.total)}`}
         .
-        {memeDisque
+        {memeDisque && !vive
           ? ` Le poste et ses copies sont sur le même disque physique${nomDisque(disques.poste)} : sa panne emporterait les deux — brancher un autre disque, puis relancer scripts/poste/preparer-poste (-Copies sous Windows, --copies sous Linux).`
+          : ""}
+        {memoireVive.poste
+          ? ` Le poste est en mémoire vive${nomDisque(disques.poste)} : un arrêt ou une coupure de courant effacerait tout ce qu'il garde — l'installer sur un vrai disque.`
+          : ""}
+        {memoireVive.copies
+          ? ` Les copies sont en mémoire vive${nomDisque(disques.copies)} : un arrêt ou une coupure de courant les effacerait — les mettre sur un vrai disque, puis relancer scripts/poste/preparer-poste (-Copies sous Windows, --copies sous Linux).`
           : ""}
         {!memeDisque && copies && (!disques.poste || !disques.copies)
           ? " Disques physiques non reconnus ici : seuls les volumes sont comparés."
