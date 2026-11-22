@@ -555,12 +555,19 @@ La carte du poste — MapLibre GL JS (bibliothèque de cartographie libre)
 - TRACES MESURÉES DANS L'IMAGE (« V détection », « H … », « P … ») : en vue rapprochée sur
   l'imagerie Visible, le poste mesure dans les tuiles du centre les contrastes de la taille d'une
   voiture, d'un homme ou d'une pirogue — une classe de taille sur une image d'archive, jamais une
-  identité. Les nombres affichés sont les totaux ; la carte en montre au plus 12, les plus
-  contrastées (au plus 4 d'une même sorte et 8 par tuile). Elle montrait les premières lues, ligne à
-  ligne depuis le haut de chaque tuile : sur la vraie carte, vue rapprochée de l'aérodrome, 12
-  traces sur 12 dans la rangée de tuiles du haut, collées au bord haut de leur tuile (hauteur
-  moyenne 0,01 sur 1). Choisies au contraste, elles sont réparties sur les trois rangées (5, 3 et
-  4), hauteur moyenne 0,51.
+  identité. Les nombres du bandeau et leur cran (détection, reconnaissance…) portent sur toutes les
+  taches mesurées ; la carte en montre au plus 12, les plus contrastées (au plus 4 d'une même sorte
+  et 8 par tuile) ; les flammes repérées dans l'image, les 8 plus grandes (4 de chaque sorte). Une
+  tache qui atteint le bord de la zone regardée (deux pixels de voisinage sont nécessaires autour)
+  est coupée, sa vraie taille ne se lit pas : ni comptée ni montrée. Cette règle ne se déclenchait
+  jamais (elle visait des pixels que l'analyse ne regarde pas) ; la carte montrait en outre les
+  premières taches lues, ligne à ligne depuis le haut de chaque tuile. Mesuré sur la vraie carte,
+  vue rapprochée de l'aérodrome : avant, 12 repères sur 12 dans la rangée de tuiles du haut, collés
+  au bord haut (des taches coupées), et 2451 voitures comptées ; après, 2296 (155 taches coupées de
+  moins), repères répartis sur les trois rangées (6, 2 et 4), hauteur moyenne 0,50 sur 1. La mesure
+  est une fonction à part (traces-gabarit.ts), éprouvée sur des tuiles de synthèse : 14 tests, 47
+  mutants sur 48 attrapés (le dernier, élargir la zone regardée, ne change rien : ce qu'il
+  ajouterait atteint le bord).
 - Navigateur sans WebGL : la carte le dit, et comment l'activer, au lieu de rester noire.
 - Le poste ne précharge plus de tuiles au démarrage : il le faisait pour l'ancien dessin (Visible,
   IR et Thermique, zooms 2 à 5, même quand la couche n'était pas affichée). Mesuré sur la même

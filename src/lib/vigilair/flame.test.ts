@@ -57,6 +57,30 @@ describe("feu à 1,2 m", () => {
   });
 });
 
+describe("feux montrés : les plus grands, pas les premiers lus", () => {
+  it("tous comptés ; montrés : 4 de chaque sorte au plus, les plus grands, où qu'ils soient", () => {
+    // Douze feux de voiture en haut de la tuile, petits (2 × 2 px) ; trois plus grands en bas (4 × 3 px) ;
+    // six fronts naturels de tailles croissantes vers le bas.
+    const petits = Array.from({ length: 12 }, (_, i) => ({ x: 8 + i * 9, y: 6, w: 2, h: 2, rgb: flame }));
+    const grands = [20, 60, 100].map((x) => ({ x, y: 200, w: 4, h: 3, rgb: flame }));
+    const fronts = Array.from({ length: 6 }, (_, i) => ({ x: 130, y: 20 + i * 36, w: 12 + i, h: 2, rgb: flame }));
+    const r = tile(256, laterite, [...petits, ...grands, ...fronts]);
+    assert.equal(r.feuVehicule, 15);
+    assert.equal(r.feuNaturel, 6);
+    const voit = r.blobs.filter((b) => b.kind === "vehicule");
+    const nat = r.blobs.filter((b) => b.kind === "naturel");
+    assert.equal(voit.length, 4);
+    assert.equal(nat.length, 4);
+    // Les trois grands feux de voiture (en bas) sont montrés, puis un petit.
+    assert.equal(voit.filter((b) => b.cy > 190).length, 3);
+    // Les quatre plus grands fronts, ceux du bas.
+    assert.deepEqual(
+      nat.map((b) => b.force).sort((a, z) => z - a),
+      [34, 32, 30, 28],
+    );
+  });
+});
+
 describe("parseFirms", () => {
   it("garde le point chaud du Tchad, jette la confiance basse, et fusionne le voisin", () => {
     const csv = [

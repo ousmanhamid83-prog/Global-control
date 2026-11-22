@@ -1,7 +1,7 @@
 import { formatGsdM, latToTileY, lonToTileX, tileToLat, tileToLon, visGsdM } from "./geo";
 import { sceneAgeLabel, type SatLayer, type SatMeta } from "./sat";
 import { scanFlames } from "./flame";
-import { garderTraces } from "./traces-gabarit";
+import { fusionnerCrans, garderTraces, mesurerTaches } from "./traces-gabarit";
 import { creerFile, type FileTuiles } from "./file-tuiles";
 import { couvre, type RectTuiles } from "./mosaique-couverture";
 
@@ -420,6 +420,8 @@ export type FireHit = {
   lat: number;
   lon: number;
   m: number;
+  /** Sa taille en pixels : les plus grands feux sont montrés. */
+  force: number;
 };
 
 export type PixelScan = {
@@ -428,6 +430,8 @@ export type PixelScan = {
   homme: number;
   voiture: number;
   pirogue: number;
+  /** Le meilleur cran atteint par chaque sorte, sur toutes ses taches mesurées. */
+  crans: Partial<Record<DetectId, PixelClass>>;
   feuVehicule: number;
   feuNaturel: number;
   hits: GabaritHit[];
@@ -441,19 +445,13 @@ let scanState: PixelScan = {
   homme: 0,
   voiture: 0,
   pirogue: 0,
+  crans: {},
   feuVehicule: 0,
   feuNaturel: 0,
   hits: [],
   fires: [],
 };
 let scanAt = 0;
-
-const CLS_RANK: Record<PixelClass, number> = {
-  aucune: 0,
-  detection: 1,
-  reconnaissance: 2,
-  identification: 3,
-};
 
 /** Seulement les gabarits trouvés dans les pixels. Zéro n'est pas une ligne. */
 export function realDetects(scan: PixelScan): {
@@ -471,10 +469,8 @@ export function realDetects(scan: PixelScan): {
   const out = [];
   for (const s of spec) {
     if (s.n <= 0) continue;
-    let cls: PixelClass = "detection";
-    for (const h of scan.hits) {
-      if (h.id === s.id && CLS_RANK[h.cls] >= CLS_RANK[cls]) cls = h.cls;
-    }
+    // Sur toutes les taches mesurées, pas seulement celles que la carte montre.
+    const cls = scan.crans[s.id] ?? "detection";
     const clsLabel = PIXEL_CLASS_LABEL[cls];
     out.push({
       id: s.id,
@@ -512,6 +508,9 @@ function publishScan(next: PixelScan) {
     prev.homme === next.homme &&
     prev.voiture === next.voiture &&
     prev.pirogue === next.pirogue &&
+    prev.crans.homme === next.crans.homme &&
+    prev.crans.voiture === next.crans.voiture &&
+    prev.crans.pirogue === next.crans.pirogue &&
     prev.feuVehicule === next.feuVehicule &&
     prev.feuNaturel === next.feuNaturel
   ) {
@@ -685,6 +684,7 @@ function readFires(
       lat: tileToLat(ty + (b.cy + 0.5) / S, z),
       lon: tileToLon(tx + (b.cx + 0.5) / S, z),
       m: b.m,
+      force: b.force,
     })),
   };
 }
@@ -696,7 +696,10 @@ function measureTile(
   ty: number,
   gsd: number,
   water: boolean,
-): Pick<PixelScan, "homme" | "voiture" | "pirogue" | "hits" | "feuVehicule" | "feuNaturel" | "fires"> | null {
+): Pick<
+  PixelScan,
+  "homme" | "voiture" | "pirogue" | "crans" | "hits" | "feuVehicule" | "feuNaturel" | "fires"
+> | null {
   const S = 256;
   if (typeof document === "undefined") return null;
   if (!scratch) scratch = document.createElement("canvas");
@@ -711,131 +714,33 @@ function measureTile(
   } catch {
     return null;
   }
-  const src = raw.data;
-  const lum = new Float32Array(S * S);
-  for (let i = 0; i < S * S; i++) {
-    const o = i * 4;
-    lum[i] = src[o]! * 0.299 + src[o + 1]! * 0.587 + src[o + 2]! * 0.114;
-  }
-  const stride = S + 1;
-  const integ = new Float64Array(stride * stride);
-  for (let y = 0; y < S; y++) {
-    let row = 0;
-    for (let x = 0; x < S; x++) {
-      row += lum[y * S + x]!;
-      integ[(y + 1) * stride + (x + 1)] = integ[y * stride + (x + 1)]! + row;
-    }
-  }
-  const hot = new Uint8Array(S * S);
-  const contraste = new Float32Array(S * S);
-  const R = 2;
-  for (let y = R; y < S - R; y++) {
-    for (let x = R; x < S - R; x++) {
-      const x0 = x - R;
-      const x1 = x + R;
-      const y0 = y - R;
-      const y1 = y + R;
-      const sum =
-        integ[(y1 + 1) * stride + (x1 + 1)]! -
-        integ[y0 * stride + (x1 + 1)]! -
-        integ[(y1 + 1) * stride + x0]! +
-        integ[y0 * stride + x0]!;
-      const mean = sum / ((x1 - x0 + 1) * (y1 - y0 + 1));
-      contraste[y * S + x] = Math.abs(lum[y * S + x]! - mean);
-      if (contraste[y * S + x]! > 22) hot[y * S + x] = 1;
-    }
-  }
-  const seen = new Uint8Array(S * S);
-  const stack: number[] = [];
-  let homme = 0;
-  let voiture = 0;
-  let pirogue = 0;
-  const candidates: GabaritHit[] = [];
-  const hommeCls = pixelSpan(gsd, "homme").cls;
-  const voitureCls = pixelSpan(gsd, "voiture").cls;
-  const pirogueCls = pixelSpan(gsd, "pirogue").cls;
-
-  for (let start = 0; start < S * S; start++) {
-    if (!hot[start] || seen[start]) continue;
-    seen[start] = 1;
-    stack.length = 0;
-    stack.push(start);
-    let n = 0;
-    let minX = S;
-    let minY = S;
-    let maxX = 0;
-    let maxY = 0;
-    let sx = 0;
-    let sy = 0;
-    let somme = 0;
-    let edge = false;
-    while (stack.length) {
-      const p = stack.pop()!;
-      const x = p % S;
-      const y = (p / S) | 0;
-      n++;
-      if (x < 2 || y < 2 || x > S - 3 || y > S - 3) edge = true;
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
-      sx += x;
-      sy += y;
-      somme += contraste[p]!;
-      const tryPush = (q: number, qx: number) => {
-        if (q < 0 || q >= S * S || seen[q] || !hot[q]) return;
-        if (Math.abs(qx - x) > 1) return;
-        seen[q] = 1;
-        stack.push(q);
-      };
-      tryPush(p - 1, x - 1);
-      tryPush(p + 1, x + 1);
-      tryPush(p - S, x);
-      tryPush(p + S, x);
-    }
-    if (edge || n < 3 || n > 48) continue;
-    const bw = maxX - minX + 1;
-    const bh = maxY - minY + 1;
-    const major = Math.max(bw, bh);
-    const minor = Math.max(1, Math.min(bw, bh));
-    if (major < 2 || major > 18) continue;
-    const fill = n / (bw * bh);
-    if (fill < 0.35) continue;
-    const aspect = major / minor;
-    const meters = major * gsd;
-    let id: DetectId | null = null;
-    const cls = pixelClass(major);
-    if (cls === "aucune") continue;
-    if (hommeCls !== "aucune" && meters >= 0.35 && meters <= 0.9 && aspect < 2.2) {
-      id = "homme";
-    } else if (voitureCls !== "aucune" && meters >= 3 && meters <= 6.8 && aspect < 2.6) {
-      id = "voiture";
-    } else if (
-      water &&
-      pirogueCls !== "aucune" &&
-      meters >= 6 &&
-      meters <= 16 &&
-      aspect >= 1.8 &&
-      aspect <= 5.5
-    ) {
-      id = "pirogue";
-    }
-    if (!id) continue;
-    if (id === "homme") homme++;
-    else if (id === "voiture") voiture++;
-    else pirogue++;
-    candidates.push({
-      id,
-      lat: tileToLat(ty + (sy / n + 0.5) / S, z),
-      lon: tileToLon(tx + (sx / n + 0.5) / S, z),
-      px: major,
-      cls,
-      force: somme / n,
-    });
-  }
-  // Les comptes ci-dessus sont les totaux ; la carte en montre les plus nettes, pas les premières lues.
-  const hits = garderTraces(candidates, { parSorte: 4, total: 8 });
-  return { homme, voiture, pirogue, hits, ...readFires(src, S, z, tx, ty, gsd) };
+  const m = mesurerTaches(raw.data, S, {
+    gsd,
+    eau: water,
+    crans: {
+      homme: pixelSpan(gsd, "homme").cls,
+      voiture: pixelSpan(gsd, "voiture").cls,
+      pirogue: pixelSpan(gsd, "pirogue").cls,
+    },
+    cranDe: pixelClass,
+  });
+  const candidates: GabaritHit[] = m.taches.map((t) => ({
+    id: t.id,
+    lat: tileToLat(ty + (t.cy + 0.5) / S, z),
+    lon: tileToLon(tx + (t.cx + 0.5) / S, z),
+    px: t.px,
+    cls: t.cls,
+    force: t.force,
+  }));
+  // Les comptes et les crans portent sur toutes les taches ; la carte montre les plus nettes.
+  return {
+    homme: m.homme,
+    voiture: m.voiture,
+    pirogue: m.pirogue,
+    crans: m.crans,
+    hits: garderTraces(candidates, { parSorte: 4, total: 8 }),
+    ...readFires(raw.data, S, z, tx, ty, gsd),
+  };
 }
 
 /** Contrastes au gabarit sur les tuiles du centre. Un hit = un objet mesuré. */
@@ -861,6 +766,7 @@ export function scanCenterTile(
       homme: 0,
       voiture: 0,
       pirogue: 0,
+      crans: {},
       feuVehicule: 0,
       feuNaturel: 0,
       hits: [],
@@ -873,6 +779,7 @@ export function scanCenterTile(
   let pirogue = 0;
   let feuVehicule = 0;
   let feuNaturel = 0;
+  let crans: PixelScan["crans"] = {};
   const hits: GabaritHit[] = [];
   const fires: FireHit[] = [];
   let missing = false;
@@ -896,10 +803,9 @@ export function scanCenterTile(
       pirogue += measured.pirogue;
       feuVehicule += measured.feuVehicule;
       feuNaturel += measured.feuNaturel;
+      crans = fusionnerCrans(crans, measured.crans);
       hits.push(...measured.hits);
-      for (const f of measured.fires) {
-        if (fires.length < 8) fires.push(f);
-      }
+      fires.push(...measured.fires);
     }
   }
   publishScan({
@@ -908,10 +814,15 @@ export function scanCenterTile(
     homme,
     voiture,
     pirogue,
+    crans,
     feuVehicule,
     feuNaturel,
+    // Les plus nettes du bloc, et les plus grands feux (4 de chaque sorte) : pas les premiers lus.
     hits: garderTraces(hits, { total: 12 }),
-    fires,
+    fires: garderTraces(
+      fires.map((f) => ({ ...f, id: f.kind })),
+      { parSorte: 4, total: 8 },
+    ),
   });
   return scanState;
 }

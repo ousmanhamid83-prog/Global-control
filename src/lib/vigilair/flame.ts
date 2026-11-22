@@ -1,3 +1,5 @@
+import { garderTraces } from "./traces-gabarit.ts";
+
 export type FlameKind = "vehicule" | "naturel";
 
 export type FlameBlob = {
@@ -5,6 +7,8 @@ export type FlameBlob = {
   cx: number;
   cy: number;
   m: number;
+  /** Sa taille en pixels : les plus grands feux sont montrés. */
+  force: number;
 };
 
 /** Flamme jaune-orange saturée. Pas la latérite, pas un toit rouge, pas un engin jaune. */
@@ -32,7 +36,7 @@ export function scanFlames(
   const stack: number[] = [];
   let feuVehicule = 0;
   let feuNaturel = 0;
-  const blobs: FlameBlob[] = [];
+  const tous: FlameBlob[] = [];
   for (let start = 0; start < S * S; start++) {
     if (!hot[start] || seen[start]) continue;
     seen[start] = 1;
@@ -77,7 +81,12 @@ export function scanFlames(
     if (!kind) continue;
     if (kind === "vehicule") feuVehicule++;
     else feuNaturel++;
-    if (blobs.length < 8) blobs.push({ kind, cx: sx / n, cy: sy / n, m: meters });
+    tous.push({ kind, cx: sx / n, cy: sy / n, m: meters, force: n });
   }
+  // Les comptes portent sur tous ; on montre les plus grands (4 de chaque sorte), pas les premiers lus.
+  const blobs = garderTraces(
+    tous.map((b) => ({ ...b, id: b.kind })),
+    { parSorte: 4, total: 8 },
+  );
   return { feuVehicule, feuNaturel, blobs };
 }

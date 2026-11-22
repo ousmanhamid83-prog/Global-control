@@ -1,8 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { garderTraces } from "./traces-gabarit.ts";
+import {
+  fusionnerCrans,
+  garderTraces,
+  mesurerTaches,
+  type Cran,
+  type Sorte,
+} from "./traces-gabarit.ts";
 
-type Sorte = "homme" | "voiture" | "pirogue";
 type Candidate = { id: Sorte; force: number; fx: number; fy: number; n: number };
 
 /** Un tirage reproductible (générateur congruentiel), pour des contrastes sans lien avec la place. */
@@ -155,5 +160,237 @@ describe("garderTraces : les plus nettes, pas les premières lues", () => {
       [1, 0],
     );
     assert.deepEqual(garderTraces([], { total: 12 }), []);
+  });
+});
+
+// ——— La mesure des taches, sur des tuiles de synthèse au contraste calculé.
+
+const S = 256;
+/** Le cran d'une tache de tant de pixels (les seuils du poste : 1,5 / 6 / 12 px). */
+const cranDe = (px: number): Cran =>
+  px >= 12 ? "identification" : px >= 6 ? "reconnaissance" : px >= 1.5 ? "detection" : "aucune";
+const TOUS: Record<Sorte, Cran> = {
+  homme: "detection",
+  voiture: "detection",
+  pirogue: "detection",
+};
+
+/** Une tuile grise (150), et des taches sombres (100) : un écart de 50 qui ne déborde pas sur le fond. */
+function tuile(
+  taches: readonly [x: number, y: number, larg: number, haut: number][],
+): Uint8ClampedArray {
+  const px = new Uint8ClampedArray(S * S * 4).fill(150);
+  for (let i = 3; i < px.length; i += 4) px[i] = 255;
+  for (const [x0, y0, l, h] of taches) {
+    for (let y = y0; y < y0 + h; y++) {
+      for (let x = x0; x < x0 + l; x++) {
+        const k = (y * S + x) * 4;
+        px[k] = px[k + 1] = px[k + 2] = 100;
+      }
+    }
+  }
+  return px;
+}
+
+describe("mesurerTaches : les taches de contraste d'une tuile, au gabarit", () => {
+  it("des voitures (4 × 2 px à 1,2 m : 4,8 m) : comptées, centrées, leur cran et leur contraste", () => {
+    const places: [number, number][] = [
+      [40, 40],
+      [120, 60],
+      [200, 180],
+      [60, 200],
+      [128, 128],
+    ];
+    const m = mesurerTaches(tuile(places.map(([x, y]) => [x, y, 4, 2])), S, {
+      gsd: 1.2,
+      eau: false,
+      crans: TOUS,
+      cranDe,
+    });
+    assert.equal(m.voiture, 5);
+    assert.equal(m.homme, 0);
+    assert.equal(m.pirogue, 0);
+    assert.deepEqual(m.crans, { voiture: "detection" });
+    const centres = m.taches.map((t) => `${t.cx},${t.cy}`).sort();
+    assert.deepEqual(centres, places.map(([x, y]) => `${x + 1.5},${y + 0.5}`).sort());
+    for (const t of m.taches) {
+      assert.equal(t.id, "voiture");
+      assert.equal(t.px, 4);
+      assert.equal(t.cls, "detection");
+      assert.ok(t.force > 22 && t.force < 50, String(t.force));
+    }
+  });
+
+  it("une tache qui touche le bord de la zone regardée est coupée : ni comptée ni montrée", () => {
+    // La zone regardée va du pixel 2 au pixel 253 (il faut 2 pixels de voisinage de chaque côté).
+    const coupees: [number, number, number, number][] = [
+      [2, 100, 4, 2], // touche la colonne 2
+      [250, 60, 4, 2], // touche la colonne 253
+      [100, 2, 4, 2], // touche la ligne 2
+      [180, 252, 4, 2], // touche la ligne 253
+      [0, 30, 4, 2], // à cheval sur le bord de la tuile
+    ];
+    const entieres: [number, number, number, number][] = [
+      [3, 140, 4, 2],
+      [249, 180, 4, 2],
+      [160, 3, 4, 2],
+      [60, 251, 4, 2],
+    ];
+    const m = mesurerTaches(tuile([...coupees, ...entieres]), S, {
+      gsd: 1.2,
+      eau: false,
+      crans: TOUS,
+      cranDe,
+    });
+    assert.equal(m.voiture, 4);
+    assert.deepEqual(
+      m.taches.map((t) => `${t.cx},${t.cy}`).sort(),
+      entieres.map(([x, y]) => `${x + 1.5},${y + 0.5}`).sort(),
+    );
+  });
+
+  it("une pirogue (10 × 2 px à 1,2 m : 12 m, allongée) sur l'eau seulement", () => {
+    const px = tuile([[80, 90, 10, 2]]);
+    const surLeau = mesurerTaches(px, S, { gsd: 1.2, eau: true, crans: TOUS, cranDe });
+    assert.equal(surLeau.pirogue, 1);
+    assert.deepEqual(surLeau.crans, { pirogue: "reconnaissance" });
+    assert.equal(surLeau.taches[0]!.px, 10);
+    const aTerre = mesurerTaches(px, S, { gsd: 1.2, eau: false, crans: TOUS, cranDe });
+    assert.equal(aTerre.pirogue + aTerre.voiture + aTerre.homme, 0);
+  });
+
+  it("un homme (2 × 2 px à 0,3 m : 0,6 m) ; rien d'une sorte que cette finesse ne permet pas", () => {
+    const px = tuile([[50, 50, 2, 2]]);
+    assert.equal(mesurerTaches(px, S, { gsd: 0.3, eau: false, crans: TOUS, cranDe }).homme, 1);
+    const sansHomme = { ...TOUS, homme: "aucune" as const };
+    assert.equal(mesurerTaches(px, S, { gsd: 0.3, eau: false, crans: sansHomme, cranDe }).homme, 0);
+    // Une voiture que la finesse ne permet pas de voir n'est pas comptée non plus.
+    const voit = tuile([[50, 50, 4, 2]]);
+    const sansVoiture = { ...TOUS, voiture: "aucune" as const };
+    assert.equal(
+      mesurerTaches(voit, S, { gsd: 1.2, eau: false, crans: sansVoiture, cranDe }).voiture,
+      0,
+    );
+  });
+
+  it("une tache d'une seule venue, quelle que soit sa forme (un U, un J) : comptée une fois, entière", () => {
+    // Le U se parcourt en remontant son bras droit, le J en revenant vers la gauche par son pied.
+    const u: [number, number, number, number][] = [
+      [60, 60, 1, 3],
+      [63, 60, 1, 3],
+      [61, 62, 2, 1],
+    ];
+    const jj: [number, number, number, number][] = [
+      [143, 120, 1, 3],
+      [140, 122, 3, 1],
+    ];
+    const m = mesurerTaches(tuile([...u, ...jj]), S, { gsd: 1.2, eau: false, crans: TOUS, cranDe });
+    assert.equal(m.voiture, 2);
+    const centres = m.taches.map((t) => [t.cx, t.cy]).sort((a, b) => a[0]! - b[0]!);
+    assert.deepEqual(centres, [
+      [61.5, 61.25],
+      // Le J : 3 px de bras (x 143) et 3 px de pied (x 140 à 142) ; y 120 à 122, pied en 122.
+      [142, 121.5],
+    ]);
+  });
+
+  it("écartées : trop petite (2 px), trop longue (plus de 18 px), mal remplie, trop grande", () => {
+    // 2 px ; un L de 8 × 8 px (15 px : remplissage 0,23) qui, plein, serait une voiture de 4 m.
+    const m = mesurerTaches(
+      tuile([
+        [30, 30, 2, 1],
+        [120, 120, 8, 1],
+        [120, 121, 1, 7],
+      ]),
+      S,
+      { gsd: 0.5, eau: true, crans: TOUS, cranDe },
+    );
+    assert.equal(m.homme + m.voiture + m.pirogue, 0);
+    // 2 px à 0,3 m : 0,6 m, la taille d'un homme — mais moins de 3 pixels, rien de mesurable.
+    assert.equal(
+      mesurerTaches(tuile([[30, 30, 2, 1]]), S, { gsd: 0.3, eau: false, crans: TOUS, cranDe })
+        .homme,
+      0,
+    );
+    // Un cadre de 20 × 4 px à 0,5 m (10 m, allongé de 5) : une pirogue, mais plus de 18 px de long.
+    const cadre = mesurerTaches(
+      tuile([
+        [100, 100, 20, 1],
+        [100, 103, 20, 1],
+        [100, 101, 1, 2],
+        [119, 101, 1, 2],
+      ]),
+      S,
+      { gsd: 0.5, eau: true, crans: TOUS, cranDe },
+    );
+    assert.equal(cadre.pirogue, 0);
+    // Le même cadre de 16 px (8 m) : une pirogue — c'est bien la longueur qui l'écartait.
+    const court = mesurerTaches(
+      tuile([
+        [100, 100, 16, 1],
+        [100, 103, 16, 1],
+        [100, 101, 1, 2],
+        [115, 101, 1, 2],
+      ]),
+      S,
+      { gsd: 0.5, eau: true, crans: TOUS, cranDe },
+    );
+    assert.equal(court.pirogue, 1);
+    // Sans finesse pour la voir, pas de pirogue.
+    const sansPirogue = { ...TOUS, pirogue: "aucune" as const };
+    assert.equal(
+      mesurerTaches(tuile([[80, 90, 10, 2]]), S, {
+        gsd: 1.2,
+        eau: true,
+        crans: sansPirogue,
+        cranDe,
+      }).pirogue,
+      0,
+    );
+    // Trop grande : 7 × 7 px au contraste fort font plus de 48 pixels qui tranchent.
+    const grand = new Uint8ClampedArray(tuile([])).fill(150);
+    for (let y = 100; y < 107; y++) {
+      for (let x = 100; x < 107; x++) {
+        const k = (y * S + x) * 4;
+        grand[k] = grand[k + 1] = grand[k + 2] = 0;
+      }
+    }
+    const g = mesurerTaches(grand, S, { gsd: 0.6, eau: true, crans: TOUS, cranDe });
+    assert.equal(g.taches.length, 0);
+  });
+
+  it("le cran retenu pour une sorte est le meilleur de toutes ses taches", () => {
+    // À 1,2 m : 4 × 2 px = 4,8 m et 5 × 2 px = 6 m, deux voitures ; ce cran-ci dit « reconnaissance »
+    // dès 5 px. Un bloc de 3 px de haut, au contraste uniforme, ne trancherait pas en son milieu
+    // sans déborder sur le fond (fenêtre de 5 × 5) : les taches d'essai font 2 px de haut.
+    const cran5 = (px: number): Cran => (px >= 5 ? "reconnaissance" : "detection");
+    const m = mesurerTaches(
+      tuile([
+        [40, 40, 4, 2],
+        [100, 100, 5, 2],
+        [160, 60, 4, 2],
+      ]),
+      S,
+      { gsd: 1.2, eau: false, crans: TOUS, cranDe: cran5 },
+    );
+    assert.equal(m.voiture, 3);
+    assert.deepEqual(m.crans, { voiture: "reconnaissance" });
+    assert.deepEqual(m.taches.map((t) => t.cls).sort(), [
+      "detection",
+      "detection",
+      "reconnaissance",
+    ]);
+  });
+
+  it("fusionnerCrans : sorte par sorte, le meilleur des deux", () => {
+    assert.deepEqual(
+      fusionnerCrans(
+        { voiture: "detection", homme: "reconnaissance" },
+        { voiture: "reconnaissance", homme: "detection", pirogue: "detection" },
+      ),
+      { voiture: "reconnaissance", homme: "reconnaissance", pirogue: "detection" },
+    );
+    assert.deepEqual(fusionnerCrans({}, { homme: "identification" }), { homme: "identification" });
+    assert.deepEqual(fusionnerCrans({ homme: "detection" }, {}), { homme: "detection" });
   });
 });
