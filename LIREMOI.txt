@@ -488,6 +488,19 @@ Imagerie en haut zoom sur un SITE ISOLÉ — la vérité
   ne distingue ni un homme ni un véhicule fin. Pour du vrai sous-métrique sur ton site, il faut une clé
   commerciale taskée (Maxar/Planet) — le poste ne fabrique jamais un faux « live » ni une fausse détection.
 - Chaque couche crédite sa vraie source et son vrai âge ; rien n'est simulé.
+- Les repères H / V / P posés de près sur l'image sont des taches de contraste mesurées au gabarit
+  d'un homme, d'une voiture ou d'une pirogue sur l'image d'archive : une classe, pas une identité.
+  Le bandeau les compte toutes ; la carte en pose au plus 12 (4 par classe et 8 par tuile). Ce sont
+  désormais les plus contrastées (écart moyen de leur luminance à leur voisinage), et à contraste
+  égal les plus proches du centre ; avant, c'étaient les premières trouvées en balayant l'image
+  ligne par ligne. Essai réel à 1,2 m sur N'Djamena (Esri, 9 tuiles, 2 451 taches au gabarit
+  voiture comptées avant comme après) : avant, 12 repères sur 12 dans la rangée de tuiles du haut,
+  à 2 à 4 pixels de leur bord haut ; après, 5, 3 et 4 repères dans les trois rangées. Choix testé
+  à part (choix-gabarits.ts) : 6 tests, 61 mutants sur 62 attrapés (le dernier ne change rien :
+  s'arrêter ou passer au-delà du 12e repère rend la même liste).
+- Limite trouvée par le même essai, pas encore corrigée : la règle censée écarter une tache coupée
+  par le bord de la zone analysée ne se déclenche jamais (elle vise des pixels que l'analyse ne
+  regarde pas). Sur ce bloc, 155 des 2 451 taches comptées sont coupées ainsi, et 2 des 12 repères.
 
 Verrou auto sur piste réelle
 - Sans choix de l'opérateur, le panneau de droite suit la piste 1090ES réelle prioritaire :

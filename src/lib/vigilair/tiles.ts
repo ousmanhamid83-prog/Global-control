@@ -1,6 +1,7 @@
 import { formatGsdM, latToTileY, lonToTileX, tileToLat, tileToLon, visGsdM } from "./geo";
 import { sceneAgeLabel, type SatLayer, type SatMeta } from "./sat";
 import { scanFlames } from "./flame";
+import { choisirGabarits, type CandidatGabarit } from "./choix-gabarits";
 import { creerFile, type FileTuiles } from "./file-tuiles";
 import { couvre, type RectTuiles } from "./mosaique-couverture";
 
@@ -686,6 +687,10 @@ function readFires(
   };
 }
 
+/** Une tache au gabarit, avant le choix des repères : sa tuile, son centre en tuiles, son contraste. */
+type Candidat = GabaritHit & CandidatGabarit;
+
+/** Compte toutes les taches au gabarit de la tuile ; rend chacune en candidat, sans en écarter. */
 function measureTile(
   img: HTMLImageElement,
   z: number,
@@ -693,7 +698,11 @@ function measureTile(
   ty: number,
   gsd: number,
   water: boolean,
-): Pick<PixelScan, "homme" | "voiture" | "pirogue" | "hits" | "feuVehicule" | "feuNaturel" | "fires"> | null {
+):
+  | (Pick<PixelScan, "homme" | "voiture" | "pirogue" | "feuVehicule" | "feuNaturel" | "fires"> & {
+      candidats: Candidat[];
+    })
+  | null {
   const S = 256;
   if (typeof document === "undefined") return null;
   if (!scratch) scratch = document.createElement("canvas");
@@ -724,6 +733,8 @@ function measureTile(
     }
   }
   const hot = new Uint8Array(S * S);
+  /** Écart de chaque pixel à la moyenne 5 × 5 autour de lui : la netteté de son contraste. */
+  const ecart = new Float32Array(S * S);
   const R = 2;
   for (let y = R; y < S - R; y++) {
     for (let x = R; x < S - R; x++) {
@@ -737,7 +748,9 @@ function measureTile(
         integ[(y1 + 1) * stride + x0]! +
         integ[y0 * stride + x0]!;
       const mean = sum / ((x1 - x0 + 1) * (y1 - y0 + 1));
-      if (Math.abs(lum[y * S + x]! - mean) > 22) hot[y * S + x] = 1;
+      const d = Math.abs(lum[y * S + x]! - mean);
+      ecart[y * S + x] = d;
+      if (d > 22) hot[y * S + x] = 1;
     }
   }
   const seen = new Uint8Array(S * S);
@@ -745,7 +758,8 @@ function measureTile(
   let homme = 0;
   let voiture = 0;
   let pirogue = 0;
-  const hits: GabaritHit[] = [];
+  const candidats: Candidat[] = [];
+  const tuile = `${tx}/${ty}`;
   const hommeCls = pixelSpan(gsd, "homme").cls;
   const voitureCls = pixelSpan(gsd, "voiture").cls;
   const pirogueCls = pixelSpan(gsd, "pirogue").cls;
@@ -762,12 +776,14 @@ function measureTile(
     let maxY = 0;
     let sx = 0;
     let sy = 0;
+    let somme = 0;
     let edge = false;
     while (stack.length) {
       const p = stack.pop()!;
       const x = p % S;
       const y = (p / S) | 0;
       n++;
+      somme += ecart[p]!;
       if (x < 2 || y < 2 || x > S - 3 || y > S - 3) edge = true;
       if (x < minX) minX = x;
       if (y < minY) minY = y;
@@ -817,17 +833,21 @@ function measureTile(
     if (id === "homme") homme++;
     else if (id === "voiture") voiture++;
     else pirogue++;
-    if (hits.filter((h) => h.id === id).length < 4 && hits.length < 8) {
-      hits.push({
-        id,
-        lat: tileToLat(ty + (sy / n + 0.5) / S, z),
-        lon: tileToLon(tx + (sx / n + 0.5) / S, z),
-        px: major,
-        cls,
-      });
-    }
+    const cx = tx + (sx / n + 0.5) / S;
+    const cy = ty + (sy / n + 0.5) / S;
+    candidats.push({
+      id,
+      lat: tileToLat(cy, z),
+      lon: tileToLon(cx, z),
+      px: major,
+      cls,
+      tuile,
+      x: cx,
+      y: cy,
+      force: somme / n,
+    });
   }
-  return { homme, voiture, pirogue, hits, ...readFires(src, S, z, tx, ty, gsd) };
+  return { homme, voiture, pirogue, candidats, ...readFires(src, S, z, tx, ty, gsd) };
 }
 
 /** Contrastes au gabarit sur les tuiles du centre. Un hit = un objet mesuré. */
@@ -838,8 +858,9 @@ export function scanCenterTile(
   lon: number,
   water: boolean,
 ): PixelScan {
-  const tx = Math.floor(lonToTileX(lon, z));
-  const ty = Math.floor(latToTileY(Math.max(-85, Math.min(85, lat)), z));
+  const centre = { x: lonToTileX(lon, z), y: latToTileY(Math.max(-85, Math.min(85, lat)), z) };
+  const tx = Math.floor(centre.x);
+  const ty = Math.floor(centre.y);
   const span = layer === "vis" && z >= 15 ? 1 : 0;
   const tileKey = `${layer}/${z}/${tx}/${ty}/s${span}/${water ? 1 : 0}`;
   const wait = 1000;
@@ -865,7 +886,7 @@ export function scanCenterTile(
   let pirogue = 0;
   let feuVehicule = 0;
   let feuNaturel = 0;
-  const hits: GabaritHit[] = [];
+  const candidats: Candidat[] = [];
   const fires: FireHit[] = [];
   let missing = false;
   for (let dy = -span; dy <= span; dy++) {
@@ -888,14 +909,20 @@ export function scanCenterTile(
       pirogue += measured.pirogue;
       feuVehicule += measured.feuVehicule;
       feuNaturel += measured.feuNaturel;
-      for (const h of measured.hits) {
-        if (hits.length < 12) hits.push(h);
-      }
+      for (const c of measured.candidats) candidats.push(c);
       for (const f of measured.fires) {
         if (fires.length < 8) fires.push(f);
       }
     }
   }
+  // Les repères : les taches les plus contrastées du bloc, pas les premières trouvées en haut.
+  const hits: GabaritHit[] = choisirGabarits(candidats, centre).map((c) => ({
+    id: c.id,
+    lat: c.lat,
+    lon: c.lon,
+    px: c.px,
+    cls: c.cls,
+  }));
   publishScan({
     tile: tileKey,
     ready: !missing,
