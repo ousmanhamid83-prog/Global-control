@@ -1,14 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  affineTriangle,
-  coinsDepuisDrone,
-  lireCalage,
-  refusCoins,
-  versQuadrilatere,
-  type Coins,
-  type Point2,
-} from "./drones-fond.ts";
+import { coinsDepuisDrone, lireCalage, refusCoins, type Coins } from "./drones-fond.ts";
 import { haversineKm } from "./geo.ts";
 
 /** Un carré de 200 m de côté près de FTTJ, pris dans l'ordre de l'image. */
@@ -154,81 +146,5 @@ describe("fond de carte : emprise calculée depuis le drone (caméra à la verti
     assert.notEqual(coinsDepuisDrone({ ...DRONE, hauteurM: 2 }, 90, 0.75), null);
     assert.equal(coinsDepuisDrone(DRONE, 90, 0), null);
     assert.equal(coinsDepuisDrone(DRONE, 90, Number.NaN), null);
-  });
-});
-
-describe("fond de carte : tendre l'image entre ses quatre coins", () => {
-  const TRAPEZE: [Point2, Point2, Point2, Point2] = [
-    [100, 50],
-    [300, 60],
-    [380, 240],
-    [40, 220],
-  ];
-
-  it("les coins de l'image tombent sur les coins donnés", () => {
-    const f = versQuadrilatere(TRAPEZE);
-    const vers = [f(0, 0), f(1, 0), f(1, 1), f(0, 1)];
-    vers.forEach(([x, y], i) => {
-      proche(x, TRAPEZE[i]![0], 1e-9);
-      proche(y, TRAPEZE[i]![1], 1e-9);
-    });
-  });
-
-  it("vue en perspective : le centre de l'image tombe au croisement des diagonales, pas à la moyenne", () => {
-    const [x, y] = versQuadrilatere(TRAPEZE)(0.5, 0.5);
-    // Croisement de (100,50)–(380,240) et (300,60)–(40,220), calculé à part.
-    const [[ax, ay], [bx, by], [cx, cy], [dx, dy]] = TRAPEZE;
-    const t =
-      ((bx - ax) * (dy - by) - (by - ay) * (dx - bx)) /
-      ((cx - ax) * (dy - by) - (cy - ay) * (dx - bx));
-    proche(x, ax + t * (cx - ax), 1e-9);
-    proche(y, ay + t * (cy - ay), 1e-9);
-    assert.ok(Math.abs(x - (ax + bx + cx + dx) / 4) > 1);
-  });
-
-  it("une droite de l'image reste une droite à l'écran", () => {
-    const f = versQuadrilatere(TRAPEZE);
-    const [a, b, c] = [f(0.1, 0.8), f(0.4, 0.5), f(0.9, 0)];
-    proche((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]), 0, 1e-6);
-  });
-
-  it("un parallélogramme : la transformation est affine, le centre tombe à la moyenne", () => {
-    const [x, y] = versQuadrilatere([
-      [10, 10],
-      [110, 30],
-      [140, 130],
-      [40, 110],
-    ])(0.5, 0.5);
-    proche(x, 75, 1e-9);
-    proche(y, 70, 1e-9);
-  });
-
-  it("le triangle de l'image est porté sur celui de l'écran", () => {
-    const s: [Point2, Point2, Point2] = [
-      [0, 0],
-      [640, 0],
-      [0, 480],
-    ];
-    const t: [Point2, Point2, Point2] = [
-      [100, 50],
-      [300, 60],
-      [40, 220],
-    ];
-    const [a, b, c, d, e, f] = affineTriangle(s, t);
-    s.forEach(([x, y], i) => {
-      proche(a * x + c * y + e, t[i]![0], 1e-9);
-      proche(b * x + d * y + f, t[i]![1], 1e-9);
-    });
-    // Un triangle quelconque, sans sommet à l'origine.
-    const s2: [Point2, Point2, Point2] = [
-      [80, 60],
-      [160, 60],
-      [160, 120],
-    ];
-    const m = affineTriangle(s2, t);
-    s2.forEach(([x, y], i) => {
-      proche(m[0] * x + m[2] * y + m[4], t[i]![0], 1e-9);
-      proche(m[1] * x + m[3] * y + m[5], t[i]![1], 1e-9);
-    });
   });
 });

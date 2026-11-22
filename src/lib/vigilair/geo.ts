@@ -83,10 +83,6 @@ export const SCALE: Record<
   },
 };
 
-export function isLocalScale(s: MapScale): boolean {
-  return s === "k4" || s === "ident";
-}
-
 /** Échelles où le visible natif tient ≤ 50 m (z ≥ 12). */
 export function isHiResScale(s: MapScale): boolean {
   return s === "k4" || s === "ident" || s === "veille" || s === "approche";
@@ -339,37 +335,6 @@ export const KM_PER_DEG_LAT = 110.574;
 
 export function kmPerDegLon(lat: number): number {
   return 111.32 * Math.cos((lat * Math.PI) / 180);
-}
-
-export function project(
-  lat: number,
-  lon: number,
-  w: number,
-  h: number,
-  sizeKm = AO.sizeKm,
-  origin: GeoOrigin = HOME,
-): { x: number; y: number } {
-  const dx = (lon - origin.lon) * kmPerDegLon(origin.lat);
-  const dy = (lat - origin.lat) * KM_PER_DEG_LAT;
-  const x = w / 2 + (dx / sizeKm) * w;
-  const y = h / 2 - (dy / sizeKm) * h;
-  return { x, y };
-}
-
-export function unproject(
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  sizeKm = AO.sizeKm,
-  origin: GeoOrigin = HOME,
-): { lat: number; lon: number } {
-  const dx = ((x - w / 2) / w) * sizeKm;
-  const dy = ((h / 2 - y) / h) * sizeKm;
-  return {
-    lat: origin.lat + dy / KM_PER_DEG_LAT,
-    lon: origin.lon + dx / kmPerDegLon(origin.lat),
-  };
 }
 
 export function destPoint(

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { PLATFORM_BY_ID, threatRank } from "./catalog";
 import { methodBlurb } from "./engine";
 import { bulletinToJournal, fileEvidence } from "./evidence-store";
-import { AO, HOME, SCALE, haversineKm, nearestCity, theaterRank, type GeoOrigin, type MapScale } from "./geo";
+import { AO, HOME, SCALE, haversineKm, nearestCity, theaterOf, theaterRank, type GeoOrigin, type MapScale } from "./geo";
 import { isFriend } from "./friends";
 import { nextThreatFloor, passesPaintFilter, type ThreatFloor } from "./iff";
 import { autoLockPick, type AutoPick } from "./auto-lock";
@@ -29,7 +29,7 @@ import { COAST_ALERT_S, DUP_ADDR_RUN } from "./coast";
 import { silentAlarm, siteApproach } from "./site-approach";
 import { indexTape, rejeuClock, tapeAt, type RejeuTape, type TapeIndex } from "./rejeu";
 import { treatContact } from "./treat";
-import { preloadAoTiles, preloadAt, tileRef } from "./tiles";
+import { tileRef } from "./tiles";
 import type { SatLayer, SatMeta } from "./sat";
 import { autoLayerSwitch } from "./sat";
 import { detectRaids } from "./raid";
@@ -922,7 +922,6 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
       tracks: peekTracks(),
       phenomena: st.phenomena,
     });
-    preloadAt(lat, lon, SCALE.ident.tileZ, "vis");
     set({
       capture: shot,
       captures: [shot, ...st.captures.filter((c) => c.id !== shot.id)].slice(0, 24),
@@ -957,8 +956,6 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
         bestD = d;
       }
     }
-    preloadAt(best.lat, best.lon, 17, "vis");
-    preloadAt(best.lat, best.lon, SCALE.ident.tileZ, "vis");
     set({
       viewOrigin: { lat: best.lat, lon: best.lon },
       mapScale: "ident",
@@ -1332,7 +1329,6 @@ function veiller() {
 
 export function bootVigilair() {
   if (typeof window === "undefined") return;
-  preloadAoTiles();
   if (!useVigilair.getState().instruction) {
     liveTracks = liveTracks.filter((t) => t.feed === "adsb");
     rejeuRun = null;
@@ -1669,7 +1665,11 @@ export function ingestLivePicture(pic: LivePicture) {
   }
   useVigilair.setState(patch);
   applyAutoLock(now);
-  const bornUav = born.find((tr) => (tr.category ?? "").toUpperCase() === "B6");
+  // Comme pour les phénomènes, la caméra ne part seule que pour un drone B6 au Tchad : un UAV
+  // entendu à 3 000 km (relevé continental) ne déplace pas la carte de FTTJ — alerte, capture au clic.
+  const bornUav = born.find(
+    (tr) => (tr.category ?? "").toUpperCase() === "B6" && theaterRank(theaterOf(tr.lat, tr.lon)) >= 5,
+  );
   const stNow = useVigilair.getState();
   const holdCamera = Boolean(stNow.lakeRouteId || stNow.mineId || stNow.waterId);
   if (!stNow.capture && bornUav) {

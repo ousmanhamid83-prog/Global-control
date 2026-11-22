@@ -14,7 +14,7 @@ import { DronesFond } from "@/components/vigilair/drones-fond";
 import { DronesPilote } from "@/components/vigilair/drones-pilote";
 import { PaintFilters } from "@/components/vigilair/paint-filters";
 import { peekCopCursor, snapshotCop } from "@/components/vigilair/cop-hud";
-import { RadarMap } from "@/components/vigilair/radar-map";
+import { Carte } from "@/components/vigilair/carte";
 import { TrackRail } from "@/components/vigilair/track-rail";
 import { WorldPhenomPanel } from "@/components/vigilair/world-phenom-panel";
 import { SCALE, type MapScale } from "@/lib/vigilair/geo";
@@ -312,8 +312,7 @@ export function CopView() {
           <TrackRail />
         </aside>
         <section className="relative min-h-0 border-border border-b-0 border-r">
-          <RadarMap
-            tracks={tracks}
+          <Carte
             selectedId={selectedId}
             onSelect={(id) => {
               if (id) lockTrack(id);

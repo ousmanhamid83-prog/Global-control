@@ -84,7 +84,9 @@ function Login() {
   const { user, isPending } = useCurrentUserState();
   const navigate = useNavigate();
   const [tab, setTab] = useState<"chef" | "admin">("chef");
-  const [hasChef, setHasChef] = useState(true);
+  // Inconnu tant que le poste n'a pas répondu : un clic à ce moment ouvrirait une session sur un
+  // poste encore sans chef (refus 401) au lieu de le créer.
+  const [hasChef, setHasChef] = useState<boolean | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("Chef de division");
@@ -346,10 +348,11 @@ function Login() {
               className="space-y-3"
               onSubmit={(e) => {
                 e.preventDefault();
+                if (hasChef === null) return;
                 void onChef(hasChef ? "in" : "up");
               }}
             >
-              {!hasChef ? (
+              {hasChef === false ? (
                 <label className="block text-sm">
                   Nom du poste
                   <Input
@@ -380,17 +383,19 @@ function Login() {
                   minLength={8}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  autoComplete={hasChef ? "current-password" : "new-password"}
+                  autoComplete={hasChef === false ? "new-password" : "current-password"}
                 />
               </label>
-              <Button type="submit" className="w-full" disabled={busy}>
+              <Button type="submit" className="w-full" disabled={busy || hasChef === null}>
                 {busy
                   ? "Vérification…"
-                  : hasChef
-                    ? "Ouvrir la session chef"
-                    : "Créer le poste chef de division"}
+                  : hasChef === null
+                    ? "Lecture du poste…"
+                    : hasChef
+                      ? "Ouvrir la session chef"
+                      : "Créer le poste chef de division"}
               </Button>
-              {hasChef ? (
+              {hasChef !== false ? (
                 <p className="text-xs text-muted-foreground">
                   Seul le chef de division a un mot de passe. Les agents : e-mail
                   professionnel + clé VA-. Cinq refus = verrou 15 minutes, COP

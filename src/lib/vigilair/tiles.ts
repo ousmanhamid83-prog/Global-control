@@ -1,15 +1,4 @@
-import {
-  HOME,
-  formatGsdM,
-  latToTileY,
-  lonToTileX,
-  project,
-  tileToLat,
-  tileToLon,
-  unproject,
-  visGsdM,
-  type GeoOrigin,
-} from "./geo";
+import { formatGsdM, latToTileY, lonToTileX, tileToLat, tileToLon, visGsdM } from "./geo";
 import { sceneAgeLabel, type SatLayer, type SatMeta } from "./sat";
 import { scanFlames } from "./flame";
 import { creerFile, type FileTuiles } from "./file-tuiles";
@@ -92,12 +81,7 @@ export function liveGsd(
 ): GsdRead {
   // Hors ligne, l'image affichée est la mosaïque locale : on lit son pas réel, pas celui du zoom.
   if (layer === "vis" && localDominant) return layerGsd(layer, Math.min(z, localMaxZ), lat);
-  if (layer === "vis" && z >= 11) {
-    // Site isolé : l'imagerie gratuite n'a pas le 0,3 m partout. Si le zoom demandé n'existe pas,
-    // on affiche le plus fin réellement obtenu et le GSD dit la VRAIE résolution, pas un faux 0,3 m.
-    const effZ = lastVisZ > 0 && lastVisZ < z ? lastVisZ : z;
-    return layerGsd(layer, effZ, lat);
-  }
+  if (layer === "vis" && z >= 11) return layerGsd(layer, z, lat);
   if (layer === "vis") return { m: 1000, label: "GSD 1.0 km", vis: true };
   if (layer === "rel") return { m: 24, label: "GSD 24 m", vis: false };
   return layerGsd(layer, z, lat);
@@ -559,7 +543,7 @@ function key(layer: SatLayer, z: number, x: number, y: number) {
   return `${layer}/${z}/${x}/${y}/${freshBucket(layer)}`;
 }
 
-function localSrc(z: number, x: number, y: number) {
+export function urlMosaique(z: number, x: number, y: number): string {
   // Lue sur le disque par le serveur à chaque demande : une mosaïque installée après le build
   // s'affiche aussi (servie en fichier statique, elle renvoyait 404 en production).
   return `/api/mosaique?z=${z}&x=${x}&y=${y}`;
@@ -596,46 +580,52 @@ function releverCouverture() {
     });
 }
 
-const localCache = ((g as { __vigilairLocal21?: Map<string, CacheVal> }).__vigilairLocal21 ??=
-  new Map<string, CacheVal>());
-
-function localCovers(z: number, x: number, y: number): boolean {
+/** La mosaïque locale a-t-elle cette tuile ? La carte ne demande jamais une tuile absente. */
+export function mosaiqueCouvre(z: number, x: number, y: number): boolean {
+  releverCouverture();
   return couvre(localCover, z, x, y);
 }
 
-function loadLocal(z: number, x: number, y: number) {
-  const k = `${z}/${x}/${y}`;
-  if (localCache.has(k) || !localCovers(z, x, y)) return;
-  localCache.set(k, "fail");
-  const img = new Image();
-  img.decoding = "async";
-  img.onload = () => {
-    localCache.set(k, img);
-  };
-  img.src = localSrc(z, x, y);
-}
-
-function localImg(z: number, x: number, y: number): HTMLImageElement | null {
-  const hit = localCache.get(`${z}/${x}/${y}`);
-  return hit && hit !== "fail" ? hit : null;
-}
-
-/** Demande les tuiles locales utiles à la vue : parents (agrandis) et enfants (réduits, ≤ 3 niveaux). */
-function requestLocal(w: number, h: number, z: number, sizeKm: number, origin: GeoOrigin) {
+/** Étendue de la mosaïque locale : zooms et rectangles de tuiles relevés sur le disque du poste. */
+export function etendueMosaique(): { zMin: number; zMax: number; rects: readonly RectTuiles[] } {
   releverCouverture();
-  for (const c of localCover) {
-    if (c.z - z > 3) continue;
-    const b = tileBounds(w, h, c.z, sizeKm, 24, origin);
-    for (let x = Math.max(b.x0, c.x0); x <= Math.min(b.x1, c.x1); x++) {
-      for (let y = Math.max(b.y0, c.y0); y <= Math.min(b.y1, c.y1); y++) loadLocal(c.z, x, y);
-    }
-  }
+  const zMin = localCover.length ? Math.min(...localCover.map((r) => r.z)) : localMaxZ;
+  return { zMin, zMax: localMaxZ, rects: localCover };
+}
+
+/**
+ * L'adresse des tuiles d'une couche, à remplir ({z}, {x}, {y}) : la carte la donne à sa source. Le
+ * « seau » de fraîcheur change tous les quarts d'heure pour les couches du jour (visible, IR, thermique).
+ */
+export function modeleTuiles(layer: SatLayer): string {
+  const bucket = freshBucket(layer);
+  const t = bucket === "0" ? "" : `&t=${bucket}`;
+  return `/api/tile?l=${layer}&z={z}&x={x}&y={y}${t}`;
+}
+
+/**
+ * Une tuile demandée par la carte passe par la même file que les autres (au plus 4 en vol, la plus
+ * récente d'abord) : la console garde ses connexions au poste. Abandonnée avant son tour (la vue a
+ * bougé), elle ne part pas.
+ */
+export function tuileEnFile(url: string, signal: AbortSignal): Promise<ArrayBuffer> {
+  return new Promise((resolve, reject) => {
+    fileTuiles.lancer(() => {
+      if (signal.aborted) {
+        fileTuiles.finie();
+        reject(new DOMException("tuile abandonnée", "AbortError"));
+        return;
+      }
+      fetch(url, { signal })
+        .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`tuile refusée (${r.status})`))))
+        .then(resolve, reject)
+        .finally(() => fileTuiles.finie());
+    });
+  });
 }
 
 function proxySrc(layer: SatLayer, z: number, x: number, y: number) {
-  const bucket = freshBucket(layer);
-  const t = bucket === "0" ? "" : `&t=${bucket}`;
-  return `/api/tile?l=${layer}&z=${z}&x=${x}&y=${y}${t}`;
+  return modeleTuiles(layer).replace("{z}", String(z)).replace("{x}", String(x)).replace("{y}", String(y));
 }
 
 function load(layer: SatLayer, z: number, x: number, y: number) {
@@ -920,266 +910,7 @@ export function scanCenterTile(
   return scanState;
 }
 
-const PRELOAD: { z: number; x0: number; x1: number; y0: number; y1: number }[] = [
-  { z: 5, x0: 15, x1: 19, y0: 13, y1: 17 },
-  { z: 3, x0: 0, x1: 7, y0: 1, y1: 6 },
-  { z: 2, x0: 0, x1: 3, y0: 0, y1: 3 },
-];
-
-export function preloadAoTiles(layer: SatLayer = "vis", maxZ = 12) {
-  if (typeof window === "undefined") return;
-  for (const b of PRELOAD) {
-    if (b.z > maxZ) continue;
-    for (let x = b.x0; x <= b.x1; x++) {
-      for (let y = b.y0; y <= b.y1; y++) load(layer, b.z, x, y);
-    }
-  }
-}
-
-function clampLat(lat: number): number {
-  return Math.max(-85, Math.min(85, lat));
-}
-
-function tileBounds(
-  w: number,
-  h: number,
-  z: number,
-  sizeKm: number,
-  cap: number,
-  origin: GeoOrigin = HOME,
-) {
-  const corners = [
-    unproject(0, 0, w, h, sizeKm, origin),
-    unproject(w, 0, w, h, sizeKm, origin),
-    unproject(0, h, w, h, sizeKm, origin),
-    unproject(w, h, w, h, sizeKm, origin),
-  ];
-  const xs = corners.map((c) => lonToTileX(c.lon, z));
-  const ys = corners.map((c) => latToTileY(clampLat(c.lat), z));
-  let x0 = Math.max(0, Math.min(...xs));
-  let x1 = Math.min(2 ** z - 1, Math.max(...xs));
-  let y0 = Math.max(0, Math.min(...ys));
-  let y1 = Math.min(2 ** z - 1, Math.max(...ys));
-  if (!Number.isFinite(x0) || !Number.isFinite(y0)) {
-    return { x0: 0, x1: -1, y0: 0, y1: -1 };
-  }
-  if (x1 - x0 > cap) {
-    const mid = Math.round((x0 + x1) / 2);
-    x0 = Math.max(0, mid - Math.floor(cap / 2));
-    x1 = Math.min(2 ** z - 1, x0 + cap);
-  }
-  if (y1 - y0 > cap) {
-    const mid = Math.round((y0 + y1) / 2);
-    y0 = Math.max(0, mid - Math.floor(cap / 2));
-    y1 = Math.min(2 ** z - 1, y0 + cap);
-  }
-  return { x0, x1, y0, y1 };
-}
-
-function tileCap(z: number): number {
-  if (z >= 18) return 18;
-  if (z >= 12) return 16;
-  if (z >= 11) return 14;
-  if (z <= 4) return 16;
-  return 12;
-}
-
-function layerNative(layer: SatLayer): number {
-  if (layer === "ir" || layer === "th" || layer === "nv") return 8;
-  if (layer === "rel") return 16;
-  return 19;
-}
-
-function loadSpan(
-  layer: SatLayer,
-  z: number,
-  w: number,
-  h: number,
-  sizeKm: number,
-  origin: GeoOrigin,
-) {
-  const b = tileBounds(w, h, z, sizeKm, tileCap(z), origin);
-  for (let x = b.x0; x <= b.x1; x++) {
-    for (let y = b.y0; y <= b.y1; y++) load(layer, z, x, y);
-  }
-}
-
-export function requestTiles(
-  w: number,
-  h: number,
-  z: number,
-  sizeKm: number,
-  layer: SatLayer = "vis",
-  origin: GeoOrigin = HOME,
-) {
-  if (typeof window === "undefined" || w < 8 || h < 8) return;
-  const top = Math.min(z, layerNative(layer));
-  loadSpan(layer, top, w, h, sizeKm, origin);
-  // Au-delà de z17, on demande aussi chaque niveau intermédiaire : si la tuile 0,3 m manque,
-  // la 0,6 m (z18) passe avant la 1,2 m (z17).
-  if (layer === "vis" && z > 17) {
-    for (let lz = z - 1; lz >= 17; lz--) loadSpan(layer, lz, w, h, sizeKm, origin);
-  } else if (top > 2 && top === z) loadSpan(layer, top - 1, w, h, sizeKm, origin);
-}
-
-function paintTile(
-  ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
-  x: number,
-  y: number,
-  z: number,
-  w: number,
-  h: number,
-  sizeKm: number,
-  sx: number,
-  sy: number,
-  sw: number,
-  sh: number,
-  origin: GeoOrigin,
-): boolean {
-  const west = tileToLon(x, z);
-  const east = tileToLon(x + 1, z);
-  const north = tileToLat(y, z);
-  const south = tileToLat(y + 1, z);
-  const nw = project(north, west, w, h, sizeKm, origin);
-  const se = project(south, east, w, h, sizeKm, origin);
-  const dw = se.x - nw.x;
-  const dh = se.y - nw.y;
-  if (dw < 2 || dh < 2) return false;
-  const prev = ctx.filter;
-  if (paintLayer === "rel") ctx.filter = "contrast(1.18) brightness(1.04)";
-  else if (refineTiles && paintLayer === "vis") ctx.filter = "contrast(1.2) saturate(1.16)";
-  else if (paintLayer === "vis" && z < 11) ctx.filter = "contrast(1.08) saturate(1.08)";
-  else ctx.filter = "none";
-  // Agrandissement réel en pixels d'écran (écran Retina/4K : × devicePixelRatio).
-  const dpr = ctx.getTransform().a || 1;
-  const stretch = Math.max((dw * dpr) / Math.max(sw, 1), (dh * dpr) / Math.max(sh, 1));
-  ctx.imageSmoothingEnabled = stretch > 1.4;
-  ctx.imageSmoothingQuality = stretch > 1.4 ? "high" : "low";
-  ctx.drawImage(img, sx, sy, sw, sh, nw.x, nw.y, dw, dh);
-  ctx.filter = prev;
-  return true;
-}
-
-function drawOne(
-  ctx: CanvasRenderingContext2D,
-  layer: SatLayer,
-  z: number,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  sizeKm: number,
-  origin: GeoOrigin,
-): boolean {
-  const img = cache.get(key(layer, z, x, y));
-  if (img && img !== "fail") {
-    if (layer === "vis") lastVisZ = Math.max(lastVisZ, z);
-    return paintTile(ctx, img, x, y, z, w, h, sizeKm, 0, 0, img.width, img.height, origin);
-  }
-  const vis = layer === "vis";
-  const own = vis ? localImg(z, x, y) : null;
-  if (own) {
-    drawnLocal += 1;
-    return paintTile(ctx, own, x, y, z, w, h, sizeKm, 0, 0, own.width, own.height, origin);
-  }
-  let pz = z;
-  let px = x;
-  let py = y;
-  for (let i = 0; i < 16 && pz > 1; i++) {
-    pz -= 1;
-    px = Math.floor(px / 2);
-    py = Math.floor(py / 2);
-    const remote = cache.get(key(layer, pz, px, py));
-    // Mosaïque locale : agrandie au plus ×32 (z17 depuis z12), et le GSD affiché suit
-    // (liveGsd) — jamais maquillée en imagerie 0,3 m.
-    const parent =
-      remote && remote !== "fail" ? remote : vis && z - pz <= 5 ? localImg(pz, px, py) : null;
-    if (!parent) continue;
-    if (parent !== remote) drawnLocal += 1;
-    else if (vis) lastVisZ = Math.max(lastVisZ, pz);
-    const factor = 2 ** (z - pz);
-    const srcW = parent.width / factor;
-    const srcH = parent.height / factor;
-    if (srcW < 4 || srcH < 4) {
-      return paintTile(ctx, parent, px, py, pz, w, h, sizeKm, 0, 0, parent.width, parent.height, origin);
-    }
-    const srcX = (x % factor) * srcW;
-    const srcY = (y % factor) * srcH;
-    return paintTile(ctx, parent, x, y, z, w, h, sizeKm, srcX, srcY, srcW, srcH, origin);
-  }
-  // Vue large sans imagerie distante : la mosaïque locale, plus fine, réduite à l'échelle.
-  if (!vis) return false;
-  let painted = false;
-  for (const c of localCover) {
-    if (c.z <= z || c.z - z > 3) continue;
-    const f = 2 ** (c.z - z);
-    for (let cx = Math.max(x * f, c.x0); cx <= Math.min(x * f + f - 1, c.x1); cx++) {
-      for (let cy = Math.max(y * f, c.y0); cy <= Math.min(y * f + f - 1, c.y1); cy++) {
-        const child = localImg(c.z, cx, cy);
-        if (!child) continue;
-        if (paintTile(ctx, child, cx, cy, c.z, w, h, sizeKm, 0, 0, child.width, child.height, origin)) {
-          painted = true;
-        }
-      }
-    }
-    if (painted) {
-      drawnLocal += 1;
-      return true;
-    }
-  }
-  return false;
-}
-
-export function drawTiles(
-  ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  z: number,
-  sizeKm: number,
-  layer: SatLayer = "vis",
-  origin: GeoOrigin = HOME,
-) {
-  paintLayer = layer;
-  drawnLocal = 0;
-  lastVisZ = 0;
-  requestTiles(w, h, z, sizeKm, layer, origin);
-  if (layer === "vis") requestLocal(w, h, z, sizeKm, origin);
-  let drawZ = z;
-  if (layer === "vis" && z > 17) {
-    // Le niveau le plus fin réellement reçu au centre de la vue : z19, sinon z18, sinon z17.
-    drawZ = 17;
-    for (let lz = z; lz > 17; lz--) {
-      const hit = cache.get(key(layer, lz, Math.floor(lonToTileX(origin.lon, lz)), Math.floor(latToTileY(origin.lat, lz))));
-      if (hit && hit !== "fail") {
-        drawZ = lz;
-        break;
-      }
-    }
-  }
-  const cap = tileCap(drawZ);
-  const b = tileBounds(w, h, drawZ, sizeKm, cap, origin);
-  if (b.x1 < b.x0) return 0;
-  let drawn = 0;
-  for (let x = b.x0; x <= b.x1; x++) {
-    for (let y = b.y0; y <= b.y1; y++) {
-      if (drawOne(ctx, layer, drawZ, x, y, w, h, sizeKm, origin)) drawn += 1;
-    }
-  }
-  lastLocalShare = drawn > 0 ? drawnLocal / drawn : 0;
-  const dominant = layer === "vis" && lastLocalShare > 0.5;
-  if (dominant !== localDominant) {
-    localDominant = dominant;
-    for (const l of localListeners) l();
-  }
-  return drawn;
-}
-
-let drawnLocal = 0;
-let lastLocalShare = 0;
 let localDominant = false;
-/** Zoom le plus fin réellement peint depuis l'imagerie distante (vis). 0 = rien de distant ce cycle. */
-let lastVisZ = 0;
 const localListeners = new Set<() => void>();
 
 /** La carte affiche-t-elle surtout la mosaïque locale ? Pour les bandeaux React (GSD, légende). */
@@ -1188,55 +919,36 @@ export function subscribeLocalImagery(listener: () => void): () => void {
   return () => localListeners.delete(listener);
 }
 
-export function localImageryDominant(): boolean {
-  return localDominant;
+/** La carte dit si l'image qu'elle montre vient surtout de la mosaïque locale (réseau absent). */
+export function signalerImagerieLocale(dominant: boolean): void {
+  if (dominant === localDominant) return;
+  localDominant = dominant;
+  for (const l of localListeners) l();
 }
 
-/** Part de la dernière image venue de la mosaïque locale (0 à 1) : le crédit le dit franchement. */
-export function localImageryShare(): number {
-  return lastLocalShare;
+export function localImageryDominant(): boolean {
+  return localDominant;
 }
 
 // La résolution réelle dépend du zoom installé et de la latitude : le bandeau GSD l'affiche (liveGsd),
 // le crédit ne promet donc pas un chiffre qui ne vaudrait qu'à N'Djamena.
 export const LOCAL_CREDIT = "Mosaïque Sentinel-2 locale · hors ligne · pas une prise du jour";
 
-export function preloadAt(lat: number, lon: number, z = 17, layer: SatLayer = "vis") {
-  if (typeof window === "undefined") return;
-  const cx = lonToTileX(lon, z);
-  const cy = latToTileY(lat, z);
-  const span = z >= 15 ? 2 : 3;
-  for (let x = cx - span; x <= cx + span; x++) {
-    for (let y = cy - span; y <= cy + span; y++) load(layer, z, x, y);
-  }
-  if (z > 12) {
-    const px = lonToTileX(lon, 12);
-    const py = latToTileY(lat, 12);
-    for (let x = px - 2; x <= px + 2; x++) {
-      for (let y = py - 2; y <= py + 2; y++) load(layer, 12, x, y);
-    }
-  }
-}
-
 export function tileRef(lat: number, lon: number, z = 10): string {
   return `z${z}/${lonToTileX(lon, z)}/${latToTileY(lat, z)}`;
 }
 
-let paintLayer: SatLayer = "vis";
 let refineTiles = false;
 
 export function setTileRefine(on: boolean): void {
   refineTiles = on;
 }
 
-export function clearTileCache(): void {
-  cache.clear();
+/** L'affinage de l'image (contraste et saturation relevés) est-il demandé ? La carte l'applique. */
+export function affinageImagerie(): boolean {
+  return refineTiles;
 }
 
-if (typeof window !== "undefined") {
-  preloadAoTiles("vis", 6);
-  window.setTimeout(() => {
-    preloadAoTiles("ir", 5);
-    preloadAoTiles("th", 5);
-  }, 4000);
+export function clearTileCache(): void {
+  cache.clear();
 }

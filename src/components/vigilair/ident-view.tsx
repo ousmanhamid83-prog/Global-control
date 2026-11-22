@@ -1,4 +1,4 @@
-import { RadarMap } from "@/components/vigilair/radar-map";
+import { Carte } from "@/components/vigilair/carte";
 import { PaintFilters } from "@/components/vigilair/paint-filters";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,8 +47,7 @@ export function IdentView() {
       </div>
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_340px] grid-rows-[minmax(0,1fr)]">
         <section className="relative min-h-0 border-border border-b-0 border-r">
-          <RadarMap
-            tracks={live}
+          <Carte
             selectedId={track?.id ?? null}
             scale="ident"
             fr24

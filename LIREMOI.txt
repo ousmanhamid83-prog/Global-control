@@ -539,6 +539,38 @@ Retiré parce qu'inventé : rien n'est joué pour de faux
   vol de nos drones (marqué EXE). Un agent Sentinel se vérifie pour de vrai : présenter sa clé sur une
   autre machine ; l'éjection est réelle.
 
+La carte du poste — MapLibre GL JS (bibliothèque de cartographie libre)
+- La carte n'est plus un dessin maison sur canevas : c'est MapLibre GL JS (version 5.24), une
+  bibliothèque de cartographie libre et éprouvée, qui projette (Web Mercator, comme les cartes en
+  ligne) et dessine en WebGL l'imagerie, les pistes reçues en direct, nos drones par leur liaison et
+  l'image de nos sources. Elle tourne sans Internet : ses polices et ses symboles APP-6 sont dessinés
+  sur place, et ses tuiles passent par le poste, dans la même file que le reste (4 à la fois au plus).
+- On y lit : pistes (cadre APP-6 ou forme, indicatif, altitude, vitesse), traces, vecteurs vitesse,
+  piste suivie et sa prédiction, anneaux de portée, mesure, zones ; nos drones (symbole ami, cap,
+  départ, circuit, étapes, point désigné) et les images de nos sources ; le théâtre (frontières,
+  eaux, mines, axes, relief, météo, phénomènes). Molette libre ; les boutons d'échelle y placent la
+  carte ; le nord reste en haut (ni rotation ni bascule).
+- POINTEUR : sous la souris, coordonnées, carré MGRS, finesse de l'image à cet endroit, distance et
+  azimut depuis l'aérodrome de référence du poste.
+- Navigateur sans WebGL : la carte le dit, et comment l'activer, au lieu de rester noire.
+- Le poste ne précharge plus de tuiles au démarrage : il le faisait pour l'ancien dessin (Visible,
+  IR et Thermique, zooms 2 à 5, même quand la couche n'était pas affichée). Mesuré sur la même
+  séquence (monde, AES, vue rapprochée, 33 s) : 410 tuiles demandées avant, dont 89 thermiques jamais
+  montrées ; 152 après — celles que la carte affiche.
+- Essai réel sur le serveur construit (comptes actifs), relevé Internet allumé : 269 à 297 vraies
+  pistes 1090ES sur la carte du monde selon l'heure (deux essais) ; pointeur lu avec 1,1 m d'écart (moins d'un pixel) ; caméra de site posée
+  par ses quatre coins, image entre eux au pixel (4/4) ; caméra vue de biais redressée (voir Nos
+  drones) ; drone sur le vrai programme de vol ArduCopter décollé au sceau du chef, envoyé à un point
+  cliqué sur la carte (lu avec 1,1 m d'écart), image de sa nacelle posée de sa télémétrie, puis rentré
+  et posé ; mesure 335 m pour 334 m attendus (un pixel d'écart) ; capture PNG du COP ; 0 erreur console.
+- Trouvés par l'essai et corrigés : la carte restait noire et sourde au pointeur (son conteneur
+  faisait 0 pixel de haut) ; un UAV réel entendu au loin (catégorie B6, à 3454 km) faisait sauter la
+  carte sur lui — la capture auto ne vaut plus que pour un B6 né sur le théâtre tchadien ; à la
+  première connexion, la page tentait d'ouvrir une session avant de savoir s'il existait un chef
+  (refus 401) — elle attend désormais de le savoir.
+- L'onglet RADAR reste un scope (PPI) : une image radar autour du poste, pas une carte ; il ne
+  montre que des pistes reçues.
+
 Symbologie APP-6 et radar
 - Les pistes portent le cadre OTAN APP-6 (le cadre = l'affiliation ; ouvert en bas = aérien).
   Inconnu est l'état par défaut : ni l'un de nos drones, ni du trafic ASECNA, ni un civil 1090ES
@@ -1679,6 +1711,17 @@ Nos drones ET CAMÉRAS — suivi, pilotage par le chef, imagerie en SOURCE D'ANA
   et cap pris de sa télémétrie à l'heure de l'image. Au sol ou sans cap, l'image n'est pas posée, et
   c'est dit. Une caméra de site n'a pas de télémétrie : quatre coins seulement. L'image se renouvelle
   avec la veille mouvement, ou d'un clic. Le poste n'y cherche personne : c'est une image de terrain.
+- VUE DE BIAIS, REDRESSÉE EN PERSPECTIVE : une caméra sur un mât voit le sol en trapèze. La
+  bibliothèque de la carte (MapLibre) tend une image entre quatre coins sur deux triangles plats : un
+  trapèze s'y casserait le long de la diagonale et ses lignes droites s'y plieraient. Le poste
+  redresse donc lui-même l'image, pixel par pixel, en vraie perspective, dans le rectangle qui
+  l'englobe, et la carte n'a plus qu'à poser ce rectangle. Une image cadrée nord en haut, ou l'emprise
+  d'un drone (caméra à la verticale), passe telle quelle : les deux triangles la posent juste à moins
+  d'un demi-pixel. Coût mesuré : 70 ms pour une image 1920 × 1080 (redressée à 2 Mpx au plus), une
+  fois par image reçue. Essai réel dans la console du chef : une caméra de mât (vue de biais tirée de
+  la vraie photo aérienne du lieu, avec cinq marques peintes), ses quatre coins cliqués sur la carte —
+  5 marques sur 5 à leur place au pixel, alors que deux triangles plats auraient mis le centre de
+  l'image à 103 m du vrai (vérifié : à cet endroit-là, pas de marque).
 - NATURE DE LA PRÉSENCE (sans identité) : le poste regroupe les pixels qui ont bougé en ZONES connexes
   et lit leur géométrie — nombre de zones, taille, où dans le cadre — pour en tirer un INDICE prudent
   (« silhouette compacte / piéton possible », « masse large / véhicule possible », « indéterminée »).
