@@ -33,10 +33,11 @@
 #   --phonie URL     flux audio de la phonie ATC, sortie du récepteur VHF de l'opérateur
 #                    (rtl_airband, Icecast…) : le poste l'enregistre à la demande, doublé et scellé
 #   --phonie-radio MHZ[,MHZ…]  la phonie reçue par le poste lui-même : une clé radio RTL-SDR (la 2e
-#                    si l'antenne 1090 a la sienne) à l'écoute de ces fréquences de la bande
-#                    aéronautique (118 à 136,975 MHz, AM). rtl-sdr et lame sont installés, le pont
-#                    phonie (scripts/poste/phonie-vhf.mjs) lancé avec la machine ; le poste
-#                    l'enregistre à la demande. Réception seule : une clé RTL-SDR n'émet pas.
+#                    si l'antenne 1090 a la sienne) à l'écoute de ces fréquences des bandes de
+#                    l'aviation, en AM : VHF 108 à 136,975 MHz, UHF militaire 225 à 399,975 MHz.
+#                    rtl-sdr et lame sont installés, le pont phonie (scripts/poste/phonie-vhf.mjs)
+#                    lancé avec la machine ; le poste l'enregistre à la demande. Réception seule :
+#                    une clé RTL-SDR n'émet pas.
 #   --phonie-cle N|SÉRIE  la clé de la phonie, quand le choix automatique ne convient pas
 #   --copies DOSSIER dossier des copies du poste (AFRICONTROL_COPIES) : tout ce que le poste garde y
 #                    est doublé aussitôt. Sans --copies, un autre disque INTERNE de la machine (ni
@@ -566,7 +567,7 @@ if [ -n "$PHONIE" ]; then
 fi
 
 if [ -n "$PHONIE_RADIO" ]; then
-  etape "Phonie ATC reçue par le poste (clé radio, bande aéronautique, réception seule)"
+  etape "Phonie ATC reçue par le poste (clé radio, bandes de l'aviation, réception seule)"
   ARGS_PHONIE=()
   IFS=',' read -ra FREQUENCES <<<"$PHONIE_RADIO"
   for f in "${FREQUENCES[@]}"; do ARGS_PHONIE+=(--frequence "$f"); done

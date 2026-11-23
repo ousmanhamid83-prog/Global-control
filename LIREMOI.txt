@@ -1604,6 +1604,14 @@ Phonie ATC — réception seule (Capteurs > Phonie ATC)
   Avec l'antenne 1090 : deux clés, la 1re à dump1090, la 2e à la phonie, par leur numéro de série
   quand ils diffèrent (--phonie-cle pour choisir). Clé absente ou débranchée : dit (503, /etat,
   bilan), et le pont la reprend seul (essais espacés de 2 à 30 s). Une clé RTL-SDR n'émet pas.
+- BANDES DE L'AVIATION, EN RÉCEPTION SEULEMENT. Le pont accepte toutes celles de la phonie, en AM :
+  VHF de 108 à 136,975 MHz (radionavigation, dont l'ATIS de certains VOR, puis communications ;
+  121,5 la détresse) et UHF aéronautique des armées, de 225 à 399,975 MHz (243 la détresse). Les
+  transpondeurs (1090 MHz) sont à l'antenne 1090. Toute autre fréquence (marine 156,8, radioamateurs
+  145,5…) est refusée par le pont lui-même, avec sa raison. Avant : 118 à 136,975 MHz seulement.
+  Essayé : le vrai pont et le vrai rtl_fm sur 243, 108,2 et 121,5 MHz, balayées : acceptées et
+  confiées à rtl_fm (« No supported devices found. » : aucune clé ici, dit en 503 et sur /etat) ;
+  1090 et 156,8 refusés avec leur raison. Mutants : 11 sur 11 attrapés.
 - Essayé : le pont avec le vrai lame et un rtl_fm d'essai qui sort la vraie phonie de Dublin au
   rythme du direct — le son servi est celui d'origine (enveloppe corrélée à 0,986 ; 0,156 pour un
   autre passage) ; le VRAI rtl_fm sans clé : « No supported devices found. », dit tel quel ; le
@@ -1725,10 +1733,11 @@ Nos drones ET CAMÉRAS — suivi, pilotage par le chef, imagerie en SOURCE D'ANA
   panneau du drone en 1,3 s, retour à la base envoyé par la radio et accepté, posé 41 s plus tard,
   au journal « par la liaison de secours » ; le réseau revenu, la principale a repris la main.
 - CE QUE LE POSTE N'ÉMET PAS : une clé RTL-SDR ne sait pas émettre (récepteur seul), et le poste ne
-  pilote aucun émetteur radio logiciel. Il n'émet jamais sur les bandes de l'aviation (1090 MHz,
-  118 à 137 MHz). Ses ordres ne vont qu'à NOS drones inscrits au registre, sur ordre du chef, par
-  leur propre liaison. La bande et la puissance de la radio du drone relèvent de l'autorisation de
-  l'autorité des télécommunications (au Tchad, l'ARCEP) : à obtenir par l'exploitant.
+  pilote aucun émetteur radio logiciel. Les bandes de l'aviation (1090 MHz ; VHF 108 à 137 MHz ; UHF
+  des armées 225 à 400 MHz) sont acceptées en RÉCEPTION seulement : il n'y émet jamais. Ses ordres
+  ne vont qu'à NOS drones inscrits au registre, sur ordre du chef, par leur propre liaison. La bande
+  et la puissance de la radio du drone relèvent de l'autorisation de l'autorité des
+  télécommunications (au Tchad, l'ARCEP) : à obtenir par l'exploitant.
 - ORDRES DU CHEF (panneau « Nos drones · liaison », à côté de la carte) : six ordres, chacun coupable
   dans les réglages — retour à la base, stationnaire, atterrir sur place, aller à un point désigné sur
   la carte, décoller, patrouille (circuit réglé, nombre de tours, puis retour seul). Décoller, aller et

@@ -188,7 +188,7 @@ function decoder(mp3, dossier) {
   return { taux, pcm };
 }
 
-test("réglages : fréquences de la bande aéronautique, une clé, un port ; le reste refusé avec sa raison", () => {
+test("réglages : fréquences des bandes de l'aviation (VHF, UHF militaire), une clé, un port ; le reste refusé avec sa raison", () => {
   assert.deepEqual(lireArguments(["--frequence", "118.1"]), {
     frequences: [118.1],
     cle: "0",
@@ -218,10 +218,18 @@ test("réglages : fréquences de la bande aéronautique, une clé, un port ; le 
   );
   const refus = (args, re) => assert.throws(() => lireArguments(args), re);
   refus([], /au moins une fréquence/);
-  refus(["--frequence", "117.975"], /hors de la bande aéronautique/);
-  refus(["--frequence", "137"], /hors de la bande aéronautique/);
-  refus(["--frequence", "1090"], /hors de la bande aéronautique/);
-  refus(["--frequence", "abc"], /hors de la bande aéronautique/);
+  // Toutes les bandes de l'aviation, en réception : VHF (radionavigation et communications), UHF
+  // militaire ; leurs bords compris, jusqu'au dernier canal.
+  for (const f of ["108", "117.975", "118", "121.5", "136.975", "225", "243", "399.975"]) {
+    assert.deepEqual(lireArguments(["--frequence", f]).frequences, [Number(f)], f);
+  }
+  for (const f of ["107.975", "137", "156.8", "224.975", "400", "433.92", "88.5", "abc"]) {
+    refus(
+      ["--frequence", f],
+      /hors des bandes de l'aviation \(108 à 136,975 MHz ; 225 à 399,975 MHz\)/,
+    );
+  }
+  refus(["--frequence", "1090"], /1090 MHz : les transpondeurs, reçus par l'antenne 1090/);
   refus(["--frequence", "118.1", "--frequence", "119.7"], /balaie.*--silence/);
   refus(["--frequence", "118.1", "--cle", "1;reboot"], /clé/);
   refus(["--frequence", "118.1", "--port", "80"], /port/);
@@ -326,7 +334,7 @@ test("--verifier : les réglages dits, rien de lancé ; faux, code 2", () => {
 test("réglage faux : le pont s'arrête aussitôt, code 2, et dit pourquoi", () => {
   const r = spawnSync(process.execPath, [join(ICI, "phonie-vhf.mjs"), "--frequence", "145.5"]);
   assert.equal(r.status, 2);
-  assert.match(String(r.stderr), /phonie : fréquence 145.5 hors de la bande aéronautique/);
+  assert.match(String(r.stderr), /phonie : fréquence 145.5 hors des bandes de l.aviation/);
 });
 
 test(

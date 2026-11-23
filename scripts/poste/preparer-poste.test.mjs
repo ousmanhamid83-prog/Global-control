@@ -446,7 +446,7 @@ test("script Linux : les clés radio RTL-SDR reconnues dans /sys (0bda:2832, 0bd
   }
 });
 
-test("script Linux --phonie-radio : une fréquence hors de la bande refusée par le pont lui-même, rien installé ni réglé", async () => {
+test("script Linux --phonie-radio : une fréquence hors des bandes de l'aviation refusée par le pont lui-même, rien installé ni réglé", async () => {
   const { mkdtempSync, mkdirSync, copyFileSync, rmSync, existsSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const poste = mkdtempSync(join(tmpdir(), "poste-phonie-"));
@@ -472,7 +472,7 @@ test("script Linux --phonie-radio : une fréquence hors de la bande refusée par
     let r = lancer("--phonie-radio", "145.5");
     assert.match(
       r.stdout + r.stderr,
-      /✗ phonie : fréquence 145\.5 hors de la bande aéronautique \(118 à 136,975 MHz\)/,
+      /✗ phonie : fréquence 145\.5 hors des bandes de l'aviation \(108 à 136,975 MHz ; 225 à 399,975 MHz\)/,
     );
     assert.doesNotMatch(readFileSync(join(poste, "poste.env"), "utf8"), /AFRICONTROL_ATC/);
     assert.ok(!existsSync(join(poste, "data", "phonie-vhf.pid")), "aucun pont lancé");

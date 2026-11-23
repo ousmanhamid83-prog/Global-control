@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 /**
- * Phonie VHF du poste : une clé radio RTL-SDR à l'écoute de la bande aéronautique (AM), le son servi
- * en MP3 sur 127.0.0.1, là où le poste l'enregistre à la demande (AFRICONTROL_ATC). RÉCEPTION
- * SEULE : une clé RTL-SDR ne sait pas émettre, et ce pont ne lui donne que sa fréquence d'écoute.
+ * Phonie du poste : une clé radio RTL-SDR à l'écoute des bandes de l'aviation (AM), le son servi en
+ * MP3 sur 127.0.0.1, là où le poste l'enregistre à la demande (AFRICONTROL_ATC). RÉCEPTION SEULE :
+ * une clé RTL-SDR ne sait pas émettre, et ce pont ne lui donne que sa fréquence d'écoute. Bandes
+ * reçues : VHF de l'aviation, 108 à 136,975 MHz (radionavigation, dont l'ATIS de certains VOR, puis
+ * communications) ; UHF de l'aviation militaire, 225 à 399,975 MHz. Le 1090 MHz (transpondeurs) est
+ * celui de l'antenne 1090, pas de la phonie.
  *
  *   node scripts/poste/phonie-vhf.mjs --frequence 118.1 [--frequence 119.7 --silence 30]
  *                                     [--cle 0|NUMÉRO_DE_SÉRIE] [--port 8001] [--gain 40] [--ppm 0]
@@ -16,7 +19,7 @@ import { spawn } from "node:child_process";
 import http from "node:http";
 import { pathToFileURL } from "node:url";
 
-/** Échantillons par seconde sortis de rtl_fm : 12 kHz, la largeur d'un canal AM de la bande. */
+/** Échantillons par seconde sortis de rtl_fm : 12 kHz, la largeur d'un canal AM de ces bandes. */
 const TAUX = 12_000;
 const OCTETS_PAR_S = TAUX * 2;
 /** Sans son de rtl_fm depuis ce temps (silence du balayage), le pont comble avec du silence. */
@@ -26,6 +29,13 @@ const REESSAI_MAX_MS = 30_000;
 
 const AIDE =
   "node scripts/poste/phonie-vhf.mjs --frequence MHZ [--frequence MHZ … --silence N] [--cle N|SÉRIE] [--port 8001] [--gain DB] [--ppm N]";
+
+/** Les bandes de l'aviation reçues en AM, en MHz : [début, fin) — la fin exclue. */
+const BANDES = [
+  [108, 137], // VHF : radionavigation (108 à 117,975) puis communications (118 à 136,975)
+  [225, 400], // UHF de l'aviation militaire
+];
+const DANS_LES_BANDES = "108 à 136,975 MHz ; 225 à 399,975 MHz";
 
 /** Les réglages de la ligne de commande, vérifiés ; une erreur dit ce qui ne va pas. */
 export function lireArguments(argv) {
@@ -38,9 +48,11 @@ export function lireArguments(argv) {
     const n = Number(String(v).replace(",", "."));
     switch (nom) {
       case "--frequence":
-        // La bande aéronautique en AM : 118 à 136,975 MHz.
-        if (!(n >= 118 && n < 137)) {
-          throw new Error(`fréquence ${v} hors de la bande aéronautique (118 à 136,975 MHz)`);
+        if (n === 1090) {
+          throw new Error("1090 MHz : les transpondeurs, reçus par l'antenne 1090 — pas la phonie");
+        }
+        if (!BANDES.some(([debut, fin]) => n >= debut && n < fin)) {
+          throw new Error(`fréquence ${v} hors des bandes de l'aviation (${DANS_LES_BANDES})`);
         }
         r.frequences.push(n);
         break;
