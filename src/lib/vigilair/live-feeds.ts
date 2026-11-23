@@ -733,6 +733,18 @@ export function peekLiveCache(): LivePicture | null {
 }
 
 /**
+ * Relevé Internet allumé par le chef : le poste relève, console ouverte ou non (la veille du serveur
+ * l'appelle à chaque ronde). Un seul relevé à la fois, et pas plus d'un toutes les 20 s, comme
+ * pour la console. Coupé : rien ne sort.
+ */
+export async function releverSiActif(): Promise<void> {
+  const { releveInternetActif } = await import("./releve-internet.server");
+  if (!(await releveInternetActif())) return;
+  if (releve.cache && Date.now() - releve.cache.at < TTL_MS) return;
+  await refreshNetwork().catch(() => undefined);
+}
+
+/**
  * L'image que voit la console — relevé réseau vieilli plus antenne du poste (voir image-poste) —
  * sans déclencher de relevé Internet : pour l'assistant, le briefing, la relève, les commandes du
  * poste et le bot. null tant que ni le réseau ni l'antenne n'ont rien donné.

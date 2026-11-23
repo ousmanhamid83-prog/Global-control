@@ -16,6 +16,8 @@ export function AlertRelay() {
       if (a.id.startsWith("al-owndrone-")) continue;
       // Un capteur sol : sa veille, dans le serveur, l'a dit (ground-sensors.server).
       if (a.id.startsWith("sol-")) continue;
+      // Une bulle (entrée, approche) : la consignation du serveur l'a dite (zones-veille.server).
+      if (a.id.startsWith("al-zone")) continue;
       if (a.level !== "elevee" && a.level !== "critique") continue;
       sent.current.add(a.id);
       void pushInstantAlert({

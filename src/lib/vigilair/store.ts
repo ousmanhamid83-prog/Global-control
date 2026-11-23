@@ -49,6 +49,7 @@ import type { CopLockState } from "./guard";
 import {
   DEFAULT_ZONES,
   evaluateZones,
+  passagesDe,
   getLiveZones,
   setLiveZones,
   type ZoneRow,
@@ -345,62 +346,27 @@ function applyZoneAlerts(tracks: Track[], now: number, alerts: AlertItem[]): voi
     if (!liveIds.has(tid)) zoneWarned.delete(key);
   }
   if (useVigilair.getState().clockMode === "replay") return;
-  for (const st of picture) {
-    if (!st.zone.armed) continue;
-    for (const c of st.inside) {
-      if (!c.uas) continue;
-      const key = `in:${st.zone.id}:${c.trackId}`;
-      if (zoneWarned.has(key)) continue;
-      zoneWarned.set(key, c.trackId);
-      alerts.push({
-        id: `al-zone-${st.zone.id}-${c.trackId}`,
-        trackId: c.trackId,
-        at: now,
-        level: "critique",
-        title: `INTRUSION · ${st.zone.name} · ${c.callsign}`,
-        body: `${c.distKm.toFixed(2)} km du centre. Bulle armée. AfriControl n'émet pas.`,
-        acked: false,
-      });
-      void reportZoneBreach({
-        data: {
-          zoneId: st.zone.id,
-          zoneName: st.zone.name,
-          trackId: c.trackId,
-          callsign: c.callsign,
-          distKm: c.distKm,
-          kind: "inside",
-          uas: true,
-          exercice: c.exercice,
-        },
-      }).catch(() => undefined);
-    }
-    for (const c of st.approaching) {
-      if (!c.uas) continue;
-      const key = `ap:${st.zone.id}:${c.trackId}`;
-      if (zoneWarned.has(key)) continue;
-      zoneWarned.set(key, c.trackId);
-      alerts.push({
-        id: `al-zoneap-${st.zone.id}-${c.trackId}`,
-        trackId: c.trackId,
-        at: now,
-        level: "elevee",
-        title: `Approche · ${st.zone.name} · ${c.callsign}`,
-        body: `${c.distKm.toFixed(2)} km · fermeture sur la bulle.`,
-        acked: false,
-      });
-      void reportZoneBreach({
-        data: {
-          zoneId: st.zone.id,
-          zoneName: st.zone.name,
-          trackId: c.trackId,
-          callsign: c.callsign,
-          distKm: c.distKm,
-          kind: "approach",
-          uas: true,
-          exercice: c.exercice,
-        },
-      }).catch(() => undefined);
-    }
+  // La règle de la veille du serveur (passagesDe) : la console le dit au bandeau et le consigne ;
+  // le registre ne garde qu'un passage par bulle, piste et sorte en 20 min, qui qu'il vienne.
+  for (const p of passagesDe(picture)) {
+    const dedans = p.kind === "inside";
+    const key = `${dedans ? "in" : "ap"}:${p.zoneId}:${p.trackId}`;
+    if (zoneWarned.has(key)) continue;
+    zoneWarned.set(key, p.trackId);
+    alerts.push({
+      id: `al-${dedans ? "zone" : "zoneap"}-${p.zoneId}-${p.trackId}`,
+      trackId: p.trackId,
+      at: now,
+      level: dedans ? "critique" : "elevee",
+      title: dedans
+        ? `INTRUSION · ${p.zoneName} · ${p.callsign}`
+        : `Approche · ${p.zoneName} · ${p.callsign}`,
+      body: dedans
+        ? `${p.distKm.toFixed(2)} km du centre. Bulle armée. AfriControl n'émet pas.`
+        : `${p.distKm.toFixed(2)} km · fermeture sur la bulle.`,
+      acked: false,
+    });
+    void reportZoneBreach({ data: p }).catch(() => undefined);
   }
 }
 

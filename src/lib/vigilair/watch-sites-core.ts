@@ -15,6 +15,32 @@ export type WatchSite = {
   alertKm?: number;
 };
 
+/**
+ * Un site ajouté vu comme une bulle (carte et intrusion) : armé, sauf désarmé exprès. La forme est
+ * celle d'une ZoneRow (zones.ts), écrite ici pour que ce module reste sans dépendance.
+ */
+export function siteEnBulle(s: WatchSite): {
+  id: string;
+  name: string;
+  kind: "custom";
+  lat: number;
+  lon: number;
+  radiusKm: number;
+  armed: boolean;
+  note: string;
+} {
+  return {
+    id: s.id,
+    name: s.name,
+    kind: "custom",
+    lat: s.lat,
+    lon: s.lon,
+    radiusKm: s.radiusKm,
+    armed: s.armed !== false,
+    note: "site surveillé ajouté par l'opérateur",
+  };
+}
+
 export type NearWatch = {
   id: string;
   name: string;

@@ -10,7 +10,7 @@
  */
 
 import { MINES } from "./mines";
-import { nearestFrom, type NearWatch, type SiteInput, type WatchSite } from "./watch-sites-core";
+import { nearestFrom, siteEnBulle, type NearWatch, type SiteInput, type WatchSite } from "./watch-sites-core";
 import { watchSiteAdd, watchSiteRemove, watchSitesList } from "./watch-sites-api";
 import type { ZoneRow } from "./zones";
 import { registreVideServeur } from "./ssr-snapshot";
@@ -134,14 +134,5 @@ export function nearestWatchSite(lat: number, lon: number): { site: NearWatch; d
 
 /** Les sites ajoutés comme périmètres armés (carte + évaluation intrusion). */
 export function watchZoneRows(): ZoneRow[] {
-  return read().map((s) => ({
-    id: s.id,
-    name: s.name,
-    kind: "custom" as const,
-    lat: s.lat,
-    lon: s.lon,
-    radiusKm: s.radiusKm,
-    armed: s.armed !== false,
-    note: "site surveillé ajouté par l'opérateur",
-  }));
+  return read().map(siteEnBulle);
 }

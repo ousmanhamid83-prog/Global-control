@@ -129,3 +129,78 @@ export function zoneLevelTone(level: ZoneLevel): "ok" | "warn" | "crit" | "defau
   if (level === "trafic") return "ok";
   return "default";
 }
+
+/** La sorte d'une bulle lue du registre ; une sorte inconnue vaut « ministere ». */
+export function sorteDeBulle(v: string): ZoneKind {
+  if (v === "aerodrome" || v === "palais" || v === "camp" || v === "pont" || v === "ministere") {
+    return v;
+  }
+  return "ministere";
+}
+
+/** Une ligne du registre des bulles (table protected_zone), en bulle. */
+export function bulleDeLigne(r: {
+  id: string;
+  name: string;
+  kind: string;
+  lat: number;
+  lon: number;
+  radius_km: number;
+  armed: boolean;
+  note: string;
+}): ZoneRow {
+  return {
+    id: r.id,
+    name: r.name,
+    kind: sorteDeBulle(r.kind),
+    lat: Number(r.lat),
+    lon: Number(r.lon),
+    radiusKm: Number(r.radius_km),
+    armed: Boolean(r.armed),
+    note: r.note ?? "",
+  };
+}
+
+/** Un passage à consigner : un UAS entré dans une bulle armée, ou qui s'en approche. */
+export type Passage = {
+  zoneId: string;
+  zoneName: string;
+  trackId: string;
+  callsign: string;
+  distKm: number;
+  kind: "inside" | "approach";
+  uas: true;
+  /** Piste d'exercice : consignée comme telle, jamais dite au chef. */
+  exercice: boolean;
+};
+
+/**
+ * Les passages d'une image des bulles : dans chaque bulle ARMÉE, les UAS entrés, puis ceux qui s'en
+ * approchent. La console et la veille du serveur consignent les mêmes, dans le même registre.
+ */
+export function passagesDe(image: ZoneStatus[]): Passage[] {
+  const out: Passage[] = [];
+  for (const st of image) {
+    if (!st.zone.armed) continue;
+    const sortes = [
+      [st.inside, "inside"],
+      [st.approaching, "approach"],
+    ] as const;
+    for (const [contacts, kind] of sortes) {
+      for (const c of contacts) {
+        if (!c.uas) continue;
+        out.push({
+          zoneId: st.zone.id,
+          zoneName: st.zone.name,
+          trackId: c.trackId,
+          callsign: c.callsign,
+          distKm: c.distKm,
+          kind,
+          uas: true,
+          exercice: c.exercice,
+        });
+      }
+    }
+  }
+  return out;
+}

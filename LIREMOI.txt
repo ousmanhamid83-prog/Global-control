@@ -523,6 +523,28 @@ Exercice sur un vrai vol (chef de division) — Capteurs > Changement, ligne du 
   0 message relayé pendant l'exercice ; juste après, le témoin réel (piste 1090ES à l'adresse d'un
   de nos drones) est parti au relais en 4 s. L'essai a trouvé un vrai défaut, corrigé : une alerte de
   zone se redisait chaque seconde quand l'identifiant du drone contenait « : ».
+- INTRUSIONS AU JOURNAL, EN RÉEL COMME EN EXERCICE, CONSOLE FERMÉE AUSSI. Les bulles n'étaient
+  évaluées que dans la console : sans console ouverte, une vraie intrusion n'était ni dite au chef
+  ni consignée. La règle tourne désormais aussi dans le serveur (une ronde toutes les 5 s, mêmes
+  pistes que la console : l'image du poste, nos drones reconnus, les pistes d'exercice ; mêmes
+  bulles : celles du poste, les sites miniers, les sites ajoutés). Chaque entrée ou approche d'un
+  UAS dans une bulle armée va au registre des bulles et au journal des opérations (genre « zone ») :
+  une vraie entrée ouvre un incident de sûreté et part au chef, une vraie approche part au chef ; un
+  exercice est consigné marqué EXERCICE, jamais dit au chef. Console et serveur consignent par la
+  même fonction, un passage après l'autre : un seul par bulle, piste et sorte en 20 min, qui qu'il
+  vienne. Le relais de la console ne redit plus ce que le serveur a dit (avant, une vraie intrusion
+  partait deux fois au chef). Relevé Internet allumé par le chef : il continue console fermée
+  (avant, il s'arrêtait avec la dernière console). Essai sur le serveur construit, console fermée :
+  un vrai ArduCopter (simulateur officiel), en exercice, parti à 5 km de l'aérodrome ; 5 passages
+  consignés seuls par la veille du poste (approches de l'aérodrome à 4,96 km, de la place de la
+  Nation à 2,13 km, du camp Kassai à 3,33 km ; entrées dans l'aérodrome à 3,14 km pour un rayon de
+  3,2 et place de la Nation à 0,89 km pour 0,9). En réel : un vrai drone en vol au Proche-Orient
+  (catégorie B6, indicatif BOOSTER) reçu par le relevé Internet ; un site de veille posé sous lui,
+  console coupée du poste : « Intrusion · Essai B6 · BOOSTER » consignée par la veille du poste à
+  5,06 km du centre, avec son incident. L'essai a trouvé un défaut de ma première version, corrigé :
+  sans antenne ni relevé, la veille sautait les bulles, alors que les pistes d'exercice viennent de
+  la télémétrie. Vu aussi pendant l'essai : le poste refuse d'envoyer un drone à plus de 3 km de son
+  départ. 9 tests, 14 mutants sur 14.
 
 Retiré parce qu'inventé : rien n'est joué pour de faux
 - Le simulateur de démonstration et ses injects (pistes, raids, scénarios), les 29 capteurs fictifs

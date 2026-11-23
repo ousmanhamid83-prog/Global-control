@@ -4,14 +4,12 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql } from "@/lib/db";
 import {
-  dispatchChefAlert,
   insertOpsLog,
-  insertSecurityIncident,
   loadStaff,
   mintId,
   requireSuperadmin,
 } from "./staff";
-import { DEFAULT_ZONES, type ZoneKind, type ZoneRow } from "./zones";
+import { bulleDeLigne, DEFAULT_ZONES, sorteDeBulle, type ZoneRow } from "./zones";
 
 export type ZoneBreachRow = {
   id: string;
@@ -28,70 +26,13 @@ export type ZoneBreachRow = {
   at: string;
 };
 
-function asKind(v: string): ZoneKind {
-  if (v === "aerodrome" || v === "palais" || v === "camp" || v === "pont" || v === "ministere") {
-    return v;
-  }
-  return "ministere";
-}
-
-function mapZone(r: {
-  id: string;
-  name: string;
-  kind: string;
-  lat: number;
-  lon: number;
-  radius_km: number;
-  armed: boolean;
-  note: string;
-}): ZoneRow {
-  return {
-    id: r.id,
-    name: r.name,
-    kind: asKind(r.kind),
-    lat: Number(r.lat),
-    lon: Number(r.lon),
-    radiusKm: Number(r.radius_km),
-    armed: Boolean(r.armed),
-    note: r.note ?? "",
-  };
-}
-
-async function ensureSeed(): Promise<void> {
-  const sql = await getSql();
-  const n = await sql<{ n: number }>`select count(*)::int as n from protected_zone`;
-  if ((n[0]?.n ?? 0) > 0) return;
-  for (const z of DEFAULT_ZONES) {
-    await sql`
-      insert into protected_zone (id, name, kind, lat, lon, radius_km, armed, note)
-      values (${z.id}, ${z.name}, ${z.kind}, ${z.lat}, ${z.lon}, ${z.radiusKm}, ${z.armed}, ${z.note})
-      on conflict (id) do nothing
-    `;
-  }
-}
-
 export const listZones = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }): Promise<ZoneRow[]> => {
     const staff = await loadStaff(context.userId);
     if (!staff || staff.ejected) return DEFAULT_ZONES;
-    await ensureSeed();
-    const sql = await getSql();
-    const rows = await sql<{
-      id: string;
-      name: string;
-      kind: string;
-      lat: number;
-      lon: number;
-      radius_km: number;
-      armed: boolean;
-      note: string;
-    }>`
-      select id, name, kind, lat, lon, radius_km, armed, note
-      from protected_zone
-      order by name
-    `;
-    return rows.map(mapZone);
+    const { lireBulles } = await import("./zones-veille.server");
+    return lireBulles();
   });
 
 export const saveZone = createServerFn({ method: "POST" })
@@ -123,7 +64,7 @@ export const saveZone = createServerFn({ method: "POST" })
     return {
       id: String(raw.id ?? "").trim(),
       name,
-      kind: asKind(String(raw.kind ?? "ministere")),
+      kind: sorteDeBulle(String(raw.kind ?? "ministere")),
       lat,
       lon,
       radiusKm,
@@ -171,7 +112,7 @@ export const saveZone = createServerFn({ method: "POST" })
       armed: boolean;
       note: string;
     }>`select id, name, kind, lat, lon, radius_km, armed, note from protected_zone where id = ${id}`;
-    return mapZone(rows[0]!);
+    return bulleDeLigne(rows[0]!);
   });
 
 export const setZoneArmed = createServerFn({ method: "POST" })
@@ -210,7 +151,7 @@ export const setZoneArmed = createServerFn({ method: "POST" })
       detail: `${row.radius_km} km`,
       severity: data.armed ? "warn" : "info",
     });
-    return mapZone(row);
+    return bulleDeLigne(row);
   });
 
 export const listZoneBreaches = createServerFn({ method: "GET" })
@@ -277,78 +218,11 @@ export const reportZoneBreach = createServerFn({ method: "POST" })
   .handler(async ({ context, data }): Promise<{ ok: true; fresh: boolean }> => {
     const staff = await loadStaff(context.userId);
     if (!staff || staff.ejected) return { ok: true, fresh: false };
-    if (!data.zoneId || !data.trackId) return { ok: true, fresh: false };
-    const sql = await getSql();
-    const recent = await sql<{ id: string }>`
-      select id from zone_breach
-      where zone_id = ${data.zoneId}
-        and track_id = ${data.trackId}
-        and kind = ${data.kind}
-        and created_at > now() - interval '20 minutes'
-      limit 1
-    `;
-    if (recent[0]) return { ok: true, fresh: false };
-    const id = await mintId();
-    await sql`
-      insert into zone_breach (id, zone_id, zone_name, track_id, callsign, dist_km, kind, uas, exercice, actor)
-      values (
-        ${id}, ${data.zoneId}, ${data.zoneName}, ${data.trackId}, ${data.callsign},
-        ${data.distKm}, ${data.kind}, ${data.uas}, ${data.exercice}, ${staff.label}
-      )
-    `;
-    if (data.exercice) {
-      // Exercice : au journal, marqué comme tel — ni incident de sûreté, ni alerte du chef par Signal.
-      await insertOpsLog({
-        userId: staff.userId,
-        actor: staff.label,
-        role: staff.role,
-        team: staff.team,
-        kind: "zone",
-        title: `EXERCICE · ${data.kind === "approach" ? "Approche" : "Intrusion"} · ${data.zoneName} · ${data.callsign}`,
-        detail: `${data.distKm.toFixed(2)} km · vol d'exercice de notre drone, pas un contact réel`,
-        trackId: data.trackId,
-        severity: "info",
-      });
-    } else if (data.uas && data.kind === "inside") {
-      const title = `Intrusion · ${data.zoneName} · ${data.callsign}`;
-      const detail = `${data.callsign} dans la bulle ${data.zoneName} (${data.distKm.toFixed(2)} km du centre). AfriControl n'émet pas.`;
-      const incident = await insertSecurityIncident({
-        userId: staff.userId,
-        actor: staff.label,
-        kind: "zone_breach",
-        title,
-        detail,
-        workRecap: `Bulle ${data.zoneName}. Piste ${data.callsign}. Lecture seule — aucun effet RF.`,
-      });
-      await dispatchChefAlert({
-        id: incident.id,
-        title,
-        body: detail,
-        level: "critique",
-      });
-      await insertOpsLog({
-        userId: staff.userId,
-        actor: staff.label,
-        role: staff.role,
-        team: staff.team,
-        kind: "zone",
-        title,
-        detail,
-        trackId: data.trackId,
-        severity: "crit",
-      });
-    } else {
-      await insertOpsLog({
-        userId: staff.userId,
-        actor: staff.label,
-        role: staff.role,
-        team: staff.team,
-        kind: "zone",
-        title: `${data.kind === "approach" ? "Approche" : "Trafic"} · ${data.zoneName} · ${data.callsign}`,
-        detail: `${data.distKm.toFixed(2)} km`,
-        trackId: data.trackId,
-        severity: data.uas ? "warn" : "info",
-      });
-    }
-    return { ok: true, fresh: true };
+    if (!data.zoneId || !data.trackId || !data.uas) return { ok: true, fresh: false };
+    const { consignerPassage } = await import("./zones-veille.server");
+    const { fresh } = await consignerPassage(
+      { ...data, kind: data.kind === "approach" ? "approach" : "inside", uas: true },
+      { userId: staff.userId, actor: staff.label, role: staff.role, team: staff.team },
+    );
+    return { ok: true, fresh };
   });

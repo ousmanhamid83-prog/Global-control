@@ -68,6 +68,7 @@ export function avisDrones1090(
 const g = globalThis as unknown as {
   __afriVeilleDrones?: Map<string, Episode>;
   __afriVeilleMinuterie?: ReturnType<typeof setInterval>;
+  __afriVeilleEnCours?: boolean;
 };
 
 /** Une image du poste passée à la veille : les avis donnés au chef et au journal. */
@@ -112,12 +113,25 @@ export async function veillerDrones1090(
 export function veillerEnContinu(): void {
   if (g.__afriVeilleMinuterie) return;
   g.__afriVeilleMinuterie = setInterval(() => {
+    // Une ronde à la fois : un relevé Internet lent ne doit pas en faire chevaucher deux.
+    if (g.__afriVeilleEnCours) return;
+    g.__afriVeilleEnCours = true;
     void import("./live-feeds")
-      .then(async ({ imagePoste }) => {
+      .then(async ({ imagePoste, releverSiActif }) => {
+        // Relevé allumé par le chef : il continue, console fermée aussi.
+        await releverSiActif();
         const image = await imagePoste();
-        if (image) await veillerDrones1090(image.aircraft);
+        // Deux veilles indépendantes : l'échec de l'une ne saute pas l'autre.
+        if (image) await veillerDrones1090(image.aircraft).catch(() => undefined);
+        // Les bulles, même sans image (ni antenne ni relevé) : les pistes d'exercice viennent de la
+        // télémétrie de nos drones, pas de l'image.
+        const { veillerBulles } = await import("./zones-veille.server");
+        await veillerBulles(image?.aircraft ?? []);
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        g.__afriVeilleEnCours = false;
+      });
   }, RYTHME_MS);
   g.__afriVeilleMinuterie.unref();
 }
