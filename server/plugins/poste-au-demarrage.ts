@@ -15,6 +15,7 @@ import { chargerEtAnnoncer } from "../../src/lib/config-poste";
 import { assurerBot, suspendreBot } from "../../src/lib/vigilair/bot-signal.server";
 import { listDronesServer } from "../../src/lib/vigilair/drones.server";
 import { veillerEnContinu } from "../../src/lib/vigilair/drones-veille.server";
+import { veillerCapteursEnContinu } from "../../src/lib/vigilair/ground-sensors.server";
 import { enregistrerEnContinu } from "../../src/lib/vigilair/rejeu.server";
 import { ecouterAntenne } from "../../src/lib/vigilair/rx1090.server";
 
@@ -27,6 +28,8 @@ export default definePlugin(() => {
   // leurs pistes 1090ES tourne de même, et prévient le chef console fermée.
   void listDronesServer();
   veillerEnContinu();
+  // Les capteurs sol : un silence au-delà de son délai est dit au chef, console fermée aussi.
+  veillerCapteursEnContinu();
   // Le serveur qui s'arrête en douceur ne relève plus le relais Signal (voir suspendreBot). Là
   // seulement où srvx retient déjà les signaux : ailleurs (CI, tests), un écouteur de plus
   // empêcherait Node de s'arrêter sur SIGTERM.

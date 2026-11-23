@@ -14,6 +14,8 @@ export function AlertRelay() {
       // Une piste 1090ES à l'adresse d'un de nos drones : la veille du serveur l'a déjà dite au chef,
       // console ouverte ou non (drones-veille.server) — pas deux fois.
       if (a.id.startsWith("al-owndrone-")) continue;
+      // Un capteur sol : sa veille, dans le serveur, l'a dit (ground-sensors.server).
+      if (a.id.startsWith("sol-")) continue;
       if (a.level !== "elevee" && a.level !== "critique") continue;
       sent.current.add(a.id);
       void pushInstantAlert({

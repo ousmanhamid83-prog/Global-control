@@ -51,6 +51,16 @@ export function hoteSurPlace(adresse: string): boolean {
   return nom === "localhost" || /\.(localhost|local|home\.arpa|internal)$/.test(nom);
 }
 
+/**
+ * L'adresse IP d'un appelant (telle que la donne le serveur : 10.0.0.5, ::1, ::ffff:10.0.0.5) est-elle
+ * sur le réseau du poste ? Même règle que pour une destination ; une adresse vide ou illisible, non.
+ */
+export function appelantSurPlace(ip: string): boolean {
+  const a = ip.trim();
+  if (!a || /[^0-9a-fA-F:.]/.test(a)) return false;
+  return hoteSurPlace(a.includes(":") ? `http://[${a}]/` : `http://${a}/`);
+}
+
 /** Ce que l'opérateur lit quand une adresse est refusée parce qu'elle sort du poste. */
 export const RESEAU_POSTE_EXEMPLES =
   "127.x, 10.x, 172.16–31.x, 192.168.x, nom en .local ou .internal";

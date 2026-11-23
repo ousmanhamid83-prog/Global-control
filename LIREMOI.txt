@@ -1150,8 +1150,8 @@ Symbologie APP-6 et radar
   est la règle sur une carte — pouvaient se voler leur motif et déguiser une panne en terrain vide.
   Chaque requête a désormais son propre contexte.
 - PIÈGE D'HYDRATATION SUR LES REGISTRES (fermé par précaution, pas par panne). Les registres du
-  poste — drones et caméras, sites de veille, capteurs sol, routes, secteurs réseau — gardent un
-  miroir dans le navigateur et le LISENT au premier appel de leur instantané. Or ce même instantané
+  poste — drones et caméras, sites de veille, routes, secteurs réseau ; plus les capteurs sol,
+  dont un état périmé passerait pour présent — gardent un miroir dans le navigateur et le LISENT au premier appel de leur instantané. Or ce même instantané
   servait aussi d'instantané SERVEUR à React, qui appelle cette fonction pendant l'hydratation du
   client : le serveur rend une liste vide (il n'a pas accès au navigateur de l'opérateur) pendant
   que le client lit un miroir déjà peuplé. C'est exactement le motif qui avait produit le défaut,
@@ -1714,10 +1714,29 @@ Détection auto pour les sites (Capteurs > Changement > Sites surveillés)
 - PAR SITE : à l'ajout, « Intrusion aérienne armée » (on/off) et « Rayon alerte phénomènes (km) »
   propre au site (sinon défaut : feu 40 km, crue/séisme 200 km). Les badges « désarmé » / « alerte
   N km » le rappellent dans la liste.
-- CAPTEURS SOL (périmètre) : registre partagé (caméra / barrière / radar) — l'ENTRÉE pour la
-  détection temps réel véhicule/personne AU SOL, ce que l'imagerie satellite ne fait pas. États
-  manuels (ok / alarme / HS) pour l'instant ; une alarme SONNE au bandeau. Un vrai capteur poussera
-  son état sur ce registre quand le matériel sera câblé (data/sensors.json, server fns dédiées).
+- CAPTEURS SOL (périmètre) : caméra, barrière, radar sol. Chacun dit LUI-MÊME son état au poste. Le
+  chef de division l'inscrit (site, nom, délai de silence) et reçoit sa CLÉ, montrée une fois : le
+  poste n'en garde que l'empreinte (SHA-256). Le capteur ou sa passerelle (boîtier d'entrées,
+  enregistreur vidéo, contrôleur industriel) appelle /api/capteur-sol avec cette clé : POST en JSON
+  ou en formulaire, ou une simple adresse (GET) pour les appareils qui ne savent qu'appeler une
+  URL ; etat ok, alarme ou hs, et un court texte (zone, voie). La console affiche les deux commandes
+  prêtes à copier. Depuis le réseau du poste seulement (adresse privée ou locale) ; une mauvaise clé
+  et un capteur inconnu reçoivent le même refus ; 10 messages par seconde au plus par capteur.
+  « OK » ne s'affiche que si le capteur l'a dit dans son délai de silence ; jamais entendu, il est
+  « jamais entendu » ; au-delà du délai, MUET : câble coupé, courant, panne — qui veut passer
+  commence souvent par là. Une alarme, une panne dite par le capteur ou un silence sonnent au
+  bandeau et partent au relais du chef, console fermée aussi (veille du serveur, toutes les 5 s),
+  une fois par épisode, même après un redémarrage ; tout va au journal des opérations (genre
+  « capteur », page Division), retours à OK compris. Avant, l'état était posé à la main (« ok » dès
+  l'inscription, alarme d'un clic) : un clic n'est pas une mesure, c'est retiré. Les fiches d'avant
+  restent, sans clé et « jamais entendu », jusqu'à ce que le chef leur en donne une. Essai sur le
+  serveur construit, console dans un vrai navigateur, le capteur joué par curl avec la commande
+  affichée : premier « ok » vu en 1,6 à 2,9 s ; alarme au bandeau en 2,3 à 2,7 s ; une alarme de 0,2
+  s, finie avant la lecture suivante, vue quand même ; mauvaise clé refusée (401), état inconnu
+  refusé (400) ; silence de 15 s : « muet » après 15,6 s, et au bandeau ; nouvelle clé : l'ancienne
+  refusée, la neuve acceptée ; 10 entrées au journal, aucune redite après un redémarrage ; 0 erreur
+  de page. Pas de vrai capteur branché ici : la passerelle a été jouée par curl. 14 tests ;
+  mutants : 41 sur 41 attrapés (un 42e a montré une ligne inutile, retirée).
 - CE QU'ON NE FAIT PAS : identification / suivi automatique de personnes ou de véhicules SUR L'IMAGE.
   Deux raisons : l'imagerie est archivée (pas du direct, donc pas de suivi temps réel), et c'est du
   ciblage, pas de la sûreté de site. Le temps réel au sol passe par des capteurs sol, pas l'image.

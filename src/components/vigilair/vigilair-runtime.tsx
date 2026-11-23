@@ -36,6 +36,7 @@ import { useVigilair } from "@/lib/vigilair/store";
 import { startTelemetry } from "@/lib/vigilair/telemetry";
 import type { Threat } from "@/lib/vigilair/types";
 import { hydrateSensors, sensorsSnapshot, sensorsServerSnapshot, subscribeSensors } from "@/lib/vigilair/ground-sensors";
+import { avisAlarmeVue, type Avis } from "@/lib/vigilair/ground-sensors-core";
 import { hydrateRoutes } from "@/lib/vigilair/routes";
 import { hydrateFromServer, subscribeWatchSites, watchSitesSnapshot, watchSitesServerSnapshot } from "@/lib/vigilair/watch-sites";
 
@@ -579,33 +580,44 @@ function DroneWatch() {
   return null;
 }
 
-/** Capteurs sol : alerte quand un capteur passe en « alarme » (manuel aujourd'hui, matériel demain). */
+/**
+ * Capteurs sol : la liste relue sur le poste toutes les 3 s. Une alarme, une panne ou un silence
+ * sonnent au bandeau avec le texte et l'id de la veille du serveur, qui les a déjà dits au chef ; une
+ * alarme finie entre deux lectures aussi (son début change). À l'ouverture : l'état présent seul.
+ */
 function SensorWatch() {
   const sensors = useSyncExternalStore(subscribeSensors, sensorsSnapshot, sensorsServerSnapshot);
   const pushAlert = useVigilair((s) => s.pushAlert);
-  const alarmed = useRef<Set<string>>(new Set());
-  const seeded = useRef(false);
+  const vus = useRef<Set<string>>(new Set());
+  const alarmeVue = useRef<Map<string, number | null>>(new Map());
   useEffect(() => {
-    const now = new Set(sensors.filter((s) => s.state === "alarme").map((s) => s.id));
-    if (!seeded.current) {
-      seeded.current = true;
-      alarmed.current = now;
-      return;
-    }
+    void hydrateSensors();
+    const t = window.setInterval(() => void hydrateSensors(), 3000);
+    return () => window.clearInterval(t);
+  }, []);
+  useEffect(() => {
+    const sonner = (a: Avis | null) => {
+      if (!a || vus.current.has(a.id)) return;
+      vus.current.add(a.id);
+      pushAlert({
+        id: a.id,
+        trackId: "",
+        at: Date.now(),
+        level: a.niveau === "info" ? "faible" : a.niveau,
+        title: a.titre,
+        body: a.corps,
+        acked: false,
+      });
+    };
     for (const s of sensors) {
-      if (s.state === "alarme" && !alarmed.current.has(s.id)) {
-        pushAlert({
-          id: `sensor-${s.id}-${Date.now()}`,
-          trackId: "",
-          at: Date.now(),
-          level: "elevee",
-          title: "Capteur sol en alarme",
-          body: `${s.name} (${s.type}) · ${s.site}`,
-          acked: false,
-        });
+      sonner(s.avis);
+      if (!alarmeVue.current.has(s.id)) {
+        alarmeVue.current.set(s.id, s.derniereAlarme);
+      } else if (s.derniereAlarme !== alarmeVue.current.get(s.id)) {
+        alarmeVue.current.set(s.id, s.derniereAlarme);
+        sonner(avisAlarmeVue(s));
       }
     }
-    alarmed.current = now;
   }, [sensors, pushAlert]);
   return null;
 }

@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { diffHeatmap } from "@/lib/vigilair/change-diff";
-import { addSensor, removeSensor, sensorsSnapshot, sensorsServerSnapshot, setSensorState, subscribeSensors, type SensorType } from "@/lib/vigilair/ground-sensors";
+import { CapteursSol } from "@/components/vigilair/capteurs-sol";
 import { DronesReglages } from "@/components/vigilair/drones-reglages";
 import { addDrone, discoverOnvifClient, dronesSnapshot, dronesServerSnapshot, registerCamerasClient, removeDrone, scanRangeClient, scanSourceClient, setDroneRule, setDroneZones, sourceZones, subscribeDrones } from "@/lib/vigilair/drones";
 import { addSiteNet, groupSites, hydrateSiteNets, perimeterSummaryLines, recordSiteScan, removeSiteNet, sectorHealth, siteNetsSnapshot, siteNetsServerSnapshot, subscribeSiteNets } from "@/lib/vigilair/sitenets";
@@ -52,14 +52,6 @@ function SiteManager() {
   const setChangeWatch = useVigilair((s) => s.setChangeWatch);
   const changeThreshold = useVigilair((s) => s.changeThreshold);
   const setChangeThreshold = useVigilair((s) => s.setChangeThreshold);
-  const sensors = useSyncExternalStore(subscribeSensors, sensorsSnapshot, sensorsServerSnapshot);
-  const [snSite, setSnSite] = useState("");
-  const [snType, setSnType] = useState<SensorType>("camera");
-  const [snName, setSnName] = useState("");
-  const addSn = async () => {
-    const r = await addSensor(snSite, snType, snName);
-    if (r.ok) setSnName("");
-  };
 
   // Nos drones : registre partagé + veille mouvement sur leur imagerie.
   const drones = useSyncExternalStore(subscribeDrones, dronesSnapshot, dronesServerSnapshot);
@@ -501,61 +493,8 @@ function SiteManager() {
         </p>
       </div>
 
-      {/* Capteurs SOL — l'entrée pour la détection temps réel véhicule/personne au sol. */}
-      <div className="space-y-2 rounded-sm border border-border bg-bg/40 p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-sm font-medium text-fg">Capteurs sol (périmètre)</h3>
-          <Badge tone="default">{sensors.length}</Badge>
-        </div>
-        <p className="text-[11px] text-muted-foreground">
-          L'<strong>entrée</strong> pour la détection temps réel véhicule/personne AU SOL
-          (caméra/barrière/radar) — ce que l'imagerie satellite ne fait pas. États manuels aujourd'hui ;
-          un vrai capteur poussera son état ici quand le matériel sera câblé. Une alarme sonne au bandeau.
-        </p>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_1fr_auto]">
-          <Input data-sensor="site" placeholder="Site (ex. Camp Nord)" value={snSite} onChange={(e) => setSnSite(e.target.value)} />
-          <select
-            data-sensor="type"
-            value={snType}
-            onChange={(e) => setSnType(e.target.value as SensorType)}
-            className="rounded-sm border border-border bg-bg px-2 py-1.5 text-sm text-fg"
-          >
-            <option value="camera">Caméra</option>
-            <option value="barriere">Barrière</option>
-            <option value="radar">Radar</option>
-            <option value="autre">Autre</option>
-          </select>
-          <Input data-sensor="name" placeholder="Nom du capteur" value={snName} onChange={(e) => setSnName(e.target.value)} />
-          <Button data-sensor="add" size="sm" variant="outline" onClick={() => void addSn()}>
-            <Plus className="mr-1 size-3.5" />
-            Ajouter
-          </Button>
-        </div>
-        {sensors.length > 0 ? (
-          <ul className="divide-y divide-border rounded-sm border border-border">
-            {sensors.map((s) => (
-              <li key={s.id} className="flex flex-wrap items-center gap-2 px-3 py-1.5 text-xs">
-                <Badge tone={s.state === "alarme" ? "crit" : s.state === "hs" ? "warn" : "ok"}>{s.state}</Badge>
-                <span className="text-fg">{s.name}</span>
-                <span className="text-muted-foreground">
-                  {s.type} · {s.site}
-                </span>
-                <div className="ml-auto flex items-center gap-1">
-                  <Button data-sensor-alarm={s.id} size="sm" variant="ghost" onClick={() => void setSensorState(s.id, s.state === "alarme" ? "ok" : "alarme")}>
-                    {s.state === "alarme" ? "Lever" : "Alarme"}
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => void setSensorState(s.id, "hs")}>
-                    HS
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => void removeSensor(s.id)} aria-label={`retirer ${s.name}`}>
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
+      {/* Capteurs SOL : leur état est celui qu'ils disent eux-mêmes au poste. */}
+      <CapteursSol />
 
       {/* NOS drones — suivi ami + imagerie comme SOURCE D'ANALYSE (mouvement), pas un fond. */}
       <div className="space-y-2 rounded-sm border border-border bg-bg/40 p-3">

@@ -1,90 +1,87 @@
 /**
- * Capteurs sol côté client — cache serveur + miroir local (comme routes/sites). Partagé par le poste.
+ * Capteurs sol côté console : la liste lue sur le poste, relue toutes les quelques secondes (voir
+ * SensorWatch). Pas de miroir local : un état gardé dans le navigateur serait un état périmé
+ * affiché comme présent — « OK » ne se dit que sur ce que le poste vient de lire.
  */
 
-import { sensorAdd, sensorRemove, sensorSetState, sensorsList } from "./ground-sensors-api";
-import type { GroundSensor, SensorType } from "./ground-sensors.server";
+import { sensorAdd, sensorNewKey, sensorRemove, sensorsList } from "./ground-sensors-api";
+import type { GroundSensorVue, SensorType } from "./ground-sensors-core";
 import { registreVideServeur } from "./ssr-snapshot";
 
-export type { GroundSensor, SensorType, SensorState } from "./ground-sensors.server";
-
-const MIRROR_KEY = "africontrol.sensors.mirror.v1";
+export type { GroundSensorVue, SensorType } from "./ground-sensors-core";
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
-let cache: GroundSensor[] | null = null;
+let cache: GroundSensorVue[] = registreVideServeur<GroundSensorVue>();
+/** Heure du serveur à la dernière lecture : les « il y a » se comptent sur elle. */
+let heure = 0;
 
-function readMirror(): GroundSensor[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(MIRROR_KEY);
-    const arr: unknown = raw ? JSON.parse(raw) : [];
-    return Array.isArray(arr) ? (arr as GroundSensor[]) : [];
-  } catch {
-    return [];
-  }
-}
-function writeMirror(list: GroundSensor[]): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(MIRROR_KEY, JSON.stringify(list));
-  } catch {
-    /* quota / privé */
-  }
-}
-function set(list: GroundSensor[]): void {
-  cache = list;
-  writeMirror(list);
+function set(capteurs: GroundSensorVue[], maintenant: number): void {
+  cache = capteurs;
+  heure = maintenant;
   listeners.forEach((l) => l());
 }
 
-export function sensorsSnapshot(): GroundSensor[] {
-  if (!cache) cache = readMirror();
+export function sensorsSnapshot(): GroundSensorVue[] {
   return cache;
 }
 
-/**
- * Instantané SERVEUR : vide et de référence stable. React appelle cette fonction au rendu
- * serveur ET pendant l'hydratation du client ; lui donner l'instantané vivant ferait rendre
- * au client le miroir `localStorage` que le HTML du serveur ne contenait pas.
- */
-export function sensorsServerSnapshot(): GroundSensor[] {
-  return registreVideServeur<GroundSensor>();
+/** Instantané du rendu serveur : vide et de référence stable (voir ssr-snapshot). */
+export function sensorsServerSnapshot(): GroundSensorVue[] {
+  return registreVideServeur<GroundSensorVue>();
 }
+
+export function sensorsHeureServeur(): number {
+  return heure;
+}
+
 export function subscribeSensors(l: Listener): () => void {
   listeners.add(l);
   return () => listeners.delete(l);
 }
+
 export async function hydrateSensors(): Promise<void> {
   try {
-    const list = await sensorsList();
-    set(Array.isArray(list) ? list : []);
+    const r = await sensorsList();
+    set(Array.isArray(r?.capteurs) ? r.capteurs : [], r?.maintenant ?? Date.now());
   } catch {
-    /* poste injoignable : on garde le miroir */
+    /* poste injoignable : la prochaine lecture réessaie */
   }
 }
-export async function addSensor(site: string, type: SensorType, name: string): Promise<{ ok: boolean; error?: string }> {
+
+const raison = (e: unknown) => (e instanceof Error && e.message ? e.message : "poste injoignable");
+
+export async function addSensor(
+  site: string,
+  type: SensorType,
+  name: string,
+  silenceS: number,
+): Promise<{ ok: boolean; error?: string; cle?: string; id?: string }> {
   try {
-    const res = await sensorAdd({ data: { site, type, name } });
-    if (res.ok && res.sensors) set(res.sensors);
-    return { ok: res.ok, error: res.error };
-  } catch {
-    return { ok: false, error: "poste injoignable" };
+    const r = await sensorAdd({ data: { site, type, name, silenceS } });
+    await hydrateSensors();
+    return r;
+  } catch (e) {
+    return { ok: false, error: raison(e) };
   }
 }
-export async function setSensorState(id: string, state: GroundSensor["state"]): Promise<void> {
+
+export async function newSensorKey(
+  id: string,
+): Promise<{ ok: boolean; error?: string; cle?: string }> {
   try {
-    const res = await sensorSetState({ data: { id, state } });
-    if (res?.sensors) set(res.sensors);
-  } catch {
-    /* réessayable */
+    return await sensorNewKey({ data: { id } });
+  } catch (e) {
+    return { ok: false, error: raison(e) };
   }
 }
-export async function removeSensor(id: string): Promise<void> {
+
+export async function removeSensor(id: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await sensorRemove({ data: { id } });
-    if (res?.sensors) set(res.sensors);
-  } catch {
-    /* réessayable */
+    const r = await sensorRemove({ data: { id } });
+    await hydrateSensors();
+    return r;
+  } catch (e) {
+    return { ok: false, error: raison(e) };
   }
 }

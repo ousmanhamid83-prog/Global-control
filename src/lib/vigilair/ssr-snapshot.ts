@@ -1,8 +1,9 @@
 /**
  * INSTANTANÉ SERVEUR DES REGISTRES — cœur PUR.
  *
- * Les registres du poste (drones et caméras, sites de veille, capteurs sol, routes, secteurs
- * réseau) gardent un miroir dans `localStorage` et le LISENT au premier appel de leur instantané.
+ * Les registres du poste (drones et caméras, sites de veille, routes, secteurs réseau) gardent un
+ * miroir dans `localStorage` et le LISENT au premier appel de leur instantané. (Les capteurs sol
+ * n'en ont plus : un état gardé dans le navigateur serait un état périmé affiché comme présent.)
  * Or ce même instantané servait aussi de « getServerSnapshot » à React — la fonction que React
  * appelle au rendu serveur ET pendant l'hydratation du client.
  *

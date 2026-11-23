@@ -23,6 +23,7 @@ import { Route as RadarRouteImport } from './routes/radar'
 import { Route as SentinelleRouteImport } from './routes/sentinelle'
 import { Route as TableauRouteImport } from './routes/tableau'
 import { Route as ZonesRouteImport } from './routes/zones'
+import { Route as ApiCapteurSolRouteImport } from './routes/api/capteur-sol'
 import { Route as ApiMosaiqueRouteImport } from './routes/api/mosaique'
 import { Route as ApiMosaiqueCouvertureRouteImport } from './routes/api/mosaique-couverture'
 import { Route as ApiSatRouteImport } from './routes/api/sat'
@@ -100,6 +101,11 @@ const ZonesRoute = ZonesRouteImport.update({
   path: '/zones',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCapteurSolRoute = ApiCapteurSolRouteImport.update({
+  id: '/api/capteur-sol',
+  path: '/api/capteur-sol',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiMosaiqueRoute = ApiMosaiqueRouteImport.update({
   id: '/api/mosaique',
   path: '/api/mosaique',
@@ -146,6 +152,7 @@ export interface FileRoutesByFullPath {
   '/sentinelle': typeof SentinelleRoute
   '/tableau': typeof TableauRoute
   '/zones': typeof ZonesRoute
+  '/api/capteur-sol': typeof ApiCapteurSolRoute
   '/api/mosaique': typeof ApiMosaiqueRoute
   '/api/mosaique-couverture': typeof ApiMosaiqueCouvertureRoute
   '/api/sat': typeof ApiSatRoute
@@ -168,6 +175,7 @@ export interface FileRoutesByTo {
   '/sentinelle': typeof SentinelleRoute
   '/tableau': typeof TableauRoute
   '/zones': typeof ZonesRoute
+  '/api/capteur-sol': typeof ApiCapteurSolRoute
   '/api/mosaique': typeof ApiMosaiqueRoute
   '/api/mosaique-couverture': typeof ApiMosaiqueCouvertureRoute
   '/api/sat': typeof ApiSatRoute
@@ -191,6 +199,7 @@ export interface FileRoutesById {
   '/sentinelle': typeof SentinelleRoute
   '/tableau': typeof TableauRoute
   '/zones': typeof ZonesRoute
+  '/api/capteur-sol': typeof ApiCapteurSolRoute
   '/api/mosaique': typeof ApiMosaiqueRoute
   '/api/mosaique-couverture': typeof ApiMosaiqueCouvertureRoute
   '/api/sat': typeof ApiSatRoute
@@ -215,6 +224,7 @@ export interface FileRouteTypes {
     | '/sentinelle'
     | '/tableau'
     | '/zones'
+    | '/api/capteur-sol'
     | '/api/mosaique'
     | '/api/mosaique-couverture'
     | '/api/sat'
@@ -237,6 +247,7 @@ export interface FileRouteTypes {
     | '/sentinelle'
     | '/tableau'
     | '/zones'
+    | '/api/capteur-sol'
     | '/api/mosaique'
     | '/api/mosaique-couverture'
     | '/api/sat'
@@ -259,6 +270,7 @@ export interface FileRouteTypes {
     | '/sentinelle'
     | '/tableau'
     | '/zones'
+    | '/api/capteur-sol'
     | '/api/mosaique'
     | '/api/mosaique-couverture'
     | '/api/sat'
@@ -282,6 +294,7 @@ export interface RootRouteChildren {
   SentinelleRoute: typeof SentinelleRoute
   TableauRoute: typeof TableauRoute
   ZonesRoute: typeof ZonesRoute
+  ApiCapteurSolRoute: typeof ApiCapteurSolRoute
   ApiMosaiqueRoute: typeof ApiMosaiqueRoute
   ApiMosaiqueCouvertureRoute: typeof ApiMosaiqueCouvertureRoute
   ApiSatRoute: typeof ApiSatRoute
@@ -390,6 +403,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ZonesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/capteur-sol': {
+      id: '/api/capteur-sol'
+      path: '/api/capteur-sol'
+      fullPath: '/api/capteur-sol'
+      preLoaderRoute: typeof ApiCapteurSolRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/mosaique': {
       id: '/api/mosaique'
       path: '/api/mosaique'
@@ -450,6 +470,7 @@ const rootRouteChildren: RootRouteChildren = {
   SentinelleRoute: SentinelleRoute,
   TableauRoute: TableauRoute,
   ZonesRoute: ZonesRoute,
+  ApiCapteurSolRoute: ApiCapteurSolRoute,
   ApiMosaiqueRoute: ApiMosaiqueRoute,
   ApiMosaiqueCouvertureRoute: ApiMosaiqueCouvertureRoute,
   ApiSatRoute: ApiSatRoute,

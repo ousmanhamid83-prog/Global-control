@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { hoteSurPlace, serveurPoste } from "./reseau-poste.ts";
+import { appelantSurPlace, hoteSurPlace, serveurPoste } from "./reseau-poste.ts";
 
 describe("réseau du poste : la seule destination où une donnée peut partir", () => {
   it("SUR PLACE : bouclage, privé, lien local, IPv6 locale, noms réservés au réseau local", () => {
@@ -47,6 +47,32 @@ describe("réseau du poste : la seule destination où une donnée peut partir", 
       "",
     ]) {
       assert.equal(hoteSurPlace(url), false, url);
+    }
+  });
+
+  it("APPELANT : son adresse IP, comme le serveur la donne, sur le réseau du poste ou non", () => {
+    for (const ip of [
+      "127.0.0.1",
+      "10.0.0.5",
+      "192.168.1.20",
+      "::1",
+      "::ffff:10.0.0.5",
+      "fe80::1",
+    ]) {
+      assert.equal(appelantSurPlace(ip), true, ip);
+    }
+    for (const ip of [
+      "8.8.8.8",
+      "100.64.0.1",
+      "::ffff:8.8.8.8",
+      "2001:db8::1",
+      "",
+      " ",
+      "10.0.0.5@evil.com",
+      "evil.local",
+      "10.0.0.5/",
+    ]) {
+      assert.equal(appelantSurPlace(ip), false, ip);
     }
   });
 
