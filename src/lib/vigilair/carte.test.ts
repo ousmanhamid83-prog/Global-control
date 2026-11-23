@@ -184,13 +184,15 @@ describe("carte : les pistes reçues", () => {
     assert.equal(props(c).cap, 0);
   });
 
-  it("au large, un ami ordinaire se tait ; sélection, urgence et drone B6 gardent leur étiquette, en tête", () => {
+  it("au large, un ami ordinaire se tait ; sélection, urgence et drone gardent leur étiquette, en tête", () => {
     const c = pistesGeo(
       [
         track({ id: "ami" }),
         track({ id: "sel" }),
         track({ id: "urg", emergency: "7700" } as Partial<Track>),
         track({ id: "b6", category: "b6" } as Partial<Track>),
+        // Un autre modèle, reconnu à son seul type OACI.
+        track({ id: "tb2", icaoType: "BTB2" } as Partial<Track>),
       ],
       opts({ large: true, ami: () => true, selectedId: "sel" }),
     );
@@ -199,11 +201,14 @@ describe("carte : les pistes reçues", () => {
     assert.notEqual(parId.get("sel")!.l1, "");
     assert.notEqual(parId.get("urg")!.l1, "");
     assert.notEqual(parId.get("b6")!.l1, "");
+    assert.notEqual(parId.get("tb2")!.l1, "");
     assert.deepEqual(
-      ["sel", "urg", "b6", "ami"].map((id) => parId.get(id)!.rang),
-      [0, 1, 2, 3],
+      ["sel", "urg", "b6", "tb2", "ami"].map((id) => parId.get(id)!.rang),
+      [0, 1, 2, 2, 3],
     );
-    assert.equal(parId.get("b6")!.b6, true);
+    assert.equal(parId.get("b6")!.drone, true);
+    assert.equal(parId.get("tb2")!.drone, true);
+    assert.equal(parId.get("ami")!.drone, false);
     assert.equal(parId.get("urg")!.urgence, true);
   });
 
@@ -229,6 +234,10 @@ describe("carte : les pistes reçues", () => {
         false,
       )[0],
       "R1702 MIL UAV 1090",
+    );
+    assert.equal(
+      etiquettePiste(track({ callsign: "TB2X", icaoType: "BTB2" } as Partial<Track>), p, false)[0],
+      "TB2X UAV 1090",
     );
   });
 

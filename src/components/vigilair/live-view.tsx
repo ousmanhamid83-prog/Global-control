@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PLATFORM_BY_ID } from "@/lib/vigilair/catalog";
+import { droneDeclare } from "@/lib/vigilair/drones-oaci";
 import { formatClock } from "@/lib/vigilair/format";
 import { AO, formatCoord, haversineKm } from "@/lib/vigilair/geo";
 import {
@@ -523,7 +524,7 @@ function AdsbPanel() {
                       MIL
                     </Badge>
                   ) : null}
-                  {t.category?.toUpperCase() === "B6" ? (
+                  {droneDeclare(t) ? (
                     <Badge tone="crit" className="ml-2">
                       UAV
                     </Badge>

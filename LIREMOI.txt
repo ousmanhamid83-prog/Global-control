@@ -492,11 +492,49 @@ Imagerie en haut zoom sur un SITE ISOLÉ — la vérité
 
 Verrou auto sur piste réelle
 - Sans choix de l'opérateur, le panneau de droite suit la piste 1090ES réelle prioritaire :
-  urgence (7500/7600/7700) > drone B6 > militaire > GNSS douteux (NIC < 5) > plus proche de FTTJ.
-  Urgence et B6 comptent sur le Tchad, le Darfour et l'AES ; militaire et GNSS sur Tchad et Darfour.
+  urgence (7500/7600/7700) > drone déclaré (B6 ou type OACI) > militaire > GNSS douteux (NIC < 5) >
+  plus proche de FTTJ. Urgence et drone comptent sur le Tchad, le Darfour et l'AES ; militaire et
+  GNSS sur Tchad et Darfour.
 - Le bandeau « VERROU AUTO » dit pourquoi. Un clic sur une piste reprend la main ; « Rendre au
   verrou auto » la lui redonne ; « Couper le verrou auto » laisse le panneau vide.
 - Un rejeu ou un exercice n'est jamais pris par le verrou auto. La carte ne bouge pas toute seule.
+- DRONES DÉCLARÉS : CAPTURE SEULE AU-DESSUS DE L'AFRIQUE ET DU MOYEN-ORIENT, TCHAD D'ABORD (ordre du
+  chef ; src/lib/vigilair/regions-drones.ts, drones-oaci.ts). Un drone se déclare sur 1090ES par la
+  catégorie B6 ou, pour les autres modèles, par son type OACI : les 17 indicatifs du Doc 8643 de
+  l'OACI (relevé le 23 novembre 2026) dont chaque modèle inscrit est sans pilote — Akıncı, Anka,
+  TB-2, TB-3, Kızılelma, Falco, GJ-11, Hermes 900, Heron / Harfang, MQ-1, MQ-9, RQ-4 / MQ-4, MQ-25,
+  MQ-28, XQ-58, X-47B, S-15 Patroller. Écartés malgré un nom proche : HERN (le Heron piloté de
+  De Havilland), Q5 (le Q-5 d'attaque), S15S (le motoplaneur S-15), FRBD (le Firebird, à pilote
+  optionnel). Avant, seul B6 comptait : un drone qui ne disait que son type passait pour du trafic,
+  sans alerte ni intrusion de bulle. Il est désormais reconnu partout : alerte, bulles, verrou auto,
+  symbole, étiquette « UAV » de la carte, comptes de veille.
+- La caméra part seule quand un tel drone naît au-dessus de l'Afrique (57 contours : les États, le
+  Sahara occidental, le Somaliland, Bir Tawil) ou du Moyen-Orient (20 : l'Asie de l'Ouest sans
+  l'Arménie, l'Azerbaïdjan ni la Géorgie, et l'Iran ; Chypre entière). Frontières Natural Earth
+  1:10 M (domaine public) ; au large, la côte la plus proche, à 29 km au plus : 12 milles marins
+  d'eaux territoriales (22,2 km) et 5,9 km d'écart mesuré entre le contour simplifié et sa source.
+  Entre deux côtes, la ligne d'équidistance : l'Espagne, la Grèce, le Caucase, l'Afghanistan, le
+  Pakistan et le Turkménistan gardent ce qui est à eux. Les territoires européens (Canaries, Ceuta,
+  Réunion, Mayotte, Sainte-Hélène) n'en sont pas.
+- Une seule scène à la fois, une fois par drone et par session de la console, jamais pour un des
+  nôtres confirmé par le chef (avant, s'il émettait B6 au Tchad, si). Le théâtre le plus proche
+  passe d'abord, dans l'ordre du verrou auto : un drone au-dessus du Tchad reprend la caméra à la
+  capture seule d'un drone plus lointain ; une scène ouverte à la main reste à l'opérateur. La bande
+  « Théâtre » affiche désormais pourquoi la caméra est là : « Capture visible ≤ 10 m · catégorie
+  B6 · HRON (Heron / Harfang) · Israël » (ce texte, gardé avec la scène, n'était montré nulle part).
+  Ailleurs dans le monde : l'alerte, et la capture au clic.
+- Essais réels sur le serveur construit, relevé Internet allumé en balayage total. Avant la priorité
+  au Tchad (deux essais) : la caméra est partie seule sur BOOSTER, drone réel au-dessus d'Israël
+  (catégorie B6, type HRON), à 2 976 km de l'aérodrome ; des drones B6 réels hors région, dans les
+  mêmes relevés (SPEEDY0 et CEPTOR en Allemagne, AR39028 en Angleterre), ont levé leur alerte sans
+  prendre la caméra ; un drone réel au-dessus du Qatar (A98AC0, B6), né pendant la scène BOOSTER,
+  est resté à son alerte. Sur la version livrée, BOOSTER posé : la caméra est partie seule sur ce
+  drone du Qatar ; ceux de Californie et d'Arizona (dont N190TC, type Q9, un MQ-9), alerte seule.
+  Scène fermée, 150 s de relevés sans qu'elle reparte (deux essais) ; 0 erreur de page. Les types
+  HRON et Q9 se voient donc en vrai, sur des drones qui émettent aussi B6 ; un drone reconnu à son
+  seul type n'a pas été vu pendant ces essais : les tests le prouvent. Contrôlé sur le 1:10 M :
+  aucun sommet manqué sur les 4 307 des îles de la région ; à une frontière terrestre, le contour
+  simplifié se trompe de côté sur 5,3 km au plus. 14 tests, 51 mutants sur 51.
 
 Inject « Rejeu réel »
 - Injecter > Rejeu réel : rejoue de VRAIS avions reçus, pas un scénario. Bande de ce poste (les
@@ -605,9 +643,10 @@ La carte du poste — MapLibre GL JS (bibliothèque de cartographie libre)
   pixel d'écart) ; capture PNG du COP ; 0 erreur console.
 - Trouvés par l'essai et corrigés : la carte restait noire et sourde au pointeur (son conteneur
   faisait 0 pixel de haut) ; un UAV réel entendu au loin (catégorie B6, à 3454 km) faisait sauter la
-  carte sur lui — la capture auto ne vaut plus que pour un B6 né sur le théâtre tchadien ; à la
-  première connexion, la page tentait d'ouvrir une session avant de savoir s'il existait un chef
-  (refus 401) — elle attend désormais de le savoir.
+  carte sur lui — la capture auto ne valait alors que pour un B6 né sur le théâtre tchadien (étendue
+  depuis, sur ordre du chef : voir Drones déclarés, dans Verrou auto) ; à la première connexion, la
+  page tentait d'ouvrir une session avant de savoir s'il existait un chef (refus 401) — elle attend
+  désormais de le savoir.
 - L'onglet RADAR reste un scope (PPI) : une image radar autour du poste, pas une carte ; il ne
   montre que des pistes reçues.
 - RADAR DU POSTE. L'écran polaire, sa coupe d'altitude, la vue Identification, le débruitage, le

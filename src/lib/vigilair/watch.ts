@@ -1,5 +1,6 @@
 /** Quart de veille — gel capteurs réel, pas un scénario. */
 
+import { droneDeclare } from "./drones-oaci.ts";
 import type { LivePicture } from "./live-adsb";
 
 export type WatchSnap = {
@@ -120,7 +121,7 @@ export function snapFromPicture(pic: LivePicture | null, cop: WatchCop): WatchSn
     local: pic.localN,
     emergency: pic.emergencies.length,
     military: pic.aircraft.filter((a) => a.military).length,
-    uav: pic.aircraft.filter((a) => (a.category ?? "").toUpperCase() === "B6").length,
+    uav: pic.aircraft.filter((a) => droneDeclare(a)).length,
     metarFttj: cap(fttj?.raw),
     cat: fttj?.cat ?? null,
     tafFttj: cap(taf?.raw, 600),

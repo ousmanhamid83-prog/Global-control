@@ -1,5 +1,6 @@
 /** Bulles de protection C-UAS — N'Djamena. AfriControl n'émet pas. */
 
+import { droneDeclare } from "./drones-oaci.ts";
 import { isFriend } from "./friends.ts";
 import { haversineKm, headingBetween } from "./geo.ts";
 import { PROTECTED_SITES } from "./sensors.ts";
@@ -70,15 +71,16 @@ export function getLiveZones(): ZoneRow[] {
   return liveZones;
 }
 
-/** UAS / piste mandatée. Civil 1090ES (hors B6) = trafic, pas une intrusion. */
+/** UAS / piste mandatée. Civil 1090ES (pas un drone déclaré) = trafic, pas une intrusion. */
 export function isUasThreat(t: Track): boolean {
   if (isFriend(t)) return false;
   // Un rejeu est du passé : il ne déclenche jamais une intrusion (ni son signalement au serveur).
   if (t.feed === "rejeu") return false;
   // Exercice : le drone joue un intrus, et c'est précisément ce que l'exercice éprouve.
   if (t.feed === "exercice") return true;
-  // 1090ES : seul un émetteur de catégorie B6 (UAV) est une menace ; le reste est du trafic.
-  return (t.category ?? "").toUpperCase() === "B6";
+  // 1090ES : seul un drone qui se déclare (catégorie B6, ou type OACI de drone) est une menace ; le
+  // reste est du trafic.
+  return droneDeclare(t) !== null;
 }
 
 function asContact(t: Track, distKm: number): ZoneContact {

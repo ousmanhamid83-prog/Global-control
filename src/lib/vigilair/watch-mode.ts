@@ -44,7 +44,7 @@ export function evaluateWatch(opts: {
     return { wake: true, reason: "Posture alerte", ident: false };
   }
   if (opts.uav > 0) {
-    return { wake: true, reason: `${opts.uav} UAV B6`, ident: false };
+    return { wake: true, reason: `${opts.uav} UAV`, ident: false };
   }
   if (opts.unackedHot > 0) {
     return {

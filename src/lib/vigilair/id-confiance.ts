@@ -45,7 +45,7 @@ export type TypeConnu =
   | "declare"
   /** Aéronef coopératif dont le type est inconnu : on sait QU'il vole, pas CE QU'il est. */
   | "inconnu"
-  /** Drone coopératif (catégorie B6 émise par l'appareil) : le genre est déclaré, pas le modèle. */
+  /** Drone coopératif (catégorie B6, ou type OACI de drone) : le genre est déclaré. */
   | "drone";
 
 export type IdPreuves = {

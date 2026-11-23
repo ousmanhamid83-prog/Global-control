@@ -985,7 +985,7 @@ export const PLATFORMS: Platform[] = [
 export const OUT_OF_MANDATE: Platform[] = [
   p({
     id: "adsb-uav",
-    name: "UAS ADS-B (B6)",
+    name: "UAS ADS-B",
     manufacturer: "Inconnu",
     origin: "XX",
     originLabel: "Hors mandat",
@@ -999,16 +999,16 @@ export const OUT_OF_MANDATE: Platform[] = [
     cruiseKmh: 120,
     maxKmh: 180,
     rfBands: ["1090ES"],
-    protocol: "ADS-B emitter category B6",
+    protocol: "ADS-B : catégorie B6 ou type OACI de drone",
     remoteId: false,
     payload: "UAS avec transpondeur 1090ES live",
     cues: {
-      rf: "Squitter DF17, catégorie B6 UAV. Pas un airliner.",
+      rf: "Squitter DF17, catégorie B6 ou type OACI de drone. Pas un airliner.",
       visual: "Aile fixe ou VTOL selon type ICAO.",
       kinematic: "Plus lent qu'un IFR civil, plafond bas.",
       acoustic: "Selon propulsion — non déterminé par 1090.",
     },
-    notes: "Contact 1090ES réel classé UAV (catégorie B6). Hors mandat tant que l'origine n'est pas CN/TR/RU/IR.",
+    notes: "Contact 1090ES réel classé UAV (catégorie B6, ou type OACI de drone du Doc 8643). Hors mandat tant que l'origine n'est pas CN/TR/RU/IR.",
   }),
   p({
     id: "skydio-x10",

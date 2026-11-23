@@ -217,8 +217,9 @@ export function ZoneView() {
           <ul className="max-h-80 space-y-1 overflow-y-auto">
             {breaches.length === 0 ? (
               <li className="text-sm text-muted-foreground">
-                Aucune intrusion encore. Une piste UAS dans le rayon (catégorie B6
-                en 1090ES, ou un vol d'exercice) verse une ligne ici.
+                Aucune intrusion encore. Une piste UAS dans le rayon (un drone qui se
+                déclare en 1090ES, par la catégorie B6 ou un type OACI de drone, ou un vol
+                d'exercice) verse une ligne ici.
               </li>
             ) : (
               breaches.map((r) => (

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { computePosture } from "@/lib/vigilair/defense";
+import { droneDeclare } from "@/lib/vigilair/drones-oaci";
 import { theaterRank } from "@/lib/vigilair/geo";
 import { autoSatLayer, evaluateWatch } from "@/lib/vigilair/watch-mode";
 import { useVigilair } from "@/lib/vigilair/store";
@@ -30,11 +31,7 @@ export function WatchMode() {
       const unackedHot = st.alerts.filter(
         (a) => !a.acked && (a.level === "elevee" || a.level === "critique"),
       ).length;
-      const uav = tracks.filter(
-        (t) =>
-          t.idState !== "perdu" &&
-          (t.category ?? "").toUpperCase() === "B6",
-      ).length;
+      const uav = tracks.filter((t) => t.idState !== "perdu" && droneDeclare(t)).length;
       const intrusion = st.zonePicture.some((z) => z.level === "intrusion");
       const emergency = tracks.filter((t) => t.emergency && t.idState !== "perdu").length;
 

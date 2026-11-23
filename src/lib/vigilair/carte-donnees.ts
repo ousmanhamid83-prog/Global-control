@@ -15,6 +15,7 @@ import {
   type FormePiste,
 } from "./carte-icones.ts";
 import type { Coins, PointGeo } from "./drones-fond.ts";
+import { droneDeclare } from "./drones-oaci.ts";
 import { formatAzimut, formatRange, haversineKm, headingBetween, predictPath } from "./geo.ts";
 import type { Track } from "./types";
 
@@ -97,13 +98,13 @@ export function etiquettePiste(
   plateforme: { name: string; uasClass: string } | undefined,
   detaillee: boolean,
 ): [string, string] {
-  const b6 = t.category?.toUpperCase() === "B6";
+  const drone = droneDeclare(t) !== null;
   const tete =
     t.feed === "rejeu"
       ? `${t.callsign} REJ`
       : t.feed === "exercice"
         ? `${t.callsign} EXERCICE`
-        : `${t.callsign}${t.military ? " MIL" : ""}${b6 ? " UAV" : ""} 1090`;
+        : `${t.callsign}${t.military ? " MIL" : ""}${drone ? " UAV" : ""} 1090`;
   const nom = detaillee && plateforme ? ` · ${plateforme.name}` : "";
   if (t.iff) return [tete, `${t.iff.mode} ${t.iff.squawk}${nom}`];
   if (!detaillee) return [tete, `${Math.round(t.altM)} m`];
@@ -134,8 +135,8 @@ export function pistesGeo(
   for (const t of tracks) {
     const a = o.allure(t);
     const sel = t.id === o.selectedId || t.locked;
-    const b6 = t.category?.toUpperCase() === "B6";
-    const discrete = o.large && o.ami(t) && !sel && !t.emergency && !b6;
+    const drone = droneDeclare(t) !== null;
+    const discrete = o.large && o.ami(t) && !sel && !t.emergency && !drone;
     const [l1, l2] = discrete ? ["", ""] : etiquettePiste(t, o.plateforme(t), o.detaillee);
     features.push(
       point(t.lat, t.lon, {
@@ -147,12 +148,12 @@ export function pistesGeo(
         sel,
         verrou: t.locked,
         urgence: Boolean(t.emergency),
-        b6,
+        drone,
         douteux: t.nic != null && t.nic < 5,
         l1,
         l2,
         // L'ordre des étiquettes quand elles se gênent : la sélection, l'urgence, le drone d'abord.
-        rang: sel ? 0 : t.emergency ? 1 : b6 ? 2 : 3,
+        rang: sel ? 0 : t.emergency ? 1 : drone ? 2 : 3,
       }),
     );
   }

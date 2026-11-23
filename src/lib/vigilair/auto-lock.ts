@@ -13,6 +13,7 @@
  * sélection courante est vide ou vient de lui.
  */
 
+import { droneDeclare, libelleDrone } from "./drones-oaci.ts";
 import { HOME, haversineKm, theaterOf, theaterRank } from "./geo.ts";
 import type { Track } from "./types";
 
@@ -48,8 +49,9 @@ export function classify(t: Track): AutoPick {
   if (rank >= 3 && t.emergency) {
     return { id: t.id, cls: 0, reason: `urgence ${t.emergency} · ${near}`, distKm };
   }
-  if (rank >= 3 && t.category?.toUpperCase() === "B6") {
-    return { id: t.id, cls: 1, reason: `UAS catégorie B6 · ${near}`, distKm };
+  const drone = droneDeclare(t);
+  if (rank >= 3 && drone) {
+    return { id: t.id, cls: 1, reason: `UAS ${libelleDrone(drone)} · ${near}`, distKm };
   }
   if (rank >= 4 && t.military) {
     return { id: t.id, cls: 2, reason: `militaire · ${near}`, distKm };

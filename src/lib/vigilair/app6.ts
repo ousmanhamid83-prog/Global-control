@@ -7,6 +7,7 @@
  * qui n'est ni du trafic ASECNA ni l'un de nos drones reste INCONNU, pas HOSTILE.
  */
 
+import { droneDeclare } from "./drones-oaci.ts";
 import type { Threat, Track } from "./types";
 
 /** Ami par affiliation (trafic ASECNA, nos drones), distinct de l'origine constructeur. */
@@ -66,8 +67,8 @@ export function affiliationOf(t: Track, threat: Threat): { affiliation: Affiliat
     }
     return { affiliation: "suspect", reason: `mandat ${t.origin} · à lever` };
   }
-  // 1090ES civil net (confirmé, non militaire, pas un UAV catégorie B6) : neutre.
-  if (t.feed === "adsb" && t.idState === "confirme" && !t.military && t.category?.toUpperCase() !== "B6") {
+  // 1090ES civil net (confirmé, non militaire, pas un drone déclaré) : neutre.
+  if (t.feed === "adsb" && t.idState === "confirme" && !t.military && !droneDeclare(t)) {
     return { affiliation: "neutre", reason: "1090ES civil · hors mandat" };
   }
   return { affiliation: "inconnu", reason: "ni ami, ni civil confirmé, ni mandat" };

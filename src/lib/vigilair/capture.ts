@@ -1,6 +1,7 @@
 /** Capture ident — scène Sentinel-2 / World Imagery, détections de gabarit. AfriControl n'émet pas. */
 
 import { AERODROMES } from "./aerodromes";
+import { droneDeclare } from "./drones-oaci";
 import {
   CORRIDORS,
   HOME,
@@ -820,7 +821,7 @@ export function analyzeScene(opts: {
     if (t.idState === "perdu") continue;
     const d = haversineKm(lat, lon, t.lat, t.lon);
     if (d > rKm) continue;
-    const uav = (t.category ?? "").toUpperCase() === "B6" || t.feed !== "adsb";
+    const uav = droneDeclare(t) !== null || t.feed !== "adsb";
     out.push({
       id: `trk-${t.id}`,
       label: t.callsign,

@@ -2,6 +2,7 @@
 
 import type { Phenomenon } from "./capture";
 import { PLATFORM_BY_ID } from "./catalog.ts";
+import { droneDeclare } from "./drones-oaci.ts";
 import {
   checkJump,
   coastRadiusKm,
@@ -218,7 +219,7 @@ export function countLive(tracks: Track[]): {
     if (haversineKm(t.lat, t.lon, AO.centerLat, AO.centerLon) <= 120) local += 1;
     if (t.emergency) emergency += 1;
     if (t.military) military += 1;
-    if (t.category?.toUpperCase() === "B6") uav += 1;
+    if (droneDeclare(t)) uav += 1;
   }
   return { n, local, emergency, military, uav };
 }
@@ -427,7 +428,8 @@ export function liveAcToTrack(ac: LiveAc, now: number, prev?: Track): Track {
   // Ce que l'aéronef admet ignorer de sa propre position : rayon annoncé, sinon table NIC, sinon
   // plancher prudent pour une position calculée. Jamais un point exact par défaut.
   const rc = declaredRcKm(ac);
-  const uav = ac.category?.toUpperCase() === "B6";
+  // Un drone qui se déclare (catégorie B6, ou type OACI de drone) est la plate-forme « UAS ADS-B ».
+  const uav = droneDeclare(ac) !== null;
   const platId = uav ? "adsb-uav" : platformIdForType(ac.icaoType);
   const plat =
     PLATFORM_BY_ID[platId] ?? FRIEND_BY_ID[platId] ?? FRIEND_BY_ID["asecna-unk"]!;

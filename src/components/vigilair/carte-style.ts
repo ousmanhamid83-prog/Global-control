@@ -898,10 +898,10 @@ export function couchesDonnees(p: Palette): LayerSpecification[] {
       },
     },
     {
-      id: "pistes-b6",
+      id: "pistes-drone",
       type: "circle",
       source: "pistes",
-      filter: vrai("b6"),
+      filter: vrai("drone"),
       paint: {
         "circle-radius": 11,
         "circle-opacity": 0,

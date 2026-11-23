@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { PLATFORM_BY_ID, threatRank } from "./catalog";
 import { methodBlurb } from "./engine";
 import { bulletinToJournal, fileEvidence } from "./evidence-store";
-import { AO, HOME, SCALE, haversineKm, nearestCity, theaterOf, theaterRank, type GeoOrigin, type MapScale } from "./geo";
+import { AO, HOME, SCALE, haversineKm, nearestCity, theaterRank, type GeoOrigin, type MapScale } from "./geo";
 import { isFriend } from "./friends";
 import { nextThreatFloor, passesPaintFilter, type ThreatFloor } from "./iff";
 import { autoLockPick, type AutoPick } from "./auto-lock";
@@ -63,6 +63,8 @@ import { exerciceEnCours } from "./drones-core";
 import { constat1090 } from "./drones-pilotage";
 import { telemetriePour } from "./drones-suivi";
 import { PREFIXE_EXERCICE, pisteExercice } from "./exercice";
+import { droneDeclare, libelleDrone } from "./drones-oaci";
+import { cameraLibre, droneACapturer, PREFIXE_CAPTURE_DRONE } from "./regions-drones";
 
 /** Dernier relevé de la veille drone : mouvement %, zones, indice de présence, et capture figée. */
 export type DroneMotion = {
@@ -332,6 +334,8 @@ const jumpWarned = new Set<string>();
  */
 const zoneWarned = new Map<string, string>();
 const phenomWarned = new Set<string>();
+/** Drones déjà capturés seuls : une fois par drone et par session de la console. */
+const capturesAuto = new Set<string>();
 const snaps: Snap[] = [];
 let replayView: Track[] | null = null;
 let replayAcc = 0;
@@ -1461,16 +1465,18 @@ export function ingestLivePicture(pic: LivePicture) {
   }
   for (const tr of born) {
     const d = haversineKm(tr.lat, tr.lon, AO.centerLat, AO.centerLon);
+    const drone = droneDeclare(tr);
     if (constats.has(tr.id)) {
       // Piste à l'adresse d'un de nos drones : son alerte est dite plus bas, à chaque constat.
-    } else if (tr.category?.toUpperCase() === "B6") {
+    } else if (drone) {
+      // Un drone qui se déclare : catégorie B6, ou un des autres modèles reconnus à leur type OACI.
       alerts.push({
         id: `al-uav-${tr.id}`,
         trackId: tr.id,
         at: now,
         level: "elevee",
-        title: `${tr.callsign} · UAS ADS-B (B6)`,
-        body: `Catégorie émetteur B6 — UAV réel sur 1090ES. ${tr.icaoType ?? ""} ${tr.reg ?? ""} · ${Math.round(d)} km de FTTJ.`,
+        title: `${tr.callsign} · UAS ADS-B (${drone.par === "B6" ? "B6" : drone.type})`,
+        body: `UAV réel sur 1090ES — ${libelleDrone(drone)}${tr.reg ? ` · ${tr.reg}` : ""} · ${Math.round(d)} km de FTTJ.`,
         acked: false,
       });
     } else if (d <= 120) {
@@ -1605,22 +1611,29 @@ export function ingestLivePicture(pic: LivePicture) {
   }
   useVigilair.setState(patch);
   applyAutoLock(now);
-  // Comme pour les phénomènes, la caméra ne part seule que pour un drone B6 au Tchad : un UAV
-  // entendu à 3 000 km (relevé continental) ne déplace pas la carte de FTTJ — alerte, capture au clic.
-  const bornUav = born.find(
-    (tr) => (tr.category ?? "").toUpperCase() === "B6" && theaterRank(theaterOf(tr.lat, tr.lon)) >= 5,
+  // La caméra part seule pour un drone né au-dessus de l'Afrique ou du Moyen-Orient, Tchad compris
+  // (ordre du chef), qu'il se déclare par la catégorie B6 ou par un type OACI de drone ; une fois
+  // par drone et par session de la console, jamais pour un des nôtres confirmé. Le théâtre le plus
+  // proche passe d'abord : un drone au-dessus du Tchad reprend la caméra à la capture automatique
+  // d'un drone plus lointain ; une scène ouverte à la main reste à l'opérateur. Ailleurs, l'alerte
+  // part et la capture attend le clic.
+  const aCapturer = droneACapturer(
+    born,
+    (id) => constats.get(id)?.ami === true || capturesAuto.has(id),
   );
   const stNow = useVigilair.getState();
   const holdCamera = Boolean(stNow.lakeRouteId || stNow.mineId || stNow.waterId);
-  if (!stNow.capture && bornUav) {
+  if (aCapturer && cameraLibre(stNow.capture, aCapturer.rang)) {
+    const { piste, drone, lieu } = aCapturer;
+    capturesAuto.add(piste.id);
     stNow.openCapture({
-      lat: bornUav.lat,
-      lon: bornUav.lon,
+      lat: piste.lat,
+      lon: piste.lon,
       kind: "uav",
-      title: `${bornUav.callsign} · UAV 10 m`,
-      body: "Capture visible ≤ 10 m sur piste B6",
+      title: `${piste.callsign} · UAV 10 m`,
+      body: `Capture visible ≤ 10 m · ${libelleDrone(drone)} · ${lieu.pays}${lieu.km > 0 ? `, à ${Math.round(lieu.km)} km de sa côte` : ""}`,
       source: "1090ES",
-      id: `cap-uav-${bornUav.id}`,
+      id: `${PREFIXE_CAPTURE_DRONE}${piste.id}`,
       holdCamera,
     });
   } else if (!stNow.capture && autoPhenom) {

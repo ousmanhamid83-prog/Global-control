@@ -100,6 +100,10 @@ export function CaptureStrip() {
             SCÈNE {capture.title} · GSD {formatGsdM(capture.gsdM)} · {pixelBudgetLine(capture.gsdM)} · {THEATER_LABEL[capture.theater]} ·{" "}
             {KIND_LABEL[capture.kind]}
           </p>
+          {/* Pourquoi la caméra est là : une capture partie seule peut être à des milliers de km. */}
+          <p className="text-xs text-muted-foreground" data-capture-body="1">
+            {capture.body}
+          </p>
           <div className="flex flex-wrap gap-x-3 gap-y-1">
             {visible.map((o) => (
               <span key={o.id} className="text-xs text-fg">

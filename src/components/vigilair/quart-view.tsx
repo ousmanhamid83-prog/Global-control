@@ -382,7 +382,7 @@ function SnapCard({
       </div>
       <dl className="grid grid-cols-2 gap-2 text-sm">
         <KV k="1090ES" v={`${snap.ac} · ident ${snap.local}`} />
-        <KV k="Urgences / MIL / B6" v={`${snap.emergency} / ${snap.military} / ${snap.uav}`} />
+        <KV k="Urgences / MIL / UAV" v={`${snap.emergency} / ${snap.military} / ${snap.uav}`} />
         <KV k="FTTJ CAT" v={snap.cat ?? "—"} />
         <KV k="RWY" v={snap.rwy ? `${snap.rwy}${snap.rwyM ? ` · ${snap.rwyM} m` : ""}` : "—"} />
         <KV k="SIGMET AO" v={String(snap.sigmetAo)} />
