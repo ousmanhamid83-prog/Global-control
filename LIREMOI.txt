@@ -1504,11 +1504,14 @@ Base du poste et journal d'activité — Division
   disques (partition, LVM, chiffrement, RAID) ; un disque loop (un fichier image monté comme un
   disque) a le disque de son fichier — le plus souvent celui du poste, et c'est dit ; image effacée
   depuis : on ne sait pas. Windows : la lettre du lecteur reliée à son disque par CIM (Windows
-  PowerShell lancé sans shell, lettre vérifiée, réponse gardée 10 min) ; un disque virtuel (VHD) y
-  garde son numéro, sans le disque de son fichier. Un dossier des copies injoignable (clé retirée,
-  effacé) n'a pas de disque : sous Windows, il passait pour celui de sa lettre — trouvé par l'essai
-  sur un vrai Windows, corrigé. Disques pas reconnus (dossier réseau) : les volumes sont comparés,
-  et la Division le dit. Le nom du disque est affiché (« disque du poste (vda) … »).
+  PowerShell lancé sans shell, lettre vérifiée, 60 s au plus, réponse gardée 10 min ; un échec ne
+  l'est pas) ; un disque virtuel (VHD) y garde son numéro, sans le disque de son fichier. Un dossier
+  des copies injoignable (clé retirée, effacé) n'a pas de disque : sous Windows, il passait pour
+  celui de sa lettre — trouvé par l'essai sur un vrai Windows, corrigé. Trouvé par la CI Windows et
+  corrigé : un appel à froid y a dépassé l'ancien délai de 15 s, et cet échec était gardé 10 min —
+  la Division comparait alors les volumes, et deux partitions d'un même disque passaient pour deux
+  disques. Disques pas reconnus (dossier réseau) : les volumes sont comparés, et la Division le dit.
+  Le nom du disque est affiché (« disque du poste (vda) … »).
 - MÉMOIRE VIVE. Un zram, un disque RAM, un tmpfs (/dev/shm, souvent /tmp) ou un ramfs ne sont PAS
   des disques : un arrêt ou une coupure de courant les efface. Copies (ou poste) en mémoire vive :
   la Division le dit en rouge (« Les copies sont en mémoire vive (zram0) : un arrêt ou une coupure

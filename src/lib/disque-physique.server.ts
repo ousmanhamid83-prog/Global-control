@@ -9,8 +9,9 @@
  *     mémoire vive (zram, disque RAM) garde son nom ; un système de fichiers en mémoire vive (tmpfs,
  *     ramfs), sans disque, se dit par son type : enMemoireVive reconnaît les deux.
  *   - Windows : la lettre du lecteur, reliée à son disque par CIM (Win32_LogicalDiskToPartition),
- *     par Windows PowerShell — chemin absolu, sans shell, lettre vérifiée, 15 s au plus, réponse
- *     gardée 10 min. Un disque virtuel (VHD) y garde son numéro, sans le disque de son fichier.
+ *     par Windows PowerShell — chemin absolu, sans shell, lettre vérifiée, 60 s au plus, réponse
+ *     gardée 10 min (un échec ne l'est pas). Un disque virtuel (VHD) y garde son numéro, sans le
+ *     disque de son fichier.
  * null : on ne sait pas le dire (dossier injoignable, dossier réseau, conteneur, autre système) ;
  * les volumes sont alors comparés, et la Division le dit.
  */
@@ -107,7 +108,31 @@ export async function disquesLinux(
   return disques.length > 0 ? [...new Set(disques)].sort() : null;
 }
 
-/** Les disques Windows (leur numéro) qui portent `dossier`, par CIM ; gardés 10 min. */
+/**
+ * Le délai d'une requête CIM. Sur une machine Windows de la CI, un premier appel à froid
+ * (PowerShell, puis WMI) a dépassé 15 s, l'ancien délai ; le suivant a pris 2,8 s.
+ */
+const DELAI_CIM_MS = 60_000;
+
+/**
+ * Ce que PowerShell a rendu : les numéros des disques, et si la réponse peut être gardée. Un échec
+ * (délai dépassé, PowerShell absent ou en erreur) n'est pas une réponse : gardé, il cachait le vrai
+ * disque 10 min, et la Division comparait les volumes à la place — deux partitions d'un même
+ * disque y passaient pour deux disques.
+ */
+export function reponseCim(
+  erreur: Error | null,
+  sortie: string,
+): { disques: string[] | null; garder: boolean } {
+  if (erreur) return { disques: null, garder: false };
+  const numeros = sortie
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => /^\d+$/.test(l));
+  return { disques: numeros.length === 0 ? null : [...new Set(numeros)].sort(), garder: true };
+}
+
+/** Les disques Windows (leur numéro) qui portent `dossier`, par CIM ; une réponse gardée 10 min. */
 async function disquesWindows(dossier: string): Promise<string[] | null> {
   const lettre = /^([A-Za-z]):\\$/.exec(path.win32.parse(path.win32.resolve(dossier)).root)?.[1];
   if (!lettre) return null; // dossier réseau (\\serveur\partage)
@@ -125,7 +150,7 @@ async function disquesWindows(dossier: string): Promise<string[] | null> {
     "powershell.exe",
   );
   const requete = `ASSOCIATORS OF {Win32_LogicalDisk.DeviceID='${cle}:'} WHERE AssocClass=Win32_LogicalDiskToPartition`;
-  const disques = await new Promise<string[] | null>((ok) => {
+  const reponse = await new Promise<ReturnType<typeof reponseCim>>((ok) => {
     execFile(
       powershell,
       [
@@ -134,18 +159,12 @@ async function disquesWindows(dossier: string): Promise<string[] | null> {
         "-Command",
         `(Get-CimInstance -Query "${requete}").DiskIndex`,
       ],
-      { timeout: 15_000, windowsHide: true },
-      (erreur, sortie) => {
-        const numeros = String(sortie)
-          .split(/\r?\n/)
-          .map((l) => l.trim())
-          .filter((l) => /^\d+$/.test(l));
-        ok(erreur || numeros.length === 0 ? null : [...new Set(numeros)].sort());
-      },
+      { timeout: DELAI_CIM_MS, windowsHide: true },
+      (erreur, sortie) => ok(reponseCim(erreur, String(sortie))),
     );
   });
-  cache.set(cle, { disques, at: Date.now() });
-  return disques;
+  if (reponse.garder) cache.set(cle, { disques: reponse.disques, at: Date.now() });
+  return reponse.disques;
 }
 
 /** Les disques physiques qui portent `dossier` ; null si on ne sait pas le dire. */

@@ -12,7 +12,12 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
-import { disquesLinux, disquesPhysiques, enMemoireVive } from "./disque-physique.server.ts";
+import {
+  disquesLinux,
+  disquesPhysiques,
+  enMemoireVive,
+  reponseCim,
+} from "./disque-physique.server.ts";
 
 let racine = "";
 before(() => {
@@ -309,6 +314,29 @@ describe("disque physique d'un dossier — pas son volume : deux partitions d'un
       assert.deepEqual(parScript("/", masque).disques, racineServeur);
     },
   );
+
+  it("WINDOWS (CIM) : la réponse de PowerShell est gardée ; un échec ne l'est pas", () => {
+    // Telle que PowerShell l'écrit : un numéro par ligne, fins de ligne Windows.
+    assert.deepEqual(reponseCim(null, "0\r\n"), { disques: ["0"], garder: true });
+    // Un volume sur deux disques (volume dynamique) : les deux, une fois chacun, dans l'ordre.
+    assert.deepEqual(reponseCim(null, "1\r\n0\r\n1\r\n"), { disques: ["0", "1"], garder: true });
+    assert.deepEqual(
+      reponseCim(null, "  2  \nGet-CimInstance : classe non valide (0x80041010)\n"),
+      {
+        disques: ["2"],
+        garder: true,
+      },
+    );
+    // La requête a répondu sans disque (lecteur sans partition) : c'est une réponse.
+    assert.deepEqual(reponseCim(null, ""), { disques: null, garder: true });
+    // Le délai dépassé (le premier appel à froid de la CI) ou PowerShell absent : pas une réponse,
+    // même si une ligne est déjà sortie.
+    const delai = Object.assign(new Error("Command failed"), { killed: true, signal: "SIGTERM" });
+    assert.deepEqual(reponseCim(delai, ""), { disques: null, garder: false });
+    assert.deepEqual(reponseCim(delai, "0\r\n"), { disques: null, garder: false });
+    const absent = Object.assign(new Error("spawn powershell.exe ENOENT"), { code: "ENOENT" });
+    assert.deepEqual(reponseCim(absent, ""), { disques: null, garder: false });
+  });
 
   it(
     "WINDOWS (CIM) : la lettre du lecteur a son disque ; un dossier absent ou un partage réseau, aucun ; la réponse gardée",
