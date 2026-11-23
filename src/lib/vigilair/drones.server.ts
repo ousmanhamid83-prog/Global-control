@@ -282,18 +282,6 @@ export async function ecrireReglagesPilotage(brut: unknown): Promise<ReglagesPil
 }
 
 /** Définit (ou efface) la zone d'intérêt polygonale d'une source. Points normalisés 0..1, max 24. */
-export async function setDroneRoiServer(id: string, roi: unknown): Promise<OwnDrone[]> {
-  const pts = Array.isArray(roi)
-    ? roi
-        .filter((p): p is { x: number; y: number } => !!p && Number.isFinite((p as { x?: number }).x) && Number.isFinite((p as { y?: number }).y))
-        .slice(0, 24)
-        .map((p) => ({ x: Math.max(0, Math.min(1, p.x)), y: Math.max(0, Math.min(1, p.y)) }))
-    : [];
-  const next = (await load()).map((d) => (d.id === id ? { ...d, roi: pts.length >= 3 ? pts : undefined } : d));
-  await persist(next);
-  return next;
-}
-
 /** Nettoie un polygone : points finis, bornés 0..1, max 24 sommets. */
 function cleanPolygon(raw: unknown): { x: number; y: number }[] {
   if (!Array.isArray(raw)) return [];

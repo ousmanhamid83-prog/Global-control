@@ -72,12 +72,3 @@ export function useCurrentUserState(): CurrentUserState {
     isPending,
   };
 }
-
-/**
- * Convenience view of `useCurrentUserState().user` for display (e.g.
- * `user?.displayName ?? "Guest"`). NOTE: `null` means *loading OR signed out* —
- * for redirects/guards use `useCurrentUserState()` and check `isPending`.
- */
-export function useCurrentUser(): AppUser | null {
-  return useCurrentUserState().user;
-}

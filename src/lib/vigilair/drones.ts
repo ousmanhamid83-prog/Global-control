@@ -4,7 +4,7 @@
  * drone inscrit, sans attendre le réseau. Le pilotage par la liaison vit à part (drones-suivi).
  */
 
-import { droneAdd, droneRemove, droneSetRoi, droneSetRule, droneSetZones, dronesList, onvifDiscover, registerCameras, scanRange, scanSource } from "./drones-api";
+import { droneAdd, droneRemove, droneSetRule, droneSetZones, dronesList, onvifDiscover, registerCameras, scanRange, scanSource } from "./drones-api";
 import type { OwnDrone } from "./drones-core";
 import { registreVideServeur } from "./ssr-snapshot";
 
@@ -91,14 +91,6 @@ export async function addDrone(input: {
 export async function removeDrone(id: string): Promise<void> {
   try {
     const res = await droneRemove({ data: { id } });
-    if (res?.drones) set(res.drones);
-  } catch {
-    /* réessayable */
-  }
-}
-export async function setDroneRoi(id: string, roi: { x: number; y: number }[]): Promise<void> {
-  try {
-    const res = await droneSetRoi({ data: { id, roi } });
     if (res?.drones) set(res.drones);
   } catch {
     /* réessayable */

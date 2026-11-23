@@ -2,11 +2,6 @@
 
 import { POSTE_LABEL } from "./privacy";
 
-export type SentinelKind = "software" | "folder" | "machine";
-
-export const KEY_MOVED_MSG =
-  "Cette clé est déjà liée à un autre poste. Session refusée. Le chef de division a été alerté.";
-
 export const EXFIL_MSG =
   "Copie du logiciel ou d'un dossier détectée. Session coupée. Incident documenté. Le chef de division a été alerté.";
 

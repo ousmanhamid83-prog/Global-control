@@ -11,7 +11,6 @@ import {
   relativeTurn,
   routeTotals,
   safeDetour,
-  solve,
   toGpx,
   toWaypointText,
 } from "./nav.ts";
@@ -30,14 +29,10 @@ test("distance : 1° de latitude ≈ 111 km", () => {
   assert.ok(Math.abs(d - 111.2) < 1);
 });
 
-test("cardinal et ETA", () => {
+test("cardinal", () => {
   assert.equal(cardinal(0), "N");
   assert.equal(cardinal(90), "E");
   assert.equal(cardinal(270), "O");
-  const s = solve(12.1, 15.0, 16.027, 22.634, 60); // N'Djamena -> Amdjarass à 60 km/h
-  assert.ok(s.distanceKm > 700 && s.distanceKm < 1100);
-  assert.ok(s.bearingDeg > 45 && s.bearingDeg < 90); // vers le nord-est
-  assert.ok(s.etaMin && s.etaMin > 700); // plusieurs heures
 });
 
 test("relativeTurn signe : droite positif, gauche négatif", () => {

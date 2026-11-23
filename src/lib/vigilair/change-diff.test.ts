@@ -6,12 +6,11 @@ import {
   diffHeatmap,
   foregroundDiff,
   frameHeading,
-  initBackground,
   isGlobalChange,
   mergeNearbyBlobs,
   presenceHint,
-  updateBackground,
 } from "./change-diff.ts";
+import { createRing, medianBackground, pushLuma } from "./motion-bg.ts";
 
 /** Fabrique une image RGBA pleine d'une couleur. */
 function fill(w: number, h: number, r: number, g: number, b: number): Uint8ClampedArray {
@@ -211,46 +210,15 @@ function scene(w: number, h: number, sx: number, sy: number, sz: number): Uint8C
 test("foregroundDiff : un objet absent du fond = UNE seule zone à sa position (pas deux bandes)", () => {
   const W = 40, H = 40;
   const empty = fill(W, H, 20, 20, 20);
-  const bg = initBackground(empty, W, H); // fond = scène vide
+  // Le fond comme le fait la console : la médiane des trames vues (ici, la scène vide).
+  const anneau = createRing(W * H, 5);
+  pushLuma(anneau, empty);
+  const bg = medianBackground(anneau);
   const cur = scene(W, H, 10, 10, 8); // objet apparu
   const fg = foregroundDiff(bg, cur, W, H, { threshold: 30, mask: true });
   const st = blobStats(fg.mask!, W, H, 1);
   assert.equal(st.count, 1); // une seule zone, pas un départ + une arrivée
   assert.equal(st.largest!.area, 64); // 8×8, l'objet entier (pas une bande)
-});
-
-test("updateBackground : une scène statique fond dans le fond (plus de détection)", () => {
-  const W = 24, H = 24;
-  const bg = initBackground(fill(W, H, 20, 20, 20), W, H);
-  const newScene = scene(W, H, 6, 6, 6);
-  // on « montre » la même scène longtemps : le fond doit converger vers elle
-  for (let k = 0; k < 120; k++) updateBackground(bg, newScene, 0.1);
-  const fg = foregroundDiff(bg, newScene, W, H, { threshold: 30 });
-  assert.ok(fg.changedFrac < 0.01); // quasi plus rien d'« avant-plan »
-});
-
-test("updateBackground sélectif : un objet d'avant-plan persiste plus longtemps", () => {
-  const W = 24, H = 24;
-  const bg = initBackground(fill(W, H, 20, 20, 20), W, H);
-  const obj = scene(W, H, 6, 6, 6);
-  for (let k = 0; k < 8; k++) {
-    const fg = foregroundDiff(bg, obj, W, H, { threshold: 30, mask: true });
-    updateBackground(bg, obj, 0.1, fg.mask, 0.1); // fgFactor 0.1 : objet mis à jour 10× plus lentement
-  }
-  // après 8 trames, l'objet est encore détecté (n'a pas fondu)
-  const fg = foregroundDiff(bg, obj, W, H, { threshold: 30 });
-  assert.ok(fg.changedFrac > 0.03);
-});
-
-test("updateBackground(freeze) : un fond gelé sous une piste n'absorbe pas l'objet", () => {
-  const W = 24, H = 24;
-  const bg = initBackground(fill(W, H, 20, 20, 20), W, H);
-  const obj = scene(W, H, 6, 6, 6);
-  const { mask } = diffHeatmap(fill(W, H, 20, 20, 20), obj, W, H, { threshold: 30, mask: true });
-  const freeze = mask; // on gèle exactement la zone de l'objet
-  for (let k = 0; k < 200; k++) updateBackground(bg, obj, 0.2, undefined, 0.1, freeze);
-  // même après 200 trames, l'objet reste de l'avant-plan (le fond n'a pas appris l'objet)
-  assert.ok(foregroundDiff(bg, obj, W, H, { threshold: 30 }).changedFrac > 0.03);
 });
 
 test("isGlobalChange distingue un basculement d'éclairage d'une intrusion locale", () => {

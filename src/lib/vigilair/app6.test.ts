@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { affiliationOf, app6Of } from "./app6.ts";
+import { affiliationOf } from "./app6.ts";
 import type { Track } from "./types.ts";
 
 const FAIBLE = "faible" as const;
@@ -66,15 +66,5 @@ describe("affiliation APP-6", () => {
   it("un civil hors zone ASECNA est NEUTRE, pas ami", () => {
     const t = track({ feed: "adsb", idState: "confirme", origin: "XX", friendKind: "civil", category: "A3" });
     assert.equal(affiliationOf(t, FAIBLE).affiliation, "neutre");
-  });
-
-  it("une urgence 1090ES porte l'amplificateur emergency", () => {
-    const t = track({ feed: "adsb", origin: "XX", emergency: "7700 urgence générale" });
-    assert.equal(app6Of(t, FAIBLE).emergency, true);
-  });
-
-  it("un NIC faible marque une position GNSS douteuse", () => {
-    assert.equal(app6Of(track({ nic: 3 }), FAIBLE).gnssSuspect, true);
-    assert.equal(app6Of(track({ nic: 8 }), FAIBLE).gnssSuspect, false);
   });
 });

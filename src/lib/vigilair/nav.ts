@@ -115,24 +115,6 @@ export function axisHazards(
   return out.sort((x, y) => x.alongKm - y.alongKm);
 }
 
-export type NavSolution = {
-  distanceKm: number;
-  bearingDeg: number;
-  cardinal: string;
-  etaMin: number | null; // à la vitesse donnée
-};
-
-/** Solution de navigation A→B, avec ETA (min) à `speedKmh` si > 0. */
-export function solve(aLat: number, aLon: number, bLat: number, bLon: number, speedKmh = 0): NavSolution {
-  const d = distanceKm(aLat, aLon, bLat, bLon);
-  const brg = bearingDeg(aLat, aLon, bLat, bLon);
-  return {
-    distanceKm: d,
-    bearingDeg: brg,
-    cardinal: cardinal(brg),
-    etaMin: speedKmh > 0 ? (d / speedKmh) * 60 : null,
-  };
-}
 
 /** Point atteint depuis (lat,lon) en suivant un cap sur une distance (grand-cercle). */
 export function destinationPoint(lat: number, lon: number, brgDeg: number, distKm: number): [number, number] {

@@ -98,14 +98,6 @@ export function frameAxis(): MapScale {
   return "sahel";
 }
 
-export function frameFor(lat: number, lon: number): MapScale {
-  const km = haversineKm(FROM.lat, FROM.lon, lat, lon);
-  if (km <= 45) return "veille";
-  if (km <= 2000) return "aes";
-  if (km <= 4100) return "sahel";
-  return "monde";
-}
-
 export type Peak = {
   id: string;
   name: string;

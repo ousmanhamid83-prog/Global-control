@@ -229,38 +229,6 @@ function lumAt(px: Uint8ClampedArray | Uint8Array, p: number): number {
 }
 
 /**
- * Modèle de FOND initial : la luminance de la trame (un float par pixel). La soustraction de fond
- * détecte un objet à sa POSITION COURANTE (une seule zone par objet), au lieu des deux bandes
- * départ/arrivée d'une différence trame-à-trame — plus net, et deux cibles proches se séparent mieux.
- */
-export function initBackground(cur: Uint8ClampedArray | Uint8Array, width: number, height: number): Float32Array {
-  const n = width * height;
-  const bg = new Float32Array(n);
-  for (let i = 0; i < n; i++) bg[i] = lumAt(cur, i * 4);
-  return bg;
-}
-
-/**
- * Met à jour le fond par moyenne glissante : bg += alpha·(courant − bg). Mise à jour SÉLECTIVE : aux
- * pixels d'avant-plan (mask=1), on applique alpha·fgFactor (plus lent) pour qu'un objet, même lent,
- * ne « fonde » pas trop vite dans le fond. Mutation en place.
- */
-export function updateBackground(
-  bg: Float32Array,
-  cur: Uint8ClampedArray | Uint8Array,
-  alpha: number,
-  mask?: Uint8Array,
-  fgFactor = 0.1,
-  freeze?: Uint8Array,
-): void {
-  for (let i = 0; i < bg.length; i++) {
-    if (freeze && freeze[i]) continue; // GELÉ : sous une piste (ex. présence arrêtée) → ne pas absorber
-    const a = mask && mask[i] ? alpha * fgFactor : alpha;
-    bg[i] += a * (lumAt(cur, i * 4) - bg[i]);
-  }
-}
-
-/**
  * Changement GLOBAL d'image (éclairage, exposition, voile) : une part énorme du cadre bascule d'un
  * coup. À distinguer d'une intrusion (locale) pour ne pas sonner une fausse alerte et ré-étalonner.
  */

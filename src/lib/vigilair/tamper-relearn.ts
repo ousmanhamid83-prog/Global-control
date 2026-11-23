@@ -17,8 +17,3 @@ export function requestRelearn(id: string): void {
 export function takeRelearn(id: string): boolean {
   return pending.delete(id);
 }
-
-/** Une demande est-elle en attente ? (affichage seulement, ne consomme pas) */
-export function relearnPending(id: string): boolean {
-  return pending.has(id);
-}

@@ -17,18 +17,6 @@ function isFriend(t: Track): boolean {
 /** Affiliation standard STANAG : la forme du cadre en dépend. */
 export type Affiliation = "ami" | "hostile" | "neutre" | "suspect" | "inconnu";
 
-export type App6Symbol = {
-  affiliation: Affiliation;
-  /** HOSTILE/SUSPECT seulement sur mandat (origine sous surveillance) ; jamais par défaut. */
-  reason: string;
-  emergency: boolean;
-  /** Tête de raid : amplificateur, pas une affiliation. */
-  raidLead: boolean;
-  /** NIC faible : position GNSS douteuse, possible brouillage. */
-  gnssSuspect: boolean;
-  label: string;
-};
-
 const AFFIL_LABEL: Record<Affiliation, string> = {
   ami: "Ami",
   hostile: "Hostile",
@@ -83,18 +71,6 @@ export function affiliationOf(t: Track, threat: Threat): { affiliation: Affiliat
     return { affiliation: "neutre", reason: "1090ES civil · hors mandat" };
   }
   return { affiliation: "inconnu", reason: "ni ami, ni civil confirmé, ni mandat" };
-}
-
-export function app6Of(t: Track, threat: Threat): App6Symbol {
-  const { affiliation, reason } = affiliationOf(t, threat);
-  return {
-    affiliation,
-    reason,
-    emergency: Boolean(t.emergency),
-    raidLead: false,
-    gnssSuspect: t.nic != null && t.nic < 5,
-    label: affiliationLabel(affiliation),
-  };
 }
 
 type Ctx = CanvasRenderingContext2D;

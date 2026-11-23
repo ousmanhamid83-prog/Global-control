@@ -55,7 +55,8 @@ export function StewardWatch() {
 
   useEffect(() => {
     if (!isSuperadmin) {
-      useVigilair.getState().setStewardOn(false);
+      // Pas le chef : rien n'est tenu en IR pour sa veille.
+      useVigilair.setState({ stewardHeldIr: false });
       return;
     }
     const tick = () => {

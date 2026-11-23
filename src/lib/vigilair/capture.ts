@@ -638,8 +638,6 @@ const WORLD_SITES: { name: string; lat: number; lon: number; kind: SiteKind; not
 	}
 ];
 
-export const CAPTURE_GSD_M = visGsdM(SCALE.ident.tileZ, HOME.lat);
-
 function lonLatOf(coords: unknown): { lat: number; lon: number } | null {
   if (!Array.isArray(coords) || coords.length === 0) return null;
   if (typeof coords[0] === "number" && typeof coords[1] === "number") {

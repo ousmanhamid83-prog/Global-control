@@ -830,6 +830,23 @@ Symbologie APP-6 et radar
   les deux builds de production donnent exactement les mêmes résultats qu'avant. Gardés à la
   racine : configuration, documentation, licences, kits zip, startup.sh et les fichiers d'état de
   la plateforme d'origine.
+- CODE MORT DANS LE CODE, MESURÉ PAR LE COMPILATEUR (pas au jugé). Un analyseur relève, avec le
+  service de langage TypeScript, les vraies références de chaque fonction exportée et de chaque
+  membre du store. Les trois fonctions signalées (seedFriendTracks, normalizeIff,
+  formatCoordShortPair) n'existaient déjà plus. Retirés : 8 exports que plus rien n'appelait
+  (CAPTURE_GSD_M ; setDroneRoi et sa fonction serveur, une porte d'entrée de moins ; nearestMine ;
+  SentinelKind ; KEY_MOVED_MSG ; frameFor ; WATCH_REDIM_MS ; EMPTY_WATCH_SNAP) ; 4 que seuls leurs
+  tests faisaient vivre (app6Of et son type ; initBackground et updateBackground, alors que la
+  console calcule le fond par médiane dans motion-bg ; solve ; relearnPending), avec leurs 8 tests ;
+  dans le store, 9 membres sur 148 : 6 réglages jamais appelés (setLakeRouteId, setMineId,
+  setMarine, setWaterId, setDeclutter, setWatch : leur champ est écrit ailleurs), clearJournal
+  jamais appelé, et stewardOn, écrit mais jamais lu, avec son réglage. Du gabarit
+  d'authentification : 5 composants d'écran jamais affichés, sign-in-gate et son test,
+  readSessionToken, useCurrentUser. Restent, voulus : traficGarde (les tests attendent par lui la
+  fin des écritures) et le parcours de connexion OAuth du gabarit, sans bouton dans la console mais
+  qui relève de l'authentification : au chef de décider. Après : 0 déclaration locale inutilisée
+  (tsc --noUnusedLocals), 0 membre mort dans le store, les 13 pages de la console affichées sans
+  erreur sur le serveur construit, puis déconnexion et retour à /login.
 - CE QUI SORT DU POSTE (audit, mesuré). Lu dans le code ET mesuré : un espion noté chaque sortie
   réseau du serveur (fetch, HTTP, TCP, UDP, DNS) pendant que toutes les pages tournaient.
   · NAVIGATEUR DE L'OPÉRATEUR : 0 requête vers un tiers (7 198 requêtes en production sur 16 pages,

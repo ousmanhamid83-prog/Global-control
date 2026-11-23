@@ -269,4 +269,3 @@ export function shortWatchLabel(label: string): string {
   return parts[0] ?? t;
 }
 
-export const EMPTY_WATCH_SNAP = EMPTY_SNAP;

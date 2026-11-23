@@ -232,7 +232,6 @@ type VigilairState = {
   mineId: string | null;
   marine: boolean;
   waterId: string | null;
-  stewardOn: boolean;
   stewardFlags: StewardFlags;
   stewardHeldIr: boolean;
   weeklyOn: boolean;
@@ -273,11 +272,6 @@ type VigilairState = {
   setPeakId: (id: string | null) => void;
   setShowPeaks: (on: boolean) => void;
   setGpsZone: (z: GpsZone | null) => void;
-  setLakeRouteId: (id: string | null) => void;
-  setMineId: (id: string | null) => void;
-  setMarine: (on: boolean) => void;
-  setWaterId: (id: string | null) => void;
-  setStewardOn: (on: boolean) => void;
   setStewardFlag: (id: StewardParamId, on: boolean) => void;
   setWeekly: (patch: { on?: boolean; day?: number; hour?: number; lastAt?: number }) => void;
   pushSteward: (text: string, at: number) => void;
@@ -286,7 +280,6 @@ type VigilairState = {
   ackAlert: (id: string) => void;
   ackAll: () => void;
   fileBulletin: (trackId: string) => void;
-  clearJournal: () => void;
   hydrateJournal: (rows: JournalEntry[]) => void;
   seekReplay: (index: number, play?: boolean) => void;
   scrubReplay: (delta: number) => void;
@@ -300,9 +293,7 @@ type VigilairState = {
   setShowLive: (v: boolean) => void;
   setThreatFloor: (v: ThreatFloor) => void;
   cycleThreatFloor: () => void;
-  setDeclutter: (v: boolean) => void;
   toggleDeclutter: () => void;
-  setWatch: (w: WatchShiftRow | null) => void;
   setCopLock: (l: CopLockState | null) => void;
   setZones: (z: ZoneRow[]) => void;
   setWatchMode: (on: boolean) => void;
@@ -571,7 +562,6 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   mineId: null,
   marine: false,
   waterId: null,
-  stewardOn: false,
   stewardFlags: emptyFlags(),
   stewardHeldIr: false,
   weeklyOn: false,
@@ -666,11 +656,6 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   setPeakId: (peakId) => set({ peakId }),
   setShowPeaks: (showPeaks) => set({ showPeaks }),
   setGpsZone: (gpsZone) => set({ gpsZone }),
-  setLakeRouteId: (lakeRouteId) => set({ lakeRouteId }),
-  setMineId: (mineId) => set({ mineId }),
-  setMarine: (marine) => set({ marine }),
-  setWaterId: (waterId) => set({ waterId }),
-  setStewardOn: (stewardOn) => set({ stewardOn, ...(stewardOn ? {} : { stewardHeldIr: false }) }),
   setStewardFlag: (id, on) => {
     const layers = ["vis", "ir", "th", "nv", "rel"] as const;
     const flags = { ...get().stewardFlags, [id]: on };
@@ -817,14 +802,6 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
         set({ journal: next });
       });
   },
-  clearJournal: () => {
-    emitDuty({
-      kind: "delete_denied",
-      title: "Tentative de vidage du journal",
-      detail: "Le journal de preuve est append-only. Seul le chef de division peut purger le cache poste.",
-      severity: "crit",
-    });
-  },
   hydrateJournal: (rows) => {
     const pending = get().journal.filter((j) => j.pending);
     const trackIds = new Set(rows.map((r) => r.trackId));
@@ -844,12 +821,10 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
   returnToLive: () => goLive(true),
   setShowFriends: (showFriends) => set({ showFriends }),
   setShowLive: (showLive) => set({ showLive }),
-  setDeclutter: (declutter) => set({ declutter }),
   toggleDeclutter: () => set({ declutter: !get().declutter }),
   setThreatFloor: (threatFloor) => set({ threatFloor }),
   cycleThreatFloor: () =>
     set({ threatFloor: nextThreatFloor(get().threatFloor) }),
-  setWatch: (w) => set({ watch: w, watchLoaded: true }),
   setCopLock: (l) => set({ copLock: l }),
   setZones: (z) => {
     setLiveZones(z);

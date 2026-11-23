@@ -5,7 +5,6 @@ import type { SatLayer } from "./sat";
 import type { MapScale } from "./geo";
 
 export const WATCH_KEY = "vigilair-watch-mode";
-export const WATCH_REDIM_MS = 45_000;
 
 export type WatchWake = {
   wake: boolean;
