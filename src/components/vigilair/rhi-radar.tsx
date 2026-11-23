@@ -1,6 +1,8 @@
 import { useEffect, useRef, type MouseEvent } from "react";
 import { PLATFORM_BY_ID } from "@/lib/vigilair/catalog";
-import { AO, haversineKm } from "@/lib/vigilair/geo";
+import { haversineKm } from "@/lib/vigilair/geo";
+import { positionAntenne } from "@/lib/vigilair/image-poste";
+import type { PositionAntenne } from "@/lib/vigilair/live-adsb";
 import { detectRaids, raidTrackIds } from "@/lib/vigilair/raid";
 import { peekTracks, trackVisible, useVigilair } from "@/lib/vigilair/store";
 import { isFriend } from "@/lib/vigilair/friends";
@@ -12,15 +14,22 @@ function token(el: HTMLElement, name: string, fallback: string) {
   return v || fallback;
 }
 
+/** Sans image du poste encore : l'antenne par défaut. */
+const ANTENNE_INCONNUE = positionAntenne(null, undefined);
+
+/** Altitude / distance des pistes réelles, depuis l'antenne du poste (comme son écran polaire). */
 export function RhiRadar({ className }: { className?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const selectedId = useVigilair((s) => s.selectedId);
   const ppi = useVigilair((s) => s.ppi);
   const lockTrack = useVigilair((s) => s.lockTrack);
+  const antenne = useVigilair((s) => s.livePicture?.antenne ?? ANTENNE_INCONNUE);
   const ppiRef = useRef(ppi);
   const selRef = useRef(selectedId);
+  const posteRef = useRef(antenne);
   ppiRef.current = ppi;
   selRef.current = selectedId;
+  posteRef.current = antenne;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -37,7 +46,7 @@ export function RhiRadar({ className }: { className?: string }) {
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
     const tick = () => {
-      drawRhi(canvas, peekTracks(), selRef.current, ppiRef.current.rangeKm);
+      drawRhi(canvas, peekTracks(), selRef.current, ppiRef.current.rangeKm, posteRef.current);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -57,7 +66,8 @@ export function RhiRadar({ className }: { className?: string }) {
     let best: { id: string; d: number } | null = null;
     for (const tr of peekTracks()) {
       if (!trackVisible(tr, selRef.current)) continue;
-      const rng = haversineKm(AO.airport.lat, AO.airport.lon, tr.lat, tr.lon);
+      const poste = posteRef.current;
+      const rng = haversineKm(poste.lat, poste.lon, tr.lat, tr.lon);
       if (rng > ppiRef.current.rangeKm) continue;
       const p = projectRhi(rng, tr.altM, layout);
       const d = Math.hypot(p.x - x, p.y - y);
@@ -71,7 +81,7 @@ export function RhiRadar({ className }: { className?: string }) {
       ref={canvasRef}
       className={cn("block h-full w-full bg-bg", className)}
       onClick={onClick}
-      aria-label="Coupe altitude RHI FTTJ"
+      aria-label="Coupe altitude RHI du poste"
     />
   );
 }
@@ -114,6 +124,7 @@ function drawRhi(
   tracks: TrackLike[],
   selectedId: string | null,
   rangeKm: number,
+  poste: PositionAntenne,
 ) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -171,7 +182,7 @@ function drawRhi(
   ctx.font = "11px IBM Plex Sans, sans-serif";
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
-  ctx.fillText("RHI composite · altitude / distance FTTJ", 8, 6);
+  ctx.fillText("RHI composite · altitude / distance au poste", 8, 6);
 
   const raidIds = raidTrackIds(detectRaids(tracks));
   const selected = tracks.find((t) => t.id === selectedId);
@@ -179,7 +190,7 @@ function drawRhi(
   for (const tr of tracks) {
     if (!trackVisible(tr, selectedId)) continue;
     const ami = isFriend(tr);
-    const rng = haversineKm(AO.airport.lat, AO.airport.lon, tr.lat, tr.lon);
+    const rng = haversineKm(poste.lat, poste.lon, tr.lat, tr.lon);
     if (rng > rangeKm) continue;
     const p = projectRhi(rng, tr.altM, L);
     const plat = PLATFORM_BY_ID[tr.hypotheses[0]?.platformId ?? tr.truePlatformId];
@@ -207,7 +218,7 @@ function drawRhi(
   }
 
   if (selected && selected.idState !== "perdu") {
-    const rng = haversineKm(AO.airport.lat, AO.airport.lon, selected.lat, selected.lon);
+    const rng = haversineKm(poste.lat, poste.lon, selected.lat, selected.lon);
     if (rng <= rangeKm) {
       const p = projectRhi(rng, selected.altM, L);
       ctx.strokeStyle = `${warn}88`;

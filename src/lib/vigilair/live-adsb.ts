@@ -100,12 +100,21 @@ export type SourceHealth = {
   detail: string;
 };
 
+/**
+ * L'antenne du poste : sa position, et d'où on la sait — un fix GPS réel, le réglage
+ * AFRICONTROL_ANTENNE, ou par défaut (FTTJ). Centre de l'écran radar du poste.
+ */
+export type PositionAntenne = { lat: number; lon: number; origine: "gps" | "reglage" | "defaut" };
+
 export type LivePicture = {
   at: number;
   /** Heure du dernier relevé par liaison, quand elle diffère de `at` (antenne vs réseau en cache). */
   sourceAt?: Record<string, number>;
   source: string;
   aircraft: LiveAc[];
+  /** L'antenne du poste (l'image de la console la porte toujours ; un relevé réseau seul, non). */
+  antenne?: PositionAntenne;
+  /** Avions à moins de 120 km de l'antenne du poste. */
   localN: number;
   sahelN: number;
   emergencies: LiveAc[];

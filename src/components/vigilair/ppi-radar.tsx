@@ -1,7 +1,10 @@
 import { useEffect, useRef, type MouseEvent } from "react";
 import { PLATFORM_BY_ID } from "@/lib/vigilair/catalog";
-import { AO, haversineKm, headingBetween } from "@/lib/vigilair/geo";
-import { MAG_DECLINATION_DEG, type PpiParams } from "@/lib/vigilair/ppi";
+import { haversineKm, headingBetween } from "@/lib/vigilair/geo";
+import { positionAntenne } from "@/lib/vigilair/image-poste";
+import type { PositionAntenne } from "@/lib/vigilair/live-adsb";
+import type { PpiParams } from "@/lib/vigilair/ppi";
+import { declinaison } from "@/lib/vigilair/wmm";
 import { affiliationColorVar, affiliationOf, drawApp6Air, type Affiliation } from "@/lib/vigilair/app6";
 import { detectRaids, raidTrackIds } from "@/lib/vigilair/raid";
 import { getLiveZones } from "@/lib/vigilair/zones";
@@ -93,20 +96,43 @@ function drawBlip(
   ctx.restore();
 }
 
+/** Sans image du poste encore (ou un relevé réseau seul) : l'antenne par défaut, et c'est dit. */
+const ANTENNE_INCONNUE = positionAntenne(null, undefined);
+
+/** La déclinaison au poste (WMM2025), recalculée seulement quand le poste ou le jour change. */
+let memo: { cle: string; d: number | null } = { cle: "", d: null };
+function declinaisonAuPoste(a: PositionAntenne): number | null {
+  const maintenant = new Date();
+  const cle = `${a.lat},${a.lon},${maintenant.toISOString().slice(0, 10)}`;
+  if (memo.cle !== cle) memo = { cle, d: declinaison(a.lat, a.lon, maintenant) };
+  return memo.d;
+}
+
+const ORIGINE: Record<PositionAntenne["origine"], string> = {
+  gps: "GPS",
+  reglage: "RÉGLÉE",
+  defaut: "NON RÉGLÉE : FTTJ PAR DÉFAUT",
+};
+
 /**
- * Écran polaire des pistes RÉELLES, centré sur FTTJ. Le poste n'a pas de radar primaire : rien ici
- * ne simule un balayage, un écho ou un fouillis. Chaque piste est dessinée à sa dernière position
- * connue, à chaque image — c'est le direct de l'antenne 1090 et du relevé réseau.
+ * L'écran radar DU POSTE : centré sur son antenne (fix GPS, sinon AFRICONTROL_ANTENNE, sinon FTTJ —
+ * et l'écran dit lequel), il montre les pistes RÉELLES en direct : l'antenne 1090 du poste et le
+ * relevé réseau. Le poste n'a pas de radar primaire : rien ici ne simule un balayage, un écho ou un
+ * fouillis. Chaque piste est dessinée à sa dernière position connue, à chaque image. Le nord
+ * magnétique est celui du lieu de l'antenne (modèle WMM2025), pas une constante.
  */
 export function PpiRadar({ className }: { className?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const selectedId = useVigilair((s) => s.selectedId);
   const ppi = useVigilair((s) => s.ppi);
   const lockTrack = useVigilair((s) => s.lockTrack);
+  const antenne = useVigilair((s) => s.livePicture?.antenne ?? ANTENNE_INCONNUE);
   const ppiRef = useRef(ppi);
   const selRef = useRef(selectedId);
+  const posteRef = useRef(antenne);
   ppiRef.current = ppi;
   selRef.current = selectedId;
+  posteRef.current = antenne;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -124,7 +150,7 @@ export function PpiRadar({ className }: { className?: string }) {
     ro.observe(canvas);
 
     const tick = () => {
-      drawFrame(canvas, peekTracks(), selRef.current, ppiRef.current);
+      drawFrame(canvas, peekTracks(), selRef.current, ppiRef.current, posteRef.current);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -144,12 +170,13 @@ export function PpiRadar({ className }: { className?: string }) {
     const h = canvas.clientHeight;
     const { cx, cy, radius } = scopeGeom(w, h);
     const params = ppiRef.current;
+    const poste = posteRef.current;
     let best: { id: string; d: number } | null = null;
     for (const tr of peekTracks()) {
       if (!trackVisible(tr, selRef.current)) continue;
-      const rng = haversineKm(AO.airport.lat, AO.airport.lon, tr.lat, tr.lon);
+      const rng = haversineKm(poste.lat, poste.lon, tr.lat, tr.lon);
       if (rng > params.rangeKm) continue;
-      const brg = headingBetween(AO.airport.lat, AO.airport.lon, tr.lat, tr.lon);
+      const brg = headingBetween(poste.lat, poste.lon, tr.lat, tr.lon);
       const p = polar(cx, cy, brg, (rng / params.rangeKm) * radius);
       const d = Math.hypot(p.x - x, p.y - y);
       if (d < 28 && (!best || d < best.d)) best = { id: tr.id, d };
@@ -163,9 +190,8 @@ export function PpiRadar({ className }: { className?: string }) {
         ref={canvasRef}
         className="block h-full w-full"
         onClick={onClick}
-        aria-label="Écran radar PPI FTTJ"
+        aria-label="Écran radar du poste (PPI)"
       />
-      <div className="pointer-events-none absolute inset-0 radar-scan" />
     </div>
   );
 }
@@ -175,12 +201,12 @@ type Legend = { width: number; size: number; base: number; right: boolean; botto
 /** Légendes d'angle relevées au dernier tracé ; largeurs estimées avant le premier. */
 let legends: Legend[] = [
   { width: 80, size: 12, base: 22, right: false, bottom: false },
-  { width: 190, size: 11, base: 40, right: false, bottom: false },
+  { width: 330, size: 11, base: 40, right: false, bottom: false },
   { width: 220, size: 11, base: 56, right: false, bottom: false },
-  { width: 60, size: 11, base: 72, right: false, bottom: false },
+  { width: 300, size: 11, base: 72, right: false, bottom: false },
   { width: 185, size: 11, base: 22, right: true, bottom: false },
   { width: 115, size: 11, base: 38, right: true, bottom: false },
-  { width: 240, size: 10, base: 16, right: false, bottom: true },
+  { width: 470, size: 10, base: 16, right: false, bottom: true },
 ];
 
 /**
@@ -232,6 +258,7 @@ function drawFrame(
   tracks: Track[],
   selectedId: string | null,
   params: PpiParams,
+  poste: PositionAntenne,
 ) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -260,6 +287,8 @@ function drawFrame(
 
   const { cx, cy, radius } = scopeGeom(w, h);
   canvas.dataset.scope = `${cx.toFixed(1)},${cy.toFixed(1)},${radius.toFixed(1)}`;
+  canvas.dataset.poste = `${poste.lat},${poste.lon},${poste.origine}`;
+  const decl = declinaisonAuPoste(poste);
   const seen: Legend[] = [];
   const legend = (text: string, size: number, x: number, base: number, right = false, bottom = false) => {
     ctx.fillText(text, x, base);
@@ -308,9 +337,9 @@ function drawFrame(
   ctx.fillStyle = hexAlpha(warn, 0.12);
   ctx.lineWidth = 1;
   for (const site of getLiveZones()) {
-    const rng = haversineKm(AO.airport.lat, AO.airport.lon, site.lat, site.lon);
+    const rng = haversineKm(poste.lat, poste.lon, site.lat, site.lon);
     if (rng > params.rangeKm) continue;
-    const brg = headingBetween(AO.airport.lat, AO.airport.lon, site.lat, site.lon);
+    const brg = headingBetween(poste.lat, poste.lon, site.lat, site.lon);
     const p = polar(cx, cy, brg, (rng / params.rangeKm) * radius);
     const rr = Math.max(3, (site.radiusKm / params.rangeKm) * radius);
     ctx.beginPath();
@@ -333,9 +362,9 @@ function drawFrame(
   for (const tr of tracks) {
     if (!trackVisible(tr, selectedId)) continue;
     const ami = isFriend(tr);
-    const rng = haversineKm(AO.airport.lat, AO.airport.lon, tr.lat, tr.lon);
+    const rng = haversineKm(poste.lat, poste.lon, tr.lat, tr.lon);
     if (rng > params.rangeKm) continue;
-    const brg = headingBetween(AO.airport.lat, AO.airport.lon, tr.lat, tr.lon);
+    const brg = headingBetween(poste.lat, poste.lon, tr.lat, tr.lon);
     const p = polar(cx, cy, brg, (rng / params.rangeKm) * radius);
     shown += 1;
     const plat = PLATFORM_BY_ID[tr.hypotheses[0]?.platformId ?? tr.truePlatformId];
@@ -364,9 +393,9 @@ function drawFrame(
       const dLon =
         (projKm * Math.sin((tr.heading * Math.PI) / 180)) /
         (111.32 * Math.cos((tr.lat * Math.PI) / 180));
-      const rng2 = haversineKm(AO.airport.lat, AO.airport.lon, tr.lat + dLat, tr.lon + dLon);
+      const rng2 = haversineKm(poste.lat, poste.lon, tr.lat + dLat, tr.lon + dLon);
       if (rng2 <= params.rangeKm) {
-        const brg2 = headingBetween(AO.airport.lat, AO.airport.lon, tr.lat + dLat, tr.lon + dLon);
+        const brg2 = headingBetween(poste.lat, poste.lon, tr.lat + dLat, tr.lon + dLon);
         const q = polar(cx, cy, brg2, (rng2 / params.rangeKm) * radius);
         ctx.strokeStyle = tr.locked ? warn : color;
         ctx.lineWidth = 1;
@@ -505,17 +534,27 @@ function drawFrame(
   legend("AfriControl PPI", 12, 16, 22);
   ctx.fillStyle = muted;
   ctx.font = "11px IBM Plex Mono, ui-monospace, monospace";
-  legend(`FTTJ  N'DJAMENA  ·  ${params.rangeKm} km`, 11, 16, 40);
+  const coord = (v: number, pos: string, neg: string) =>
+    `${Math.abs(v).toFixed(4).replace(".", ",")}° ${v >= 0 ? pos : neg}`;
+  legend(
+    `POSTE ${coord(poste.lat, "N", "S")} ${coord(poste.lon, "E", "O")}  ·  ${ORIGINE[poste.origine]}  ·  ${params.rangeKm} km`,
+    11,
+    16,
+    40,
+  );
   legend(`EN DIRECT  ·  ${shown} PISTE${shown > 1 ? "S" : ""} À L'ÉCRAN`, 11, 16, 56);
-  const coverage =
-    params.rangeKm >= 12000
-      ? "COUVERTURE MONDE · TOUS CONTINENTS"
-      : params.rangeKm >= 6000
-        ? "COUVERTURE AFRIQUE"
-        : params.rangeKm >= 2500
-          ? "THÉÂTRE SAHEL · AES INCLUS"
-          : `NORD ${params.northTrue ? "VRAI" : "MAGNÉTIQUE"}`;
-  legend(coverage, 11, 16, 72, false);
+  const d = decl === null ? "" : `${decl >= 0 ? "+" : "−"}${Math.abs(decl).toFixed(1).replace(".", ",")}°`;
+  legend(
+    params.northTrue
+      ? `NORD VRAI${decl === null ? "" : `  ·  DÉCLINAISON ${d} (WMM2025)`}`
+      : decl === null
+        ? "NORD VRAI (WMM2025 PÉRIMÉ : NORD MAGNÉTIQUE INCONNU)"
+        : `NORD MAGNÉTIQUE  ·  DÉCLINAISON ${d} (WMM2025)`,
+    11,
+    16,
+    72,
+    false,
+  );
 
   ctx.textAlign = "right";
   ctx.fillStyle = muted;
@@ -525,18 +564,8 @@ function drawFrame(
   if (selected && selected.idState !== "perdu") {
     const plat =
       PLATFORM_BY_ID[selected.hypotheses[0]?.platformId ?? selected.truePlatformId];
-    const rng = haversineKm(
-      AO.airport.lat,
-      AO.airport.lon,
-      selected.lat,
-      selected.lon,
-    );
-    const brg = headingBetween(
-      AO.airport.lat,
-      AO.airport.lon,
-      selected.lat,
-      selected.lon,
-    );
+    const rng = haversineKm(poste.lat, poste.lon, selected.lat, selected.lon);
+    const brg = headingBetween(poste.lat, poste.lon, selected.lat, selected.lon);
     const boxW = 220;
     const boxH = 88;
     const bx = w - boxW - 16;
@@ -557,9 +586,10 @@ function drawFrame(
       by + 36,
     );
     ctx.font = "11px IBM Plex Mono, ui-monospace, monospace";
-    const brgShown = params.northTrue ? brg : (brg - MAG_DECLINATION_DEG + 360) % 360;
+    const magnetique = !params.northTrue && decl !== null;
+    const brgShown = magnetique ? (brg - decl + 360) % 360 : brg;
     ctx.fillText(
-      `BRG ${brgShown.toFixed(0)}°${params.northTrue ? "" : "M"}  RNG ${rng.toFixed(1)} km  ALT ${Math.round(selected.altM)} m`,
+      `BRG ${brgShown.toFixed(0)}°${magnetique ? "M" : ""}  RNG ${rng.toFixed(1)} km  ALT ${Math.round(selected.altM)} m`,
       bx + 10,
       by + 54,
     );
@@ -573,6 +603,13 @@ function drawFrame(
   ctx.textAlign = "left";
   ctx.fillStyle = muted;
   ctx.font = "10px IBM Plex Sans, sans-serif";
-  legend("Poste FTTJ · pistes 1090 reçues, pas de radar primaire", 10, 16, h - 16, false, true);
+  legend(
+    "Radar du poste : son antenne 1090 et le relevé réseau, réception seule — pas de radar primaire",
+    10,
+    16,
+    h - 16,
+    false,
+    true,
+  );
   legends = seen;
 }

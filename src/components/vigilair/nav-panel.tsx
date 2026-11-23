@@ -11,7 +11,6 @@ import { MINE_REGION_LABEL, MINES } from "@/lib/vigilair/mines";
 import {
   axisHazards,
   cardinal,
-  declinationEstimate,
   parsePoints,
   profileCrossings,
   routeHazards,
@@ -24,6 +23,7 @@ import {
   type LatLon,
   type NamedPoint,
 } from "@/lib/vigilair/nav";
+import { declinaison } from "@/lib/vigilair/wmm";
 import { nearestPlace, searchPlaces, type Place } from "@/lib/vigilair/places";
 import { deleteRoute, routesSnapshot, routesServerSnapshot, saveRoute, subscribeRoutes } from "@/lib/vigilair/routes";
 import { useVigilair } from "@/lib/vigilair/store";
@@ -303,7 +303,7 @@ export function NavPanel() {
     declRef.current = decl;
   });
 
-  // Déclinaison auto-estimée depuis le DÉPART, et seulement si l'opérateur n'en a pas saisi une.
+  // Déclinaison du DÉPART par le modèle WMM2025, et seulement si l'opérateur n'en a pas saisi une.
   // On lit la saisie par référence : en dépendre ferait rejouer l'effet dès qu'on vide le champ, qui
   // se re-remplirait aussitôt tout seul — impossible d'effacer une déclinaison.
   const startLat = start.lat;
@@ -312,8 +312,8 @@ export function NavPanel() {
     const lat = num(startLat);
     const lon = num(startLon);
     if (declRef.current.trim() === "" && lat != null && lon != null) {
-      const d = declinationEstimate(lat, lon);
-      if (d != null) setDecl(String(d));
+      const d = declinaison(lat, lon, new Date());
+      if (d != null) setDecl(String(Math.round(d * 10) / 10));
     }
   }, [startLat, startLon]);
 
@@ -548,7 +548,7 @@ export function NavPanel() {
             <Input className="w-20" inputMode="decimal" value={speed} onChange={(e) => setSpeed(e.target.value)} />
           </label>
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            Déclinaison °E (approchée)
+            Déclinaison °E (WMM2025)
             <Input data-nav="decl" className="w-20" inputMode="decimal" value={decl} onChange={(e) => setDecl(e.target.value)} />
           </label>
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -851,8 +851,8 @@ export function NavPanel() {
       <p className="rounded-md border border-border bg-surface px-4 py-2 text-[11px] text-muted-foreground">
         Navigation directe (orthodromie), cap vrai — pas d'itinéraire routier, pas de guidage d'arme.
         Le contournement est une proposition (point de passage qui dégage l'axe), pas un plan de route
-        optimal ; le relief et les pistes se lisent sur l'imagerie et à l'œil. Déclinaison approchée, à
-        vérifier sur carte. Réception seule.
+        optimal ; le relief et les pistes se lisent sur l'imagerie et à l'œil. Déclinaison du départ par
+        le modèle magnétique mondial WMM2025 (valable jusqu'au 1er janvier 2030). Réception seule.
       </p>
     </section>
   );

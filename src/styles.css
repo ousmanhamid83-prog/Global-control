@@ -168,16 +168,6 @@
   background-origin: padding-box;
 }
 
-/* Écran PPI : lignes de balayage façon tube cathodique, sans animation. */
-.radar-scan {
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent 2px,
-    rgb(0 0 0 / 0.16) 3px
-  );
-}
-
 /*
  * Synoptique et télémétrie : paquets qui circulent sur les liens vivants, voyants qui battent,
  * traces au phosphore. Immobile si l'utilisateur le demande.

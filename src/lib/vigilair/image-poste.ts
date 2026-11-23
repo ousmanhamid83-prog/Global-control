@@ -10,16 +10,37 @@
  *
  * Module pur : ni réseau, ni horloge — l'instant est passé en paramètre.
  */
-import { theaterOf } from "./geo.ts";
+import { haversineKm, theaterOf } from "./geo.ts";
 import {
   ageLiveAc,
   jamFromAircraft,
   type JamCell,
   type LiveAc,
   type LivePicture,
+  type PositionAntenne,
   type SourceHealth,
 } from "./live-adsb.ts";
 import type { ReceiverStatus } from "./rx1090.server.ts";
+
+/** Sans GPS ni réglage, l'antenne est supposée à FTTJ (N'Djamena) — et son origine le dit. */
+const ANTENNE_PAR_DEFAUT = { lat: 12.1331, lon: 15.0339 };
+
+/**
+ * Où est l'antenne du poste, et d'où on le sait : un fix GPS réel prime sur le réglage
+ * AFRICONTROL_ANTENNE (« lat,lon ») ; sans l'un ni l'autre, FTTJ, origine « defaut ».
+ */
+export function positionAntenne(
+  gps: { lat: number; lon: number } | null,
+  reglage: string | undefined,
+): PositionAntenne {
+  if (gps) return { ...gps, origine: "gps" };
+  const [lat, lon] = (reglage ?? "").split(",").map((x) => Number(x.trim()));
+  // Un nombre manquant ou illisible donne NaN, et Math.abs(NaN) <= 90 est faux.
+  if (Math.abs(lat!) <= 90 && Math.abs(lon!) <= 180) {
+    return { lat: lat!, lon: lon!, origine: "reglage" };
+  }
+  return { ...ANTENNE_PAR_DEFAUT, origine: "defaut" };
+}
 
 export function health(id: string, label: string, ok: boolean, detail: string): SourceHealth {
   return { id, label, ok, detail };
@@ -30,16 +51,9 @@ export function sahelCount(ac: LiveAc[]): number {
   return ac.filter((a) => theaterOf(a.lat, a.lon) !== "monde").length;
 }
 
-/** Avions à 120 km de FTTJ au plus. */
-export function localN(ac: LiveAc[]): number {
-  let n = 0;
-  for (const a of ac) {
-    const dlat = a.lat - 12.1348;
-    const dlon = a.lon - 15.0557;
-    const km = Math.hypot(dlat * 110.57, dlon * 111.32 * Math.cos((12.1348 * Math.PI) / 180));
-    if (km <= 120) n += 1;
-  }
-  return n;
+/** Avions à 120 km au plus de l'antenne du poste. */
+export function localN(ac: LiveAc[], antenne: { lat: number; lon: number }): number {
+  return ac.filter((a) => haversineKm(antenne.lat, antenne.lon, a.lat, a.lon) <= 120).length;
 }
 
 export function nicHealth(ac: LiveAc[], jam: JamCell[]): SourceHealth {
@@ -132,7 +146,8 @@ export function fusionAntenne(
       ? `antenne ${rx.endpoint} · ${rxAc.length} avions${net.aircraft.length ? ` + ${net.source}` : ""}`
       : net.source,
     aircraft,
-    localN: localN(aircraft),
+    antenne: rx.antenna,
+    localN: localN(aircraft, rx.antenna),
     sahelN: sahelCount(aircraft),
     emergencies: aircraft.filter((a) => Boolean(a.emergency)),
     jam,

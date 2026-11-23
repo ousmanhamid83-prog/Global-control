@@ -4,7 +4,8 @@
  * jamais une conclusion. Les commandes du poste les servent telles quelles ; l'agent IA les
  * consulte pour rédiger, et sans IA la console les montre (voir competences-agent).
  */
-import { AO, haversineKm } from "./geo.ts";
+import { haversineKm } from "./geo.ts";
+import { positionAntenne } from "./image-poste.ts";
 import type { LiveAc, LivePicture } from "./live-adsb.ts";
 
 export type Sujet = "trafic" | "urgences" | "militaires" | "meteo" | "espace" | "sigmet" | "gnss";
@@ -71,13 +72,17 @@ export function sujetsDe(question: string): Sujet[] | null {
 }
 
 /**
- * Les n contacts les plus proches du poste, une ligne factuelle chacun : rien que des champs reçus,
- * et la distance au poste. Sans elle, rien ne disait au modèle que « le plus proche » peut être à
- * des milliers de kilomètres (mesuré le 2 novembre 2026 : 2 493 km).
+ * Les n contacts les plus proches du poste (son antenne), une ligne factuelle chacun : rien que des
+ * champs reçus, et la distance au poste. Sans elle, rien ne disait au modèle que « le plus proche »
+ * peut être à des milliers de kilomètres (mesuré le 2 novembre 2026 : 2 493 km).
  */
-export function contactsProches(ac: LiveAc[], n: number): string[] {
+export function contactsProches(
+  ac: LiveAc[],
+  n: number,
+  poste: { lat: number; lon: number },
+): string[] {
   return ac
-    .map((a) => ({ a, km: haversineKm(AO.centerLat, AO.centerLon, a.lat, a.lon) }))
+    .map((a) => ({ a, km: haversineKm(poste.lat, poste.lon, a.lat, a.lon) }))
     .sort((x, y) => x.km - y.km)
     .slice(0, n)
     .map(({ a, km }) =>
@@ -123,6 +128,8 @@ function entendu(pic: LivePicture): boolean {
  * militaire n'arrivent que par Internet.
  */
 function lignesDe(s: Sujet, pic: LivePicture, n: number): string[] {
+  // L'image de la console porte l'antenne du poste ; un relevé réseau seul, non : FTTJ, par défaut.
+  const poste = pic.antenne ?? positionAntenne(null, undefined);
   if (s !== "meteo" && s !== "sigmet" && s !== "espace" && !entendu(pic)) {
     return [`${MUETS_1090[s]}, aucune trame 1090 reçue (antenne et ADS-B Internet muets).`];
   }
@@ -130,7 +137,10 @@ function lignesDe(s: Sujet, pic: LivePicture, n: number): string[] {
     case "urgences":
       return pic.emergencies.length === 0
         ? ["Urgences (7500/7600/7700) : aucune."]
-        : [`Urgences : ${pic.emergencies.length}`, ...retrait(contactsProches(pic.emergencies, 6))];
+        : [
+            `Urgences : ${pic.emergencies.length}`,
+            ...retrait(contactsProches(pic.emergencies, 6, poste)),
+          ];
     case "militaires": {
       if (!recu(pic, "1090")) {
         return ["Contacts militaires : inconnus, le marquage vient de l'ADS-B Internet, non reçu."];
@@ -139,8 +149,8 @@ function lignesDe(s: Sujet, pic: LivePicture, n: number): string[] {
       return mil.length === 0
         ? ["Contacts militaires : aucun."]
         : [
-            `Contacts militaires : ${mil.length}, les plus proches de FTTJ :`,
-            ...retrait(contactsProches(mil, n)),
+            `Contacts militaires : ${mil.length}, les plus proches du poste :`,
+            ...retrait(contactsProches(mil, n, poste)),
           ];
     }
     case "trafic":
@@ -148,8 +158,8 @@ function lignesDe(s: Sujet, pic: LivePicture, n: number): string[] {
         ? ["1090ES : aucun contact dans le dernier relevé."]
         : [
             `1090ES : ${pic.aircraft.length} contacts en Afrique, ${pic.sahelN} au Sahel, ` +
-              `${pic.localN} à moins de 120 km de FTTJ. Les plus proches de FTTJ :`,
-            ...retrait(contactsProches(pic.aircraft, n)),
+              `${pic.localN} à moins de 120 km du poste. Les plus proches du poste :`,
+            ...retrait(contactsProches(pic.aircraft, n, poste)),
           ];
     case "gnss": {
       const chaudes = pic.jam.filter((j) => j.level !== "low").sort((a, b) => b.pct - a.pct);

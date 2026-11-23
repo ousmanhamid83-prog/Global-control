@@ -4,7 +4,8 @@ import { PaintFilters } from "@/components/vigilair/paint-filters";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PLATFORM_BY_ID, classLabel, originLabel } from "@/lib/vigilair/catalog";
-import { AO, formatCoord, haversineKm, headingBetween } from "@/lib/vigilair/geo";
+import { formatCoord, haversineKm, headingBetween } from "@/lib/vigilair/geo";
+import { positionAntenne } from "@/lib/vigilair/image-poste";
 import { iffModesLine, passesPaintFilter } from "@/lib/vigilair/iff";
 import { surveillanceLabel } from "@/lib/vigilair/mode-s";
 import { PPI_RANGES, TIME_VECTORS, type PpiRangeKm } from "@/lib/vigilair/ppi";
@@ -17,8 +18,14 @@ import { cn } from "@/lib/utils";
 import { Crosshair, EyeOff } from "lucide-react";
 import { useMemo } from "react";
 
+/** Sans image du poste encore : l'antenne par défaut. */
+const ANTENNE_INCONNUE = positionAntenne(null, undefined);
+
+const ORIGINE = { gps: "GPS", reglage: "réglée", defaut: "non réglée : FTTJ par défaut" } as const;
+
 export function RadarView() {
   const ppi = useVigilair((s) => s.ppi);
+  const poste = useVigilair((s) => s.livePicture?.antenne ?? ANTENNE_INCONNUE);
   const setPpi = useVigilair((s) => s.setPpi);
   const tracks = useVigilair((s) => s.tracks);
   const selectedId = useVigilair((s) => s.selectedId);
@@ -36,9 +43,9 @@ export function RadarView() {
   const live = useMemo(
     () =>
       tracks.filter((t) =>
-        passesPaintFilter(t, { declutter, threatFloor, showFriends, showLive, selectedId }),
+        passesPaintFilter(t, { declutter, threatFloor, showFriends, showLive, selectedId, poste }),
       ),
-    [tracks, selectedId, declutter, threatFloor, showFriends, showLive],
+    [tracks, selectedId, declutter, threatFloor, showFriends, showLive, poste],
   );
   const { isSuperadmin } = useStaff();
 
@@ -56,10 +63,11 @@ export function RadarView() {
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Paramètres PPI
             </p>
-            <h2 className="text-base font-semibold">Écran des pistes FTTJ</h2>
+            <h2 className="text-base font-semibold">Écran radar du poste</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              PPI + coupe altitude RHI — pistes 1090ES reçues en direct (antenne du poste et
-              relevé réseau). Le poste n'a pas de radar primaire : aucun balayage n'est simulé.
+              PPI + coupe altitude RHI, centrés sur l'antenne du poste — pistes 1090ES reçues en
+              direct (antenne du poste et relevé réseau). Le poste n'a pas de radar primaire :
+              aucun balayage n'est simulé. Nord magnétique : celui du lieu (WMM2025).
               Symboles APP-6 (le cadre = l'affiliation). Réception seule : AfriControl n'émet
               pas. Espace = pause · L = verrouiller · F = amis · T = menace · D = débruitage ·
               1–9 = portée · ← → AAR.
@@ -142,8 +150,8 @@ export function RadarView() {
           {ppi.symbols ? <App6Legend /> : null}
 
           <dl className="grid grid-cols-2 gap-2 text-xs">
-            <Item label="Site" value="FTTJ" />
-            <Item label="Pistes dans le PPI" value={`${live.filter((t) => haversineKm(AO.airport.lat, AO.airport.lon, t.lat, t.lon) <= ppi.rangeKm).length}`} />
+            <Item label="Antenne du poste" value={`${formatCoord(poste.lat, poste.lon)} · ${ORIGINE[poste.origine]}`} />
+            <Item label="Pistes dans le PPI" value={`${live.filter((t) => haversineKm(poste.lat, poste.lon, t.lat, t.lon) <= ppi.rangeKm).length}`} />
             {/* Pistes dont la position est EXTRAPOLÉE (transpondeur muet), et relevés refusés comme
                 physiquement impossibles. L'opérateur doit savoir ce qui est mesuré et ce qui ne l'est pas. */}
             <Item label="Pistes mémoire" value={`${live.filter((t) => t.coast).length}`} />
@@ -185,19 +193,9 @@ export function RadarView() {
               </p>
               <p className="text-xs text-muted-foreground">
                 BRG{" "}
-                {headingBetween(
-                  AO.airport.lat,
-                  AO.airport.lon,
-                  selected.lat,
-                  selected.lon,
-                ).toFixed(0)}
+                {headingBetween(poste.lat, poste.lon, selected.lat, selected.lon).toFixed(0)}
                 ° · RNG{" "}
-                {haversineKm(
-                  AO.airport.lat,
-                  AO.airport.lon,
-                  selected.lat,
-                  selected.lon,
-                ).toFixed(1)}{" "}
+                {haversineKm(poste.lat, poste.lon, selected.lat, selected.lon).toFixed(1)}{" "}
                 km
                 {selected.classGuess ? ` · ${classLabel(selected.classGuess)}` : ""}
                 {selected.origin ? ` · ${originLabel(selected.origin)}` : ""}

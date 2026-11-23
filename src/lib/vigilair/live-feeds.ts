@@ -835,6 +835,7 @@ async function pullNetwork(): Promise<LivePicture> {
         // l'heure d'observation glissait de 2 à 4 s à chaque rafraîchissement (mesuré).
         const at = Date.now();
         const aircraft = ageLiveAc(adsb.ac, (at - adsb.refAt) / 1000);
+        const { antennePoste } = await import("./rx1090.server");
         const jam: JamCell[] = jamFromAircraft(aircraft);
         const emergencies = aircraft.filter((a) => Boolean(a.emergency));
         const solar = solarFttj();
@@ -925,7 +926,7 @@ async function pullNetwork(): Promise<LivePicture> {
           at,
           source: adsb.source,
           aircraft,
-          localN: localN(aircraft),
+          localN: localN(aircraft, antennePoste()),
           sahelN: sahelCount(aircraft),
           emergencies,
           metar: wx.metar,
@@ -1487,7 +1488,7 @@ export const posteDiagnostic = createServerFn({ method: "GET" })
         id: "adsb",
         label: "1090ES réseau (passif)",
         state: n > 0 ? "ok" : "warn",
-        detail: n > 0 ? `${n} contacts Afrique, ${pic.localN} dans 120 km FTTJ.` : "Aucun squitter au dernier relevé — réel là où le réseau public n'a pas de récepteur.",
+        detail: n > 0 ? `${n} contacts Afrique, ${pic.localN} à moins de 120 km de l'antenne du poste.` : "Aucun squitter au dernier relevé — réel là où le réseau public n'a pas de récepteur.",
       });
 
       const fttj = pic.metar.find((m) => m.icao === "FTTJ");

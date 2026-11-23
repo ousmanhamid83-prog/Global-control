@@ -10,7 +10,8 @@ import {
 } from "@/lib/vigilair/catalog";
 import { originTone } from "@/lib/vigilair/format";
 import { friendLabel, isFriend } from "@/lib/vigilair/friends";
-import { AO, haversineKm } from "@/lib/vigilair/geo";
+import { haversineKm } from "@/lib/vigilair/geo";
+import { positionAntenne } from "@/lib/vigilair/image-poste";
 import { iffModesLine } from "@/lib/vigilair/iff";
 import { surveillanceLabel } from "@/lib/vigilair/mode-s";
 import { sortTracks, trackVisible, useVigilair } from "@/lib/vigilair/store";
@@ -18,8 +19,12 @@ import { cn } from "@/lib/utils";
 import { Crosshair, EyeOff } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
+/** Sans image du poste encore : l'antenne par défaut (FTTJ). */
+const ANTENNE_INCONNUE = positionAntenne(null, undefined);
+
 export function IdentView() {
   const tracks = useVigilair((s) => s.tracks);
+  const poste = useVigilair((s) => s.livePicture?.antenne ?? ANTENNE_INCONNUE);
   const selectedId = useVigilair((s) => s.selectedId);
   const lockTrack = useVigilair((s) => s.lockTrack);
   const live = sortTracks(tracks.filter((t) => trackVisible(t, selectedId)));
@@ -33,8 +38,8 @@ export function IdentView() {
             Identification · type Flightradar
           </h1>
           <p className="text-xs text-muted-foreground">
-            Couverture 120 km FTTJ · 1090ES en direct · filtre menace · le poste écoute, il
-            n'émet pas.
+            Distances depuis l'antenne du poste · 1090ES en direct · filtre menace · le poste
+            écoute, il n'émet pas.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1">
@@ -63,14 +68,14 @@ export function IdentView() {
                 <th className="px-2 py-2 font-medium">Orig.</th>
                 <th className="px-2 py-2 font-medium">1090</th>
                 <th className="px-2 py-2 font-medium">Alt</th>
-                <th className="px-2 py-2 font-medium">FTTJ</th>
+                <th className="px-2 py-2 font-medium">Poste</th>
               </tr>
             </thead>
             <tbody>
               {live.map((t) => {
                 const plat =
                   PLATFORM_BY_ID[t.hypotheses[0]?.platformId ?? t.truePlatformId];
-                const dist = haversineKm(t.lat, t.lon, AO.airport.lat, AO.airport.lon);
+                const dist = haversineKm(t.lat, t.lon, poste.lat, poste.lon);
                 const active = t.id === track?.id;
                 return (
                   <tr

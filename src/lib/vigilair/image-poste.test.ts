@@ -5,6 +5,7 @@ import {
   fusionAntenne,
   imageDuPoste,
   localN,
+  positionAntenne,
   sahelCount,
   vieillir,
 } from "./image-poste.ts";
@@ -55,7 +56,7 @@ function antenne(p: Partial<ReceiverStatus> = {}): ReceiverStatus {
     heard: 3,
     positioned: 2,
     stats: {} as ReceiverStatus["stats"],
-    antenna: { lat: 12.1331, lon: 15.0339 },
+    antenna: { lat: 12.1331, lon: 15.0339, origine: "reglage" },
     ...p,
   };
 }
@@ -186,11 +187,40 @@ describe("image du poste : relevé réseau + antenne, pour tout ce qui lit l'ima
     assert.equal(vieillir(pic, NET.at - 5000).aircraft[0]!.seenS, 3, "horloge en arrière : âge 0");
   });
 
-  it("COMPTES : à 120 km de FTTJ, et au-dessus du Sahel", () => {
+  it("COMPTES : à 120 km de l'antenne du poste, et au-dessus du Sahel", () => {
     const pres = avion({ lat: 12.5, lon: 15.3 });
     const loin = avion({ lat: 13.5, lon: 15.0557 });
     const caire = avion({ lat: 30.1, lon: 31.4 });
-    assert.equal(localN([pres, loin, caire]), 1);
+    const fttj = { lat: 12.1331, lon: 15.0339 };
+    assert.equal(localN([pres, loin, caire], fttj), 1);
+    // 120 km tout juste : compté ; un peu plus, non.
+    const bord = (km: number) => avion({ lat: 12.1331 + km / 111.195, lon: 15.0339 });
+    assert.equal(localN([bord(119.9), bord(120.1)], fttj), 1);
+    // Une antenne au Caire : c'est l'avion du Caire qui est proche.
+    assert.equal(localN([pres, loin, caire], { lat: 30.06, lon: 31.25 }), 1);
     assert.equal(sahelCount([pres, loin, caire]), 2);
+  });
+
+  it("L'ANTENNE DU POSTE : un fix GPS prime, puis le réglage, sinon FTTJ — et l'image la porte", () => {
+    assert.deepEqual(positionAntenne({ lat: 9.1, lon: 7.4 }, "14.69,-17.44"), {
+      lat: 9.1,
+      lon: 7.4,
+      origine: "gps",
+    });
+    assert.deepEqual(positionAntenne(null, " 14.69 , -17.44 "), {
+      lat: 14.69,
+      lon: -17.44,
+      origine: "reglage",
+    });
+    const defaut = { lat: 12.1331, lon: 15.0339, origine: "defaut" };
+    for (const faux of [undefined, "", "14.69", "91,10", "10,181", "a,b", "14.69;-17.44"]) {
+      assert.deepEqual(positionAntenne(null, faux), defaut, String(faux));
+    }
+    assert.deepEqual(positionAntenne(null, "-90,180"), { lat: -90, lon: 180, origine: "reglage" });
+    const ici = { lat: 30.06, lon: 31.25, origine: "reglage" as const };
+    const caire = avion({ lat: 30.1, lon: 31.4 });
+    const pic = imageDuPoste(null, antenne({ antenna: ici }), [caire], T, VIDE)!;
+    assert.deepEqual(pic.antenne, ici);
+    assert.equal(pic.localN, 1, "compté depuis l'antenne du Caire");
   });
 });

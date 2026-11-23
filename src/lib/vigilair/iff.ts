@@ -5,7 +5,8 @@
  */
 import { isFriend } from "./friends.ts";
 import { PLATFORM_BY_ID, threatRank } from "./catalog.ts";
-import { AO, haversineKm } from "./geo.ts";
+import { haversineKm } from "./geo.ts";
+import { positionAntenne } from "./image-poste.ts";
 import type { IffFix, Origin, Threat, Track } from "./types";
 
 export type ThreatFloor = "ALL" | "moderee" | "elevee" | "critique";
@@ -53,7 +54,11 @@ export type PaintFilter = {
   selectedId: string | null;
   /** Débruitage : ne garder que ce qui compte pour la sûreté du site (voir siteRelevant). */
   declutter?: boolean;
+  /** L'antenne du poste, centre du débruitage ; sans image du poste encore, FTTJ par défaut. */
+  poste?: { lat: number; lon: number };
 };
+
+const POSTE_PAR_DEFAUT = positionAntenne(null, undefined);
 
 /** Rayon de focalisation du débruitage : au-delà, le transit est du bruit pour la sûreté d'un site. */
 export const DECLUTTER_FOCUS_KM = 300;
@@ -61,15 +66,15 @@ export const DECLUTTER_FOCUS_KM = 300;
 /**
  * Pertinent pour la sûreté d'un site : tout ce qui est signalé — urgence, militaire, GNSS dégradé
  * (NIC < 5, brouillage possible) — où qu'il soit, PLUS tout contact à moins de DECLUTTER_FOCUS_KM
- * de FTTJ. Un vrai drone menace le site de près : il tombe dans le rayon. Le transit civil lointain
- * est du bruit sur le scope quand le débruitage est actif (classGuess n'est pas retenu : le flux
- * 1090ES l'affecte à presque toute piste). Une piste verrouillée/sélectionnée reste toujours
- * affichée (vérifié en amont).
+ * du poste (son antenne). Un vrai drone menace le site de près : il tombe dans le rayon. Le
+ * transit civil lointain est du bruit sur le scope quand le débruitage est actif (classGuess n'est
+ * pas retenu : le flux 1090ES l'affecte à presque toute piste). Une piste verrouillée/sélectionnée
+ * reste toujours affichée (vérifié en amont).
  */
-export function siteRelevant(t: Track): boolean {
+export function siteRelevant(t: Track, poste: { lat: number; lon: number }): boolean {
   if (t.emergency != null || t.military === true) return true;
   if (t.nic != null && t.nic < 5) return true;
-  return haversineKm(AO.airport.lat, AO.airport.lon, t.lat, t.lon) <= DECLUTTER_FOCUS_KM;
+  return haversineKm(poste.lat, poste.lon, t.lat, t.lon) <= DECLUTTER_FOCUS_KM;
 }
 
 export function passesPaintFilter(t: Track, f: PaintFilter): boolean {
@@ -78,7 +83,7 @@ export function passesPaintFilter(t: Track, f: PaintFilter): boolean {
   if (t.feed === "adsb") {
     if (f.showLive === false) return false;
   } else if (isFriend(t) && !f.showFriends) return false;
-  if (f.declutter && !siteRelevant(t)) return false;
+  if (f.declutter && !siteRelevant(t, f.poste ?? POSTE_PAR_DEFAUT)) return false;
   if (f.threatFloor !== "ALL") {
     if (threatRank(trackThreat(t)) < threatRank(f.threatFloor)) return false;
   }

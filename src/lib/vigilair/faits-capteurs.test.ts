@@ -83,6 +83,9 @@ const faits = (sujets: Sujet[], pic: LivePicture, n = 5) => [
   ...faitsSujets(sujets, pic, n),
 ];
 
+/** L'antenne par défaut : FTTJ. */
+const FTTJ = { lat: 12.1331, lon: 15.0339 };
+
 describe("faits bruts des capteurs, sujet par sujet", () => {
   it("SUJETS : la question dit de quoi on parle", () => {
     assert.deepEqual(sujetsDe("Y a-t-il des urgences en cours ?"), ["urgences"]);
@@ -173,7 +176,7 @@ describe("faits bruts des capteurs, sujet par sujet", () => {
 
   it("MILITAIRES, SIGMET, GNSS, ESPACE : seulement ce qui compte (AO, cellules chaudes)", () => {
     const f = faits(ORDRE, PIC, 3);
-    assert.ok(f.includes("Contacts militaires : 1, les plus proches de FTTJ :"));
+    assert.ok(f.includes("Contacts militaires : 1, les plus proches du poste :"));
     assert.ok(f.includes("SIGMET touchant l'AO : 1") && f.includes("  FTTT TS EMBD"));
     assert.ok(!f.some((l) => l.includes("LFFF")), "un SIGMET hors AO n'est pas rapporté");
     assert.ok(f.includes("GNSS dégradé (NIC/NACp des avions) : 1 cellule(s)"));
@@ -215,11 +218,16 @@ describe("faits bruts des capteurs, sujet par sujet", () => {
   });
 
   it("CONTACTS PROCHES : rien que des champs reçus, les vides omis, MIL et code d'urgence en fin", () => {
-    const [simple] = contactsProches([avion({ flight: "AB12", hex: "abc123", nic: null })], 1);
+    const [simple] = contactsProches(
+      [avion({ flight: "AB12", hex: "abc123", nic: null })],
+      1,
+      FTTJ,
+    );
     assert.match(simple!, /^AB12 abc123 A320 FL350 nic=\? à \d+ km$/);
     const [plein] = contactsProches(
       [avion({ flight: "CD34", reg: "TT-ABC", military: true, emergency: "7600" })],
       1,
+      FTTJ,
     );
     assert.match(plein!, /^CD34 000000 A320 TT-ABC FL350 nic=8 à \d+ km MIL 7600$/);
   });
@@ -274,14 +282,33 @@ describe("faits bruts des capteurs, sujet par sujet", () => {
       avion({ flight: `X${i}`, lat: 12 + i, lon: 15 }),
     );
     assert.deepEqual(
-      contactsProches(huit, 3).map((l) => l.split(" ")[0]),
+      contactsProches(huit, 3, FTTJ).map((l) => l.split(" ")[0]),
       ["X0", "X1", "X2"],
     );
   });
 
-  it("CONTACTS PROCHES : la distance est la vraie distance au poste (FTTJ)", () => {
-    // 1° de latitude au nord de FTTJ : 111 km.
-    const [l] = contactsProches([avion({ lat: 13.1348, lon: 15.0557 })], 1);
+  it("CONTACTS PROCHES : la distance est la vraie distance au poste, là où est son antenne", () => {
+    // 1° de latitude au nord de l'antenne : 111 km.
+    const [l] = contactsProches([avion({ lat: 13.1331, lon: 15.0339 })], 1, FTTJ);
     assert.match(l!, / à 111 km$/);
+    // Un poste à Dakar : le même avion est à 3 500 km, et le plus proche est celui de Dakar.
+    const dakar = { lat: 14.69, lon: -17.44 };
+    const loin = contactsProches([avion({ flight: "NDJ1", lat: 13.1331, lon: 15.0339 })], 1, dakar);
+    assert.match(loin[0]!, / à 35\d\d km$/);
+    const deux = [
+      avion({ flight: "NDJ1", lat: 12.2, lon: 15.1 }),
+      avion({ flight: "DKR1", lat: 14.8, lon: -17.3 }),
+    ];
+    assert.deepEqual(
+      contactsProches(deux, 2, dakar).map((l) => l.split(" ")[0]),
+      ["DKR1", "NDJ1"],
+    );
+  });
+
+  it("TRAFIC : mesuré depuis l'antenne que porte l'image (un poste ailleurs qu'à FTTJ)", () => {
+    const ailleurs = { ...PIC, antenne: { lat: 30.06, lon: 31.25, origine: "reglage" as const } };
+    const f = faits(["trafic"], ailleurs);
+    // Au Caire, le plus proche est l'avion du Caire, et non plus celui de FTTJ.
+    assert.equal(f[2]!.trim().split(" ")[0], "THY6139");
   });
 });

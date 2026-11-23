@@ -90,6 +90,7 @@ import {
   type MapScale,
 } from "@/lib/vigilair/geo";
 import { HYDRO, hydroKm, waterAt } from "@/lib/vigilair/hydro";
+import { positionAntenne } from "@/lib/vigilair/image-poste";
 import { LAKE_ROUTES, routeKm } from "@/lib/vigilair/lake-routes";
 import { MINES } from "@/lib/vigilair/mines";
 import { CONTINENTS, EXTRA_STATES, rankOf, SKIP_LABEL } from "@/lib/vigilair/monde";
@@ -117,6 +118,9 @@ import {
 import type { Track } from "@/lib/vigilair/types";
 import { getLiveZones } from "@/lib/vigilair/zones";
 import { cn } from "@/lib/utils";
+
+/** Sans image du poste encore : l'antenne par défaut (FTTJ). */
+const ANTENNE_INCONNUE = positionAntenne(null, undefined);
 
 /** Une tuile vide (PNG 1×1 transparent) : ce que rend la mosaïque là où elle n'a rien, sans requête. */
 const PNG_VIDE = Uint8Array.from(
@@ -174,7 +178,7 @@ function allureDe(t: Track, symboles: boolean, p: Palette): Allure {
 
 type Etat = "attente" | "prete" | "sans-webgl";
 
-type Pointeur = { coord: string; mgrs: string; gsd: string; note: string; fttj: string };
+type Pointeur = { coord: string; mgrs: string; gsd: string; note: string; poste: string };
 
 /**
  * Ce que l'on lit sous le pointeur : coordonnées, carré MGRS, finesse de l'image ici, distance et
@@ -182,6 +186,7 @@ type Pointeur = { coord: string; mgrs: string; gsd: string; note: string; fttj: 
  */
 function lirePointeur(c: CarteGL, x: number, y: number): Pointeur {
   const st = useVigilair.getState();
+  const poste = st.livePicture?.antenne ?? ANTENNE_INCONNUE;
   const geo = c.unproject([x, y]);
   const pres = <T extends { lat: number; lon: number }>(
     liste: readonly T[],
@@ -210,7 +215,7 @@ function lirePointeur(c: CarteGL, x: number, y: number): Pointeur {
       : pic
         ? `${pic.name} ${pic.elevM} m · pas d'intérieur`
         : "",
-    fttj: `depuis FTTJ ${formatRange(haversineKm(AO.airport.lat, AO.airport.lon, geo.lat, geo.lng))}  az ${formatAzimut(headingBetween(AO.airport.lat, AO.airport.lon, geo.lat, geo.lng))}`,
+    poste: `depuis le poste ${formatRange(haversineKm(poste.lat, poste.lon, geo.lat, geo.lng))}  az ${formatAzimut(headingBetween(poste.lat, poste.lon, geo.lat, geo.lng))}`,
   };
 }
 
@@ -471,13 +476,14 @@ function mettreAJour(
       destPoint(AO.airport.lat, AO.airport.lon, cap, 1.4),
     ),
   );
-  // Anneaux : autour de FTTJ, ou du point regardé quand on a quitté N'Djamena (pas de radar à centrer).
+  // Anneaux : autour de l'antenne du poste (son radar), ou du point regardé quand on a quitté la vue
+  // du poste.
   const autour =
     st.capture || !isHomeOrigin(st.viewOrigin)
       ? isHiResScale(sc)
         ? st.viewOrigin
         : HOME
-      : AO.airport;
+      : (pic?.antenne ?? ANTENNE_INCONNUE);
   donner("anneaux", sc === "monde" ? collection([]) : anneauxGeo(autour, SCALE[sc].rings));
   donner("mesure", mesureGeo(copHud.a, copHud.b, st.copTool === "mesure" ? copHud.cursor : null));
 
@@ -817,7 +823,7 @@ export function Carte({
           <span className="text-fg">{pointeur.coord}</span>
           <span className="text-muted-foreground">{pointeur.mgrs}</span>
           <span className="text-fg">{pointeur.gsd}</span>
-          <span className="text-muted-foreground">{pointeur.fttj}</span>
+          <span className="text-muted-foreground">{pointeur.poste}</span>
         </div>
       ) : null}
     </div>

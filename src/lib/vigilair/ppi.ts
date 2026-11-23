@@ -17,7 +17,7 @@ export type PpiParams = {
   symbols: boolean;
   /** Minutes de vecteur vitesse projeté sur l'écran. */
   timeVector: (typeof TIME_VECTORS)[number];
-  /** Nord géographique (true) ou magnétique (déclinaison locale appliquée aux relèvements). */
+  /** Nord géographique (true) ou magnétique (déclinaison du lieu du poste, WMM2025). */
   northTrue: boolean;
 };
 
@@ -30,9 +30,6 @@ export const DEFAULT_PPI: PpiParams = {
   timeVector: 1,
   northTrue: true,
 };
-
-/** Déclinaison magnétique à N'Djamena ≈ +1,2° E (WMM 2025). Nord mag = nord vrai − déclinaison. */
-export const MAG_DECLINATION_DEG = 1.2;
 
 export type HistSample = {
   t: number;

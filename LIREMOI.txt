@@ -386,6 +386,7 @@ AfriControl s'y branche seul sur 127.0.0.1:30002 et décode chaque trame (Capteu
 Récepteur sur une autre machine :  AFRICONTROL_1090=192.168.1.50:30002 npm run dev
   (Windows PowerShell :  $env:AFRICONTROL_1090="192.168.1.50:30002"; npm run dev)
 Position de l'antenne :  AFRICONTROL_ANTENNE=12.1331,15.0339   Couper la liaison :  AFRICONTROL_1090=off
+  (la position de l'antenne est aussi le centre de l'écran radar du poste)
 Réception seule : AfriControl décode l'ADS-B / Mode S entendu en clair, il n'interroge ni n'émet.
 Les anciens noms VIGILAIR_1090 / VIGILAIR_ANTENNE sont encore lus : un poste déjà réglé n'a rien à changer.
 - Le script de préparation le fait seul : --antenne LAT,LON (Windows : -Antenne "LAT,LON"). Sous
@@ -587,14 +588,33 @@ La carte du poste — MapLibre GL JS (bibliothèque de cartographie libre)
   (refus 401) — elle attend désormais de le savoir.
 - L'onglet RADAR reste un scope (PPI) : une image radar autour du poste, pas une carte ; il ne
   montre que des pistes reçues.
+- RADAR DU POSTE. L'écran polaire, sa coupe d'altitude, la vue Identification, le débruitage, le
+  compte « à moins de 120 km », les plus proches dans les faits sans IA et les anneaux de la carte
+  partent de l'ANTENNE du poste : la position d'un récepteur satellite branché, sinon
+  AFRICONTROL_ANTENNE, sinon la position par défaut (12,1331° N 15,0339° E) — et l'écran dit d'où
+  vient la sienne. Avant, tout partait de l'aérodrome de la capitale, en dur : un poste à Dakar
+  aurait vu son propre ciel décentré de 3 300 km. Le relèvement est l'azimut initial du grand
+  cercle, comme sur un vrai écran polaire ; le calcul « à plat » d'avant se trompait de 5 à 8° à 3
+  000 km (mesuré sur de vrais aéronefs). Le nord magnétique est celui du lieu de l'antenne, par le
+  modèle magnétique mondial WMM2025 (NOAA/NCEI, valable jusqu'au 1er janvier 2030) : +1,9° à la
+  position par défaut fin 2026, −5,7° à Dakar, −26,8° au Cap. La constante d'avant (« +1,2°, WMM
+  2025 ») était fausse de 0,7° même là : mon erreur. Plus de lignes « tube cathodique » posées sur
+  l'écran ni de théâtre écrit d'avance : rien que le poste, ses pistes et le nord. Essayé sur le
+  serveur construit, relevé Internet allumé (vrais aéronefs) : sans AFRICONTROL_ANTENNE, centre
+  12,1331° N 15,0339° E, dit « par défaut » ; AFRICONTROL_ANTENNE à Dakar, centre 14,69° N 17,44° O,
+  un aéronef sur l'aéroport de Dakar au centre de l'écran. Un même aéronef choisi (VLG3FM, au-dessus
+  de l'Espagne) : 334° et 3 297,1 km depuis la position par défaut, 29° et 3 070,2 km depuis Dakar —
+  recalculés à part, écarts de 0,18° au plus (l'écran arrondit au degré) et 0,04 km. Le modèle
+  magnétique : les 100 valeurs d'essai officielles retrouvées au millième de nanotesla. Mutants : 36
+  sur 36 attrapés.
 
 Symbologie APP-6 et radar
 - Les pistes portent le cadre OTAN APP-6 (le cadre = l'affiliation ; ouvert en bas = aérien).
   Inconnu est l'état par défaut : ni l'un de nos drones, ni du trafic ASECNA, ni un civil 1090ES
   confirmé, ni d'une origine sous mandat, une piste reste inconnue.
-- PPI : portées jusqu'à 20 000 km, vecteur vitesse, nord vrai/magnétique, bascule symboles APP-6 /
-  formes plateforme. Fiche « interception » : toutes les données reçues. À 8000 km « couverture
-  Afrique », à 12 000+ « couverture monde · tous continents ».
+- PPI : portées jusqu'à 20 000 km, vecteur vitesse, nord vrai/magnétique (déclinaison du lieu de
+  l'antenne), bascule symboles APP-6 / formes plateforme. Fiche « interception » : toutes les
+  données reçues.
 - COUVERTURE CONTINENTALE (pas seulement FTTJ) : le COP est physiquement à N'Djamena, mais l'AO a un
   rayon de ~4200 km (côté 8400 km) et le 1090ES balaie un maillage de cellules sur TOUT le continent —
   Maghreb, Égypte, Sahel/Ouest (Dakar, Bamako, Abidjan, Accra, Lagos), Centre (Yaoundé, Kinshasa,
@@ -2016,7 +2036,9 @@ Navigation directe jusqu'au site (Capteurs > Navigation)
 - CARTE DE ROUTE : un schéma trace l'axe, les étapes et les obstacles (pastilles) ; il se met à jour
   en continu.
 - CAP MAGNÉTIQUE : le poste affiche aussi le cap magnétique (= cap vrai − déclinaison). La déclinaison
-  est pré-estimée pour le Sahel (approchée, ±2°, à vérifier sur carte) et reste éditable.
+  du départ est calculée par le modèle magnétique mondial WMM2025 et reste éditable. Avant : une
+  formule « approchée ±2° » pour la région, fausse de 1,3° à la position par défaut et de 3,9° à
+  Dakar.
 - SÛRETÉ DE L'AXE, EN CONTINU : à chaque relevé, le poste balaie la route et signale les obstacles
   CAPTÉS (crue, feu, séisme) à moins de 25 km, avec « à X km sur la route · Y km à gauche/droite ».
   Si l'axe n'est pas sûr :

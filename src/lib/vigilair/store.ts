@@ -1416,6 +1416,7 @@ export function trackVisible(t: Track, selectedId?: string | null): boolean {
     showLive: s.showLive,
     threatFloor: s.threatFloor,
     declutter: s.declutter,
+    poste: s.livePicture?.antenne,
     selectedId: selectedId ?? s.selectedId,
   });
 }

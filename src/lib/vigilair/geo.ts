@@ -365,17 +365,23 @@ export function haversineKm(
   return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+/**
+ * Le relèvement de 1 vers 2 : l'azimut initial du grand cercle (°, depuis le nord vrai, 0 à 360) —
+ * celui d'un écran radar, avec la distance de haversineKm. Un calcul « à plat » se trompait de 5 à
+ * 8° à 3 000 km (mesuré sur de vrais avions) : l'écran va jusqu'à 20 000 km.
+ */
 export function headingBetween(
   lat1: number,
   lon1: number,
   lat2: number,
   lon2: number,
 ): number {
-  const dx = (lon2 - lon1) * kmPerDegLon(lat1);
-  const dy = (lat2 - lat1) * KM_PER_DEG_LAT;
-  let deg = (Math.atan2(dx, dy) * 180) / Math.PI;
-  if (deg < 0) deg += 360;
-  return deg;
+  const p1 = (lat1 * Math.PI) / 180;
+  const p2 = (lat2 * Math.PI) / 180;
+  const dl = ((lon2 - lon1) * Math.PI) / 180;
+  const y = Math.sin(dl) * Math.cos(p2);
+  const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
 export function predictPath(

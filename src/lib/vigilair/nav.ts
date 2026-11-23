@@ -337,14 +337,3 @@ export function profileCrossings(
     altExceeded: maxElevM != null && maxElev > maxElevM,
   };
 }
-
-/**
- * Déclinaison magnétique APPROCHÉE (°, Est positif) pour la bande saharo-sahélienne. Estimation
- * grossière à vérifier sur carte aéronautique — le cap magnétique = cap vrai − déclinaison. null hors
- * zone (l'opérateur saisit alors la valeur de sa carte).
- */
-export function declinationEstimate(lat: number, lon: number): number | null {
-  if (lat < -10 || lat > 35 || lon < -25 || lon > 55) return null;
-  const d = 0.6 + 0.08 * (lon - 15) + 0.06 * (lat - 12);
-  return Math.round(d * 10) / 10;
-}

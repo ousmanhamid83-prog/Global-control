@@ -9,14 +9,14 @@
 import net from "node:net";
 import { env } from "@/lib/env.server";
 import { RxTable, splitAvr, type RxAircraft, type RxFrameView, type RxStats } from "./adsb-decode";
-import { emergencyLabel, type LiveAc } from "./live-adsb";
+import { emergencyLabel, type LiveAc, type PositionAntenne } from "./live-adsb";
 import { gpsFix } from "./gps.server";
+import { positionAntenne } from "./image-poste";
 
 const FRAME_RING = 200;
 const RATE_WINDOW_S = 10;
 const SILENT_MS = 90_000;
 const DEFAULT_ENDPOINT = "127.0.0.1:30002";
-const DEFAULT_ANTENNA = { lat: 12.1331, lon: 15.0339 };
 /**
  * Une position plus vieille ne part pas comme piste fraîche : antenne coupée, la piste vieillit
  * côté poste puis passe « perdue », au lieu de rester affichée comme si elle volait encore.
@@ -29,7 +29,7 @@ type RxState = {
   enabled: boolean;
   host: string;
   port: number;
-  antenna: { lat: number; lon: number };
+  antenna: PositionAntenne;
   table: RxTable;
   sock: net.Socket | null;
   connected: boolean;
@@ -56,7 +56,7 @@ export type ReceiverStatus = {
   heard: number;
   positioned: number;
   stats: RxStats;
-  antenna: { lat: number; lon: number };
+  antenna: PositionAntenne;
 };
 
 export type ReceiverFeed = {
@@ -74,13 +74,6 @@ function parseEndpoint(raw: string | undefined): { enabled: boolean; host: strin
   return { enabled: true, host, port: port > 0 && port < 65536 ? port : 30002 };
 }
 
-function parseAntenna(raw: string | undefined): { lat: number; lon: number } {
-  const [lat, lon] = (raw ?? "").split(",").map((x) => Number(x.trim()));
-  if (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat!) <= 90 && Math.abs(lon!) <= 180) {
-    return { lat: lat!, lon: lon! };
-  }
-  return DEFAULT_ANTENNA;
-}
 
 const g = globalThis as unknown as { __vigilairRx1090?: RxState };
 
@@ -88,8 +81,8 @@ function state(): RxState {
   if (g.__vigilairRx1090) return g.__vigilairRx1090;
   // Les anciens noms VIGILAIR_* restent lus : un poste déjà déployé ne perd pas son antenne.
   const ep = parseEndpoint(env("AFRICONTROL_1090") ?? env("VIGILAIR_1090"));
-  // Position de l'antenne : un fix GPS réel prime sur la valeur fixée en dur (décodage sol, portée).
-  const antenna = gpsFix() ?? parseAntenna(env("AFRICONTROL_ANTENNE") ?? env("VIGILAIR_ANTENNE"));
+  // Position de l'antenne (décodage sol, portée, centre de l'écran radar du poste).
+  const antenna = positionAntenne(gpsFix(), env("AFRICONTROL_ANTENNE") ?? env("VIGILAIR_ANTENNE"));
   const st: RxState = {
     ...ep,
     antenna,
@@ -214,6 +207,11 @@ export async function receiverReady(maxMs = 1500): Promise<void> {
     if (st.lastError && !st.connected) return;
     await new Promise((r) => setTimeout(r, 100));
   }
+}
+
+/** La position de l'antenne du poste, sans ouvrir la liaison au récepteur. */
+export function antennePoste(): PositionAntenne {
+  return state().antenna;
 }
 
 export function receiverStatus(now = Date.now()): ReceiverStatus {
