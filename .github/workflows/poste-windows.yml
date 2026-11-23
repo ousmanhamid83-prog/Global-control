@@ -336,3 +336,7 @@ jobs:
           if ($code -ne 0) { Verifier (Essai "docker-arrete") "Docker Desktop arr" }
           elseif ($systeme -ne "linux") { Verifier (Essai "docker-windows") "conteneurs Windows" }
           else { Write-Host "Docker en conteneurs Linux ici : inattendu sur ces machines, rien de plus à essayer." }
+          # Le verdict est celui des vérifications ci-dessus. Sans cette ligne, l'étape rendait le code
+          # de `docker info` (1 quand Docker est arrêté, run 36) : GitHub finit l'étape par
+          # `exit $LASTEXITCODE`, et Start-Process, dans Essai, ne le remet pas à zéro.
+          exit 0
