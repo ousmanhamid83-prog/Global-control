@@ -57,7 +57,7 @@ export function computePosture(tracks: Track[]): {
     const r = raids[0];
     return {
       posture: "menace",
-      reason: `Raid ${r.corridor} · ${r.count} pistes · ${r.originLabels.join(" / ")}`,
+      reason: `Raid · ${r.count} pistes ensemble · cap ${Math.round(r.cap)}° · ${r.lieu}`,
       recs: [
         "Traiter comme une salve coordonnée, pas des contacts isolés.",
         "Verrouiller la piste de tête et alerter le chef de division.",

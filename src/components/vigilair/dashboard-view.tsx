@@ -256,7 +256,7 @@ export function DashboardView() {
     },
     {
       label: "Raids",
-      value: raids.length ? `${raids[0].corridor} · ${raids[0].count}` : "Aucun",
+      value: raids.length ? `${raids[0].count} · ${raids[0].lieu}` : "Aucun",
       tone: raids.length ? "crit" : "ok",
     },
     {

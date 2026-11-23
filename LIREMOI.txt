@@ -655,6 +655,23 @@ Symbologie APP-6 et radar
   doit voir — c'est le geste de qui ne veut pas être suivi. Alerte ÉLEVÉE, une fois par piste, avec
   la durée du silence, l'altitude, la distance au site et le rayon d'incertitude (« ce n'est plus
   une mesure »). Oubliée dès que la piste ré-émet.
+- RAIDS, MESURÉS SUR LES PISTES REÇUES (src/lib/vigilair/raid.ts). Un raid : au moins 3 pistes non
+  amies qui avancent ENSEMBLE — de proche en proche, chacune à moins de 20 km d'une autre du groupe,
+  avec 30° d'écart de cap au plus, à la même allure (la plus rapide à 1,35 fois la plus lente au
+  plus) et en mouvement (10 km/h au moins : un essaim de petits drones avance à 20 ou 30 km/h). Non
+  amie : sans affiliation amie (un drone de catégorie UAV, une piste d'exercice) ou portant le
+  marquage d'État ; nos drones n'en sont jamais, une piste perdue ou hors mandat non plus. L'alerte
+  dit le nombre, le centre du groupe (« 12,13° N 15,03° E »), son cap moyen (lu sur le cercle : 350°
+  et 10° font 0°), sa vitesse et sa tête (la plus menaçante) ; rien n'est attribué, l'ADS-B ne dit
+  pas d'où vient un aéronef. Avant, un « raid » était 3 pistes d'un même « couloir » au pays
+  d'origine connu ; une vraie piste reçue n'a jamais de pays d'origine : il ne partait JAMAIS sur le
+  vrai trafic, et en exercice 3 pistes EXE n'importe où, posées ou non, à n'importe quel cap, en
+  faisaient un. Essai réel sur le serveur construit : trois vrais ArduCopter (simulateur officiel
+  d'ArduPilot) suivis par leur liaison, en exercice (chacun joue un DJI Mavic 3T), décollés à 30 m
+  puis menés de front vers l'est, 55 m entre eux, à 36 km/h. L'alerte « EXERCICE · Raid · 3 pistes
+  ensemble » est sortie dès qu'ils ont pris de la vitesse (cap 94°, 18 km/h à cet instant : ils
+  accéléraient), affichée une seule fois, 0 erreur de page. Les seuils sont éprouvés à leur bord (19
+  et 40 km, 119° et 121°, 135 et 136 km/h, 9,5 et 10 km/h) : 8 tests, 19 mutants sur 19 attrapés.
 - CONFIANCE D'IDENTIFICATION : PLUS DE 99 % TAPÉ EN DUR. La « confiance » d'une piste dit à quel
   point le poste sait CE QU'ELLE EST. Pour le trafic 1090ES réel, elle était écrite en dur dans le
   code : 99 % pour tout avion, 72 % pour un drone. Mesuré sur l'écran d'accueil : 131 pistes

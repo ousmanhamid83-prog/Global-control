@@ -1278,27 +1278,25 @@ function veiller() {
 
   const raids = detectRaids(liveTracks);
   applyZoneAlerts(liveTracks, now, alerts);
-  const liveCorridors = new Set(raids.map((r) => r.corridor));
+  const raidsVivants = new Set(raids.map((r) => r.cle));
   for (const k of [...raidWarned]) {
-    if (!liveCorridors.has(k)) raidWarned.delete(k);
+    if (!raidsVivants.has(k)) raidWarned.delete(k);
   }
   for (const r of raids) {
-    if (raidWarned.has(r.corridor)) continue;
-    raidWarned.add(r.corridor);
+    if (raidWarned.has(r.cle)) continue;
+    raidWarned.add(r.cle);
     const injectedRaid = r.trackIds.every(
       (id) => liveTracks.find((t) => t.id === id)?.injected,
     );
     alerts.push({
-      id: `al-raid-${r.corridor}-${now}`,
+      id: `al-raid-${r.cle}-${now}`,
       trackId: r.trackIds[0] ?? "",
       at: now,
       level: r.worst === "faible" ? "moderee" : r.worst,
       title: injectedRaid
-        ? `EXERCICE · Raid ${r.corridor} · ${r.count} pistes`
-        : `Raid ${r.corridor} · ${r.count} pistes`,
-      body: injectedRaid
-        ? `Exercice — salve ${r.originLabels.join(" / ")} depuis ${r.corridor}. Pas un contact réel.`
-        : `Salve ${r.originLabels.join(" / ")} depuis ${r.corridor}. Le poste n'émet pas.`,
+        ? `EXERCICE · Raid · ${r.count} pistes ensemble`
+        : `Raid · ${r.count} pistes ensemble`,
+      body: `${r.count} pistes non amies volent ensemble près de ${r.lieu} : cap ${Math.round(r.cap)}°, ${Math.round(r.vitesseKmh)} km/h, ${r.leadCallsign} en tête. Mesuré sur les pistes reçues, rien n'est attribué. ${injectedRaid ? "Exercice — pas un contact réel." : "Le poste n'émet pas."}`,
       acked: false,
       injected: injectedRaid,
     });

@@ -96,12 +96,12 @@ export function SituationBar() {
     tone = "crit";
     Icon = ShieldAlert;
     title = raid
-      ? `${inj}Raid ${raid.corridor} · ${raid.count} pistes`
+      ? `${inj}Raid · ${raid.count} pistes ensemble`
       : instruction
         ? "EXERCICE · Menace"
         : "Menace proche";
     body = raid
-      ? `${raid.leadCallsign} · ${raid.originLabels.join(" / ")} · couloir ${raid.corridor}`
+      ? `${raid.leadCallsign} en tête · cap ${Math.round(raid.cap)}° · ${Math.round(raid.vitesseKmh)} km/h · ${raid.lieu}`
       : reason;
     side = (
       <>

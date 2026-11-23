@@ -290,7 +290,7 @@ export function Synoptique({ sentinel }: { sentinel: SentinelStats | null }) {
       h: 78,
       title: "Raids",
       value: raids.length ? `${raids[0].count} pistes` : "aucun",
-      detail: raids.length ? `couloir ${raids[0].corridor}` : "pas de salve coordonnée",
+      detail: raids.length ? raids[0].lieu : "aucun groupe ensemble",
       tone: raids.length ? "crit" : "ok",
       to: "/",
     },

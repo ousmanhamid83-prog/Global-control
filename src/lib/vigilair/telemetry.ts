@@ -214,7 +214,7 @@ export function startTelemetry(): () => void {
         id: `raid-${raid ? "on" : "off"}-${Date.now()}`,
         at: Date.now(),
         tone: raid ? "crit" : "ok",
-        text: r ? `Raid ${r.corridor} · ${r.count} pistes` : "Fin du raid",
+        text: r ? `Raid · ${r.count} pistes · ${r.lieu}` : "Fin du raid",
       });
       changed = true;
     }
