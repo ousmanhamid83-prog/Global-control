@@ -3,6 +3,7 @@
 import type { Phenomenon } from "./capture";
 import { PLATFORM_BY_ID } from "./catalog.ts";
 import { droneDeclare } from "./drones-oaci.ts";
+import type { DroneEntendu } from "./drones-entendus.ts";
 import {
   checkJump,
   coastRadiusKm,
@@ -28,7 +29,7 @@ import { AO, haversineKm, theaterOf } from "./geo.ts";
 import type { IffFix, ModeSReply, Track, UasClass } from "./types";
 
 export const LIVE_CREDIT =
-  "Capteurs réels · antenne 1090 du poste (dump1090) · 1090ES adsb.lol/readsb · METAR/TAF/SIGMET NOAA · GNSS NIC + NOAA SWPC · FTTJ AWC · registre adsbdb. Pas un radar primaire FATL. AfriControl n'émet pas.";
+  "Capteurs réels · antenne 1090 du poste (dump1090) · 1090ES adsb.fi/adsb.lol (readsb) · METAR/TAF/SIGMET NOAA · GNSS NIC + NOAA SWPC · FTTJ AWC · registre adsbdb. Pas un radar primaire FATL. AfriControl n'émet pas.";
 
 export type LiveAc = {
   hex: string;
@@ -130,8 +131,14 @@ export type LivePicture = {
   sources: SourceHealth[];
   errors: string[];
   phenomena: Phenomenon[];
-  /** Balayage continental complet activé par le chef (toutes les cellules à chaque relevé). */
+  /** Balayage total activé par le chef : les ancres mondiales entrent aussi dans la rotation. */
   continentSweep?: boolean;
+  /**
+   * Les drones de la liste militaire d'adsb.fi entendus en Mode S sans position (drones-entendus.ts),
+   * que les cellules ne rendent jamais ; `at`, l'heure de la liste. Absent : liste non lue depuis
+   * 10 min.
+   */
+  dronesEntendus?: { at: number; rows: DroneEntendu[] };
 };
 
 export type MetarRow = {

@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { KIND_LABEL, THEATER_POSTS, type Phenomenon } from "@/lib/vigilair/capture";
 import { SCALE, THEATER_LABEL, formatGsdM, theaterRank } from "@/lib/vigilair/geo";
 import { layerGsd, pixelBudgetLine } from "@/lib/vigilair/tiles";
+import { PREFIXE_CAPTURE_DRONE } from "@/lib/vigilair/regions-drones";
 import { useVigilair } from "@/lib/vigilair/store";
 import { threatTone } from "@/lib/vigilair/format";
 import { cn } from "@/lib/utils";
@@ -10,6 +11,7 @@ import { cn } from "@/lib/utils";
 export function CaptureStrip() {
   const phenomena = useVigilair((s) => s.phenomena);
   const capture = useVigilair((s) => s.capture);
+  const captures = useVigilair((s) => s.captures);
   const openCapture = useVigilair((s) => s.openCapture);
   const closeCapture = useVigilair((s) => s.closeCapture);
   const homeOrigin = useVigilair((s) => s.homeOrigin);
@@ -26,6 +28,8 @@ export function CaptureStrip() {
   const theaterN = phenomena.filter((p) => theaterRank(p.theater) >= 3).length;
   const globeN = phenomena.filter((p) => theaterRank(p.theater) < 3).length;
   const chips = phenomena.slice(0, 12);
+  // Les captures de drones, celles en appui comprises : la scène ouverte ne les cache pas.
+  const drones = captures.filter((c) => c.id.startsWith(PREFIXE_CAPTURE_DRONE)).slice(0, 6);
   const shown = capture?.objects ?? [];
   const visible = shown.filter((o) => o.resolvable).slice(0, 8);
   const limits = shown.filter((o) => !o.resolvable && o.kind === "limite").slice(0, 3);
@@ -46,6 +50,31 @@ export function CaptureStrip() {
         <span className="shrink-0 font-mono text-[11px] text-muted-foreground" data-px-line="1">
           {pixelBudgetLine(liveGsd.m)}
         </span>
+        {drones.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            data-capture-drone={c.id}
+            onClick={() =>
+              openCapture({
+                lat: c.lat,
+                lon: c.lon,
+                kind: c.kind,
+                title: c.title,
+                body: c.body,
+                source: c.source,
+                id: c.id,
+              })
+            }
+            className={cn(
+              "inline-flex h-11 max-w-[16rem] shrink-0 items-center gap-1.5 rounded-md px-3 text-left text-xs transition-colors duration-150",
+              capture?.id === c.id ? "bg-secondary text-fg" : "bg-bg/80 text-muted-foreground hover:text-fg",
+            )}
+          >
+            <Badge tone="crit">UAV</Badge>
+            <span className="truncate">{c.title}</span>
+          </button>
+        ))}
         {THEATER_POSTS.map((p) => (
           <button
             key={p.id}

@@ -2,6 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql } from "@/lib/db";
 import { originLabel, sensorLabel } from "./catalog";
+import { COTE_CLICHE, ZOOMS_CLICHE } from "./cliche";
+import type { Cliche } from "./cliche.server";
 import type { PdfBlock } from "./evidence-pdf";
 import { formatCoord } from "./geo";
 import { ensureStaffRow, insertOpsLog } from "./staff";
@@ -30,6 +32,11 @@ export type EvidenceDraft = {
   corridor: string | null;
   injected: boolean;
   iffNote?: string | null;
+  /**
+   * Demande le cliché du lieu (cliche.server.ts) : l'imagerie à la position, le drone marqué, en
+   * tête du PDF ; l'empreinte de ses tuiles entre dans le contenu scellé, donc dans la chaîne.
+   */
+  cliche?: boolean;
 };
 
 export type BulletinRow = {
@@ -93,8 +100,13 @@ function validateDraft(raw: EvidenceDraft): EvidenceDraft {
     launchAt: raw.launchAt == null ? null : Math.round(raw.launchAt),
     confidence: Math.max(0, Math.min(100, Math.round(raw.confidence))),
     injected: Boolean(raw.injected),
+    cliche: Boolean(raw.cliche),
   };
 }
+
+/** Ce que le contenu scellé retient du cliché : son zoom, ses tuiles, leur empreinte ; null s'il
+ *  a été demandé sans qu'aucune imagerie du lieu réponde. */
+type ClicheScelle = { z: number; tuiles: number; sha256: string } | null;
 
 async function sha256Hex(data: string | Uint8Array): Promise<string> {
   const { createHash } = await import("node:crypto");
@@ -108,7 +120,8 @@ async function mintId(): Promise<string> {
   return randomBytes(12).toString("hex");
 }
 
-function canonical(draft: EvidenceDraft): string {
+/** Sans cliché demandé, le contenu est celui d'avant : les dossiers déjà versés se revérifient. */
+function canonical(draft: EvidenceDraft, cliche?: ClicheScelle): string {
   return JSON.stringify({
     trackId: draft.trackId,
     callsign: draft.callsign,
@@ -126,6 +139,7 @@ function canonical(draft: EvidenceDraft): string {
     corridor: draft.corridor,
     injected: draft.injected,
     iffNote: draft.iffNote ?? null,
+    ...(cliche === undefined ? {} : { cliche }),
   });
 }
 
@@ -150,6 +164,7 @@ function pdfLines(
     chainSha: string;
   },
   layout: (blocks: PdfBlock[]) => string[],
+  cliche?: Cliche | null,
 ): string[] {
   const oLabel = originLabel(draft.origin);
   const premier =
@@ -189,6 +204,7 @@ function pdfLines(
     { kind: "h", text: "Transpondeur" },
     { kind: "p", text: draft.iffNote ?? "Pas de transpondeur entendu." },
     { kind: "gap" },
+    ...(cliche === undefined ? [] : blocsCliche(cliche)),
     {
       kind: "p",
       text: draft.injected
@@ -197,6 +213,32 @@ function pdfLines(
     },
   ];
   return layout(blocks);
+}
+
+/** La section du cliché demandé ; l'image elle-même fait la première page. */
+function blocsCliche(cliche: Cliche | null): PdfBlock[] {
+  const zooms = `${ZOOMS_CLICHE.slice(0, -1).join(", ")} et ${ZOOMS_CLICHE.at(-1)}`;
+  return [
+    { kind: "h", text: "Cliché du lieu" },
+    cliche
+      ? {
+          kind: "p",
+          text: `En page 1 : ${cliche.sources.join(", ")} · zoom ${cliche.z} · ${cliche.tuiles.length} tuiles sur ${COTE_CLICHE ** 2}. Mosaïque d'archive : c'est le lieu, pas le drone ni l'heure de la prise.`,
+        }
+      : { kind: "p", text: `Demandé : aucune imagerie du lieu aux zooms ${zooms}.` },
+    ...(cliche ? [{ kind: "mono" as const, text: `tuiles    SHA-256 ${cliche.sha256}` }] : []),
+    { kind: "gap" },
+  ];
+}
+
+/** La légende sous l'image : ce qu'elle montre, et ce qu'elle ne montre pas. */
+function legendeCliche(draft: EvidenceDraft, cliche: Cliche): string[] {
+  return [
+    `Cliché du lieu — ${draft.callsign} à ${formatCoord(draft.lat, draft.lon)}`,
+    `${cliche.sources.join(", ")} · zoom ${cliche.z} · ${cliche.tuiles.length} tuiles sur ${COTE_CLICHE ** 2} · le drone sous la croix rouge`,
+    `Mosaïque d'archive : c'est le lieu, pas le drone ni l'heure de la prise.${cliche.tuiles.length < COTE_CLICHE ** 2 ? " Cases grises : sans imagerie." : ""}`,
+    `Empreinte des tuiles SHA-256 ${cliche.sha256}`,
+  ];
 }
 
 function mapRow(r: {
@@ -316,7 +358,17 @@ async function sealBulletin(userId: string, data: EvidenceDraft): Promise<Bullet
   const sql = await getSql();
   const id = await mintId();
   const now = Date.now();
-  const payload = canonical(data);
+  // Le cliché avant de lire le dernier maillon : sa composition (jusqu'à 27 tuiles) ne doit pas
+  // tenir ouvert l'écart entre cette lecture et l'insertion.
+  const cliche = data.cliche
+    ? await (await import("./cliche.server")).composerCliche(data.lat, data.lon)
+    : undefined;
+  const payload = canonical(
+    data,
+    cliche === undefined
+      ? undefined
+      : cliche && { z: cliche.z, tuiles: cliche.tuiles.length, sha256: cliche.sha256 },
+  );
   const contentSha = await sha256Hex(payload);
   const prev = await sql<{ chain_sha256: string }>`
     select chain_sha256 from bulletins order by created_at desc limit 1
@@ -336,8 +388,9 @@ async function sealBulletin(userId: string, data: EvidenceDraft): Promise<Bullet
       chainSha,
     },
     layoutEvidence,
+    cliche,
   );
-  const pdf = buildPdf(lines);
+  const pdf = buildPdf(lines, cliche ? { ...cliche, legende: legendeCliche(data, cliche) } : undefined);
   const pdfSha = await sha256Hex(pdf);
   const pdfB64 = Buffer.from(pdf).toString("base64");
   const sensors = data.sensors.join(",");

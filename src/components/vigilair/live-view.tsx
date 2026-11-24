@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PLATFORM_BY_ID } from "@/lib/vigilair/catalog";
-import { droneDeclare } from "@/lib/vigilair/drones-oaci";
+import { droneDeclare, libelleDrone } from "@/lib/vigilair/drones-oaci";
+import { ouLibelle } from "@/lib/vigilair/drones-entendus";
 import { formatClock } from "@/lib/vigilair/format";
 import { AO, formatCoord, haversineKm } from "@/lib/vigilair/geo";
 import {
@@ -200,6 +201,7 @@ export function LiveView() {
         {tab === "1090" ? (
           <div className="space-y-3">
             <ContinentSweepControl />
+            <DronesEntendusPanel />
             <AdsbPanel />
           </div>
         ) : null}
@@ -412,10 +414,9 @@ function AtcPanel() {
 }
 
 /**
- * Balayage continental — réservé au chef de division. Par défaut le poste interroge 3 cellules du
- * continent par relevé (courtoisie envers les API publiques) ; le balayage total les interroge
- * toutes à chaque relevé, pour la photo continentale la plus complète. Lecture passive : seul le
- * nombre de cellules change, rien n'est émis.
+ * Balayage continental — réservé au chef de division. La rotation couvre toujours toute l'Afrique et
+ * tout le Moyen-Orient ; le balayage total y fait entrer les ancres mondiales (Europe, Amériques,
+ * Asie, Océanie). Lecture passive : seul le nombre de cellules change, rien n'est émis.
  */
 function ContinentSweepControl() {
   const { isSuperadmin } = useStaff();
@@ -437,19 +438,63 @@ function ContinentSweepControl() {
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-semibold uppercase tracking-[0.08em]">Balayage continental</h3>
-          <Badge tone={sweep ? "ok" : "default"}>{sweep ? "total" : "rotation 3"}</Badge>
+          <Badge tone={sweep ? "ok" : "default"}>{sweep ? "total" : "Afrique + Moyen-Orient"}</Badge>
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
           {sweep
-            ? "Toutes les cellules Afrique interrogées à chaque relevé. Chef de division."
-            : "3 cellules par relevé (courtoisie API). Le chef peut tout activer."}{" "}
+            ? "Le monde aussi : les ancres mondiales entrent dans la rotation. Chef de division."
+            : "Toute l'Afrique et tout le Moyen-Orient en rotation : une cellule active revue environ toutes les 90 s, une vide tous les quarts d'heure. Le chef peut ajouter le monde."}{" "}
           {liveN} pistes 1090ES réelles en vue.
         </p>
         {err ? <p className="mt-1 font-mono text-xs text-crit">{err}</p> : null}
       </div>
       <Button variant={sweep ? "default" : "outline"} size="sm" disabled={busy} onClick={toggle}>
-        {busy ? "…" : sweep ? "Revenir en rotation" : "Activer le balayage total"}
+        {busy ? "…" : sweep ? "Retirer le monde" : "Activer le balayage total"}
       </Button>
+    </section>
+  );
+}
+
+/**
+ * Les drones entendus en Mode S SANS position (liste militaire d'adsb.fi) : jamais en piste, faute
+ * de position, mais reconnus par leur type, B6 ou non. En Afrique et au Moyen-Orient, une alerte.
+ */
+function DronesEntendusPanel() {
+  const pic = useVigilair((s) => s.livePicture);
+  const liste = pic?.dronesEntendus;
+  const ageS = liste && pic ? Math.max(0, Math.round((pic.at - liste.at) / 1000)) : null;
+  return (
+    <section className="hud rounded-md border border-border bg-surface p-4">
+      <div className="flex items-center gap-2">
+        <h3 className="text-sm font-semibold uppercase tracking-[0.08em]">
+          Drones entendus sans position
+        </h3>
+        <Badge tone={liste?.rows.some((d) => d.region) ? "crit" : "default"}>
+          {liste ? liste.rows.length : "—"}
+        </Badge>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {liste
+          ? `Liste militaire d'adsb.fi lue il y a ${ageS} s : leur transpondeur répond en Mode S sans dire où il est. Reconnus par leur type, B6 ou non ; alerte en Afrique et au Moyen-Orient.`
+          : "Liste militaire d'adsb.fi pas encore lue : elle l'est toutes les 2 min, relevé Internet allumé."}
+      </p>
+      {liste && liste.rows.length > 0 ? (
+        <ul className="mt-2 space-y-1 text-xs">
+          {liste.rows.map((d) => (
+            <li key={d.hex} className="flex flex-wrap items-baseline gap-2">
+              <span className="font-mono text-fg">{d.indicatif ?? d.hex.toUpperCase()}</span>
+              <Badge tone={d.region ? "crit" : "default"}>
+                {d.drone.par === "B6" ? "B6" : d.drone.type}
+              </Badge>
+              <span>
+                {libelleDrone(d.drone)}
+                {d.registre ? ` · ${d.registre}` : ""}
+              </span>
+              <span className="text-muted-foreground">{ouLibelle(d)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </section>
   );
 }
@@ -469,10 +514,10 @@ function AdsbPanel() {
   if (rows.length === 0) {
     return (
       <p className="rounded-md border border-border bg-surface px-4 py-6 text-sm text-muted-foreground">
-        Aucun squitter 1090ES dans les cellules FTTJ / Lagos / Khartoum / Niamey
-        pour l'instant. La couverture ADS-B au Tchad est sparse : 0 contact n'est
-        pas une panne. Les FIR voisines se remplissent dès qu'un transpondeur
-        Mode S est entendu.
+        Aucun squitter 1090ES pour l'instant dans les cellules relevées (Afrique
+        et Moyen-Orient). La couverture ADS-B au Tchad est sparse : 0 contact
+        n'est pas une panne. Les FIR voisines se remplissent dès qu'un
+        transpondeur Mode S est entendu.
       </p>
     );
   }

@@ -528,13 +528,58 @@ Verrou auto sur piste réelle
   (catégorie B6, type HRON), à 2 976 km de l'aérodrome ; des drones B6 réels hors région, dans les
   mêmes relevés (SPEEDY0 et CEPTOR en Allemagne, AR39028 en Angleterre), ont levé leur alerte sans
   prendre la caméra ; un drone réel au-dessus du Qatar (A98AC0, B6), né pendant la scène BOOSTER,
-  est resté à son alerte. Sur la version livrée, BOOSTER posé : la caméra est partie seule sur ce
-  drone du Qatar ; ceux de Californie et d'Arizona (dont N190TC, type Q9, un MQ-9), alerte seule.
-  Scène fermée, 150 s de relevés sans qu'elle reparte (deux essais) ; 0 erreur de page. Les types
-  HRON et Q9 se voient donc en vrai, sur des drones qui émettent aussi B6 ; un drone reconnu à son
-  seul type n'a pas été vu pendant ces essais : les tests le prouvent. Contrôlé sur le 1:10 M :
-  aucun sommet manqué sur les 4 307 des îles de la région ; à une frontière terrestre, le contour
+  est resté à son alerte (depuis le 24 novembre, il est capturé en appui : voir plus loin). Sur la
+  version livrée, BOOSTER posé : la caméra est partie seule sur ce drone du Qatar ; ceux de
+  Californie et d'Arizona (dont N190TC, type Q9, un MQ-9), alerte seule. Scène fermée, 150 s de
+  relevés sans qu'elle reparte (deux essais) ; 0 erreur de page. Les types HRON et Q9 se voient donc
+  en vrai, sur des drones qui émettent aussi B6 ; un drone reconnu à son seul type, sans B6, a été
+  vu en vrai le 24 novembre : voir Drones entendus sans position. Contrôlé sur le 1:10 M : aucun
+  sommet manqué sur les 4 307 des îles de la région ; à une frontière terrestre, le contour
   simplifié se trompe de côté sur 5,3 km au plus. 14 tests, 51 mutants sur 51.
+- DRONES ENTENDUS SANS POSITION (24 novembre 2026 ; src/lib/vigilair/drones-entendus.ts,
+  live-feeds.ts). Un transpondeur peut répondre en Mode S (adresse, indicatif, altitude) sans dire
+  où il est : les cellules ne le rendent jamais, puisqu'elles interrogent un cercle. La liste des
+  appareils d'État d'adsb.fi (/v2/mil) les donne, avec le type que son registre connaît pour leur
+  adresse et, faute de position, une estimation d'après les récepteurs qui les entendent (à quelques
+  centaines de km), ou leur dernière position. Le poste la lit toutes les 2 min au plus : une
+  requête de plus, partie 2 s après le dernier lot du relevé. Un drone y est reconnu comme partout,
+  par la catégorie B6 ou par son seul type ; au-dessus de l'Afrique ou du Moyen-Orient, d'après ce
+  qu'on sait de lui, l'alerte « UAS entendu sans position » part, une fois par session de la
+  console. Pas de capture : sans position, la caméra n'a pas où aller. Capteurs > 1090ES montre la
+  liste, son âge et ce qu'on sait de chacun ; plus vieille que 10 min, elle n'est plus montrée.
+- Vu en vrai le 24 novembre 2026 : à 11 h 15 UTC, 220 appareils dans la liste, 93 sans position,
+  dont 3 drones, aucun en B6 : OVRLD01 (Q4, un RQ-4 Global Hawk, estimé au-dessus de la Jordanie),
+  TC T003 (BTB2, un TB-2, au-dessus de la Turquie) et TC S26 (BTB2, hors région). Sur le serveur
+  construit, moins d'une minute après l'allumage du relevé, la console a levé « TC S31 · UAS entendu
+  sans position (BTB2) » : un TB-2 estimé au-dessus de la Turquie, reconnu à son seul type, sans
+  B6 ; deux essais. 4 tests, 29 mutants sur 29.
+- CAPTURE EN APPUI, ET LE DOSSIER DE CHAQUE DRONE CAPTURÉ (24 novembre 2026 ; store.ts, cliche.ts,
+  cliche.server.ts, evidence-pdf.ts). Un drone qui naît pendant une scène que la caméra garde
+  (ouverte à la main, ou pour un autre événement) n'est plus réduit à son alerte : il est capturé EN
+  APPUI. La scène ouverte reste à l'écran ; sa capture entre dans la bande « Théâtre » (pastille
+  UAV), qu'un clic rouvre. Chaque drone capturé seul, en appui ou non, a son dossier scellé au
+  journal, qui dit ce qui l'a fait verser (« capture automatique », ou « capture en appui, la scène
+  « … » étant ouverte »).
+- LE CLICHÉ DU LIEU, en page 1 du PDF : 3 × 3 tuiles de l'imagerie que sert la carte (Esri World
+  Imagery, Clarity en secours), au zoom le plus fin où le lieu en a la moitié au moins, 14, 12 ou
+  11 ; sinon le plus fourni, les cases sans imagerie en gris (en mer, la mosaïque n'a rien). Pas
+  plus large que le 11 : en dessous, la couche visible sert l'image géostationnaire de l'heure, plus
+  la mosaïque. Le drone est sous la croix rouge. C'est le lieu, pas le drone ni l'heure de la
+  prise : la légende le dit. L'empreinte SHA-256 des tuiles entre dans le contenu scellé, donc dans
+  la chaîne ; un dossier sans cliché garde le contenu d'avant, et les dossiers déjà versés se
+  revérifient. Les guillemets du PDF sortaient en « ? » : corrigé.
+- Vu en vrai le 24 novembre 2026 (serveur construit, une session chef) : la scène de l'aérodrome
+  ouverte à la main, puis le relevé allumé. Moins de 40 s plus tard naît BYKR06 (B6, au-dessus de la
+  Thrace turque) : capturé en appui, la scène reste ; 30 s après, MNSTR31 (B6, Q9, un MQ-9 au large
+  de Limassol), de même. Deux dossiers scellés et chaînés, qui disent tous deux « capture en
+  appui » ; empreintes du PDF, du contenu et de la chaîne recalculées depuis la base : justes.
+  Cliché de BYKR06 au zoom 14, 9 tuiles sur 9 (des champs, la croix sur le drone) ; de MNSTR31 au
+  zoom 11, 3 tuiles sur 9 (la côte de Limassol et le lac salé d'Akrotiri, la mer en gris). Un clic
+  sur la pastille de MNSTR31 a rouvert sa scène ; 0 erreur de page. Le premier essai avait laissé
+  MNSTR31 sans cliché : la règle de la moitié du lieu ne trouvait rien en mer (1, 3 et 3 tuiles sur
+  9 mesurées aux zooms 14, 12 et 11) ; corrigée, elle est testée sur ce cas. 13 tests, 58 mutants
+  sur 59 (le survivant ne peut rien changer : sur 9 tuiles, la moitié n'est jamais atteinte tout
+  juste).
 
 Inject « Rejeu réel »
 - Injecter > Rejeu réel : rejoue de VRAIS avions reçus, pas un scénario. Bande de ce poste (les
@@ -680,8 +725,9 @@ Symbologie APP-6 et radar
   rayon de ~4200 km (côté 8400 km) et le 1090ES balaie un maillage de cellules sur TOUT le continent —
   Maghreb, Égypte, Sahel/Ouest (Dakar, Bamako, Abidjan, Accra, Lagos), Centre (Yaoundé, Kinshasa,
   Luanda), Corne/Est (Addis, Nairobi, Dar es Salaam) et Australe (Johannesburg, Durban, Le Cap) — plus
-  des ancres mondiales. Par courtoisie API, 3 cellules par relevé en rotation ; le CHEF DE DIVISION
-  active le « balayage total » (toutes à chaque relevé) pour la photo continentale la plus complète.
+  des ancres mondiales. Depuis le 23 novembre 2026, 160 cellules en rotation couvrent toute
+  l'Afrique et tout le Moyen-Orient (voir Balayage continental) ; le CHEF DE DIVISION y ajoute les
+  ancres mondiales (« balayage total »).
   Là où un agrégateur a un récepteur, de vrais avions remontent ; ailleurs la cellule est prête pour
   le jour où un récepteur apparaît. Réception passive, jamais d'identité.
 - PISTE MÉMOIRE (transpondeur muet) : quand une piste cesse d'émettre, elle n'est plus laissée FIGÉE
@@ -804,7 +850,8 @@ Symbologie APP-6 et radar
   stable entre 228 et 233 avions de bout en bout, 0 piste perdue puis renée. À froid, la première
   image arrive au même moment (~10 s) mais complète : 189 avions au lieu de 91, presque tous déjà
   confirmés au lieu d'aucun. Toujours de la lecture passive : la rafale du démarrage n'a lieu
-  qu'une fois, et la rotation reste à trois cellules par relevé ensuite.
+  qu'une fois, et la rotation reste à trois cellules par relevé ensuite. (Remplacée le 23 novembre
+  2026 par la rotation à rythme : voir Balayage continental.)
 - UNE SEULE HEURE POUR TOUT LE RELEVÉ RÉSEAU. Chaque cellule gardait l'âge de son propre relevé, et
   l'image était tamponnée quand le DERNIER flux (METAR, SIGMET, phénomènes…) avait répondu : l'heure
   d'observation des avions glissait de 2,2 à 3,7 s à chaque rafraîchissement — à 800 km/h, un
@@ -1362,10 +1409,53 @@ Symbologie APP-6 et radar
   poste sert une tuile vide propre au lieu d'erreurs 404 qui polluaient la console — rien à régler.
 
 Balayage continental (chef de division) — Capteurs > 1090ES
-- Par défaut le poste interroge 3 cellules du continent par relevé (courtoisie envers les API
-  publiques). Le chef active le balayage total : toutes les cellules Afrique + ancres mondiales
-  (Europe, Amériques, Asie, Océanie) à chaque relevé — le radar « tous continents » montre alors
-  de VRAIS contacts 1090ES, pas une carte vide. Les cellules partent en lots parallèles bornés.
+- TOUTE L'AFRIQUE ET TOUT LE MOYEN-ORIENT, SANS BALAYAGE TOTAL (ordre du chef, 23 novembre 2026 ;
+  src/lib/vigilair/live-feeds.ts, releve-reseau.ts). Hors balayage total, la rotation ne couvrait
+  que 32,7 % de l'Afrique et 1,1 % du Moyen-Orient (mesuré) : le bord de la cellule du Caire
+  (Israël, Jordanie). Le Golfe (Dubaï) n'entrait qu'en balayage total ; Riyad, Bagdad et Téhéran
+  n'avaient pas de cellule. Désormais 160 cellules tournent en permanence, en plus des quatre du
+  théâtre : les 21 d'octobre, 30 au Moyen-Orient (Riyad, Bagdad, Téhéran, Dubaï, Doha, Abou Dabi,
+  Koweït, Istanbul, Djeddah, Sanaa, Ispahan, Mechhed…) et 109 qui bouchent les trous de l'Afrique
+  (Sahara, Corne, Madagascar, Cap-Vert, Seychelles, Maurice, Rodrigues…). Ensemble, elles couvrent
+  tout ce que la capture des drones compte comme Afrique ou Moyen-Orient, îles et eaux comprises :
+  vérifié sur une grille de 0,1° (325 675 points), aucun hors d'une cellule.
+- RYTHME, SELON CE QUE REND LA CELLULE. Une cellule qui rend du trafic est due au bout d'une minute,
+  une cellule vide au bout d'un quart d'heure ; deux places par relevé restent toujours aux cellules
+  vides ou jamais relevées : le jour où un récepteur apparaît, il est pris. Au plus 16 cellules par
+  relevé en plus des quatre du théâtre, par lots de 4 toutes les 2 s, le théâtre d'abord ; une
+  cellule reste servie trois fois son rythme. Mesuré : un relevé toutes les 30 s ; une cellule qui
+  rend du trafic revue toutes les 90 s environ, la place manquant pour la minute ; au démarrage, 151
+  des 160 cellules relevées une première fois dans les 15 premières minutes (deux essais), les
+  déserts et les îles en dernier. adsb.fi publie une limite d'une requête par seconde : le poste en
+  fait 0,67 en moyenne (mesuré), par lots que son limiteur accepte ; une rafale, il la refuse (139
+  cellules en 10 s : 133 refus).
+- SOURCES. adsb.fi d'abord, adsb.lol en secours : adsb.lol n'accorde que 500 requêtes par jour, et
+  le dit dans chaque réponse. Sur un refus ou un quota épuisé, la source se repose jusqu'à la remise
+  à zéro qu'elle annonce (adsb.lol : minuit UTC), 60 s sinon, au lieu d'essuyer un refus à chaque
+  cellule. Les conditions d'adsb.fi réservent ses données à un usage personnel et non commercial :
+  au poste de s'y tenir.
+- BALAYAGE TOTAL (chef) : les ancres mondiales (Europe, Amériques, Asie, Océanie) entrent aussi dans
+  la rotation ; le radar « tous continents » montre alors de VRAIES pistes 1090ES, pas une carte
+  vide. « Retirer le monde » : leurs pistes quittent l'image dès le relevé suivant. Avant, le
+  balayage total interrogeait tout à chaque relevé : avec 170 cellules, ce serait la rafale que les
+  API refusent.
+- PISTES MÉMOIRE ENTRE DEUX CELLULES (pasEncoreAbsents, releve-reseau.ts). Un appareil absent des
+  relevés frais n'est plus lâché tant qu'il reste dans la zone couverte : gardé sur son dernier
+  rapport, sa position extrapolée, jusqu'à 5 min sans rapport (âge du rapport compris), puis lâché ;
+  la console le montre en piste mémoire, et la ligne 1090ES compte ceux qui sont « entre deux
+  cellules ». Pourquoi 5 min : mesuré les 23 et 24 novembre, 77 % de ceux qui revenaient étaient
+  revenus avant 300 s. Sans cette règle, 55 pistes renaissaient en 6 min (de nuit) ; une première
+  règle, qui attendait qu'une cellule « constate » l'absence, en laissait renaître 136 en 11 min (de
+  jour) : abandonnée. Celle-ci : 30 en 14 min (de jour, essai ci-dessous), dont 29 silencieuses plus
+  de 5 min (médiane 403 s), pour une centaine de pistes mémoire à l'écran sur ~800.
+- ESSAI RÉEL (24 novembre 2026, 11 h 30 à 11 h 45 UTC, serveur construit, une session chef, relevé
+  allumé sans balayage total) : 604 requêtes, toutes acceptées (0,67 par seconde en moyenne), aucune
+  à adsb.lol ; un relevé toutes les 30 s, de 4 à 20 requêtes, 8,2 s au plus. Dès la 2e minute, 281
+  appareils au-dessus du Moyen-Orient (le Golfe, la Turquie, Riyad…) et 68 au-dessus de l'Afrique.
+  Bagdad, Téhéran, Djeddah, Médine, Sanaa, Ispahan et Mechhed : relevées, vides. Vérifié à la main
+  le même jour : ni adsb.fi ni adsb.lol ne rendent un seul appareil dans les 463 km autour de
+  Téhéran ou de Djeddah ; aucun récepteur ne les alimente là. Ces cellules sont revues tous les
+  quarts d'heure.
 - Toute piste réelle est verrouillable : un clic sur l'indicatif dans la liste 1090ES l'ouvre.
 
 Relevé Internet du poste — Capteurs > Outils
@@ -2276,6 +2366,10 @@ centrale/de l'Ouest : 0 avion à N'Djamena, Niamey, Khartoum, Kano, Abuja, Bamak
 Ils en ont au Maghreb, en Égypte, en Afrique de l'Est et australe : le poste les interroge en
 rotation (couverture continentale). Pour de vrais avions au-dessus de N'Djamena, il faut l'antenne
 du poste (dump1090, voir plus haut). Le trafic hors zone ASECNA est marqué « CIVIL » (neutre APP-6).
+Mesuré de nouveau le 24 novembre 2026, toute l'Afrique et tout le Moyen-Orient en rotation : de 251
+à 301 appareils à la fois au-dessus du Moyen-Orient, le Golfe et la Turquie en tête ; de 68 à 96
+au-dessus de l'Afrique ; l'Iran, l'Irak et l'ouest de l'Arabie restent vides faute de récepteurs
+chez les agrégateurs, pas faute de cellule.
 
 Liaison Internet du site (wifi opérateur / Starlink / Thuraya) — Capteurs > Outils
 - Ces liens sont gérés par le SYSTÈME (Windows/Linux) : on connecte le PC au wifi, à Starlink ou au

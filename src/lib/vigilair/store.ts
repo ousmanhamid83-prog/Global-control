@@ -64,6 +64,7 @@ import { constat1090 } from "./drones-pilotage";
 import { telemetriePour } from "./drones-suivi";
 import { PREFIXE_EXERCICE, pisteExercice } from "./exercice";
 import { droneDeclare, libelleDrone } from "./drones-oaci";
+import { ouLibelle } from "./drones-entendus";
 import { cameraLibre, droneACapturer, PREFIXE_CAPTURE_DRONE } from "./regions-drones";
 
 /** Dernier relevé de la veille drone : mouvement %, zones, indice de présence, et capture figée. */
@@ -282,7 +283,11 @@ type VigilairState = {
   setPpi: (patch: Partial<PpiParams>) => void;
   ackAlert: (id: string) => void;
   ackAll: () => void;
-  fileBulletin: (trackId: string) => void;
+  /**
+   * Verse le dossier scellé d'une piste. `cliche` : le serveur y met l'imagerie du lieu, le drone
+   * marqué ; `contexte` : ce qui l'a fait verser (une capture automatique, en appui ou non).
+   */
+  fileBulletin: (trackId: string, opts?: { cliche?: boolean; contexte?: string }) => void;
   hydrateJournal: (rows: JournalEntry[]) => void;
   seekReplay: (index: number, play?: boolean) => void;
   scrubReplay: (delta: number) => void;
@@ -318,6 +323,19 @@ type VigilairState = {
     holdCamera?: boolean;
   }) => void;
   closeCapture: () => void;
+  /**
+   * Capture EN APPUI : la scène ouverte reste à l'écran et la caméra ne bouge pas ; celle-ci
+   * s'ajoute aux captures, que la bande Théâtre montre et rouvre d'un clic.
+   */
+  captureEnAppui: (opts: {
+    lat: number;
+    lon: number;
+    kind: CaptureShot["kind"];
+    title: string;
+    body: string;
+    source: string;
+    id: string;
+  }) => void;
   homeOrigin: () => void;
 };
 
@@ -336,6 +354,8 @@ const zoneWarned = new Map<string, string>();
 const phenomWarned = new Set<string>();
 /** Drones déjà capturés seuls : une fois par drone et par session de la console. */
 const capturesAuto = new Set<string>();
+/** Drones entendus sans position déjà dits : une fois par adresse et par session de la console. */
+const entendusDits = new Set<string>();
 const snaps: Snap[] = [];
 let replayView: Track[] | null = null;
 let replayAcc = 0;
@@ -679,7 +699,7 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
       alerts: get().alerts.map((a) => (a.id === id ? { ...a, acked: true } : a)),
     }),
   ackAll: () => set({ alerts: get().alerts.map((a) => ({ ...a, acked: true })) }),
-  fileBulletin: (trackId) => {
+  fileBulletin: (trackId, opts) => {
     const t =
       liveTracks.find((x) => x.id === trackId) ??
       get().tracks.find((x) => x.id === trackId);
@@ -732,7 +752,7 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
         heading: t.heading,
         speedKmh: t.speedKmh,
         sensors: t.sensors,
-        method: methodBlurb(t),
+        method: opts?.contexte ? `${methodBlurb(t)} · ${opts.contexte}` : methodBlurb(t),
         launchLat: t.launchFix?.lat ?? null,
         launchLon: t.launchFix?.lon ?? null,
         launchAt: t.launchFix?.at ?? null,
@@ -741,6 +761,7 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
         corridor: t.corridor,
         injected: Boolean(t.injected),
         iffNote: iffEvidenceLine(t),
+        cliche: Boolean(opts?.cliche),
       },
     })
       .then((row) => {
@@ -881,6 +902,11 @@ export const useVigilair = create<VigilairState>()((set, get) => ({
     });
   },
   closeCapture: () => set({ capture: null }),
+  captureEnAppui: (opts) => {
+    const st = get();
+    const shot = buildCapture({ ...opts, tracks: peekTracks(), phenomena: st.phenomena });
+    set({ captures: [shot, ...st.captures.filter((c) => c.id !== shot.id)].slice(0, 24) });
+  },
   homeOrigin: () =>
     set({
       viewOrigin: HOME,
@@ -1491,6 +1517,23 @@ export function ingestLivePicture(pic: LivePicture) {
       });
     }
   }
+  // Drones ENTENDUS SANS POSITION (Mode S seul, voir drones-entendus.ts) : reconnus à leur
+  // catégorie B6 ou à leur seul type, dits une fois par session quand ce qu'on sait d'eux les place
+  // au-dessus de l'Afrique ou du Moyen-Orient. Pas de capture : sans position, la caméra n'a pas
+  // où aller. Leur piste aura cet identifiant le jour où une position arrivera.
+  for (const de of pic.dronesEntendus?.rows ?? []) {
+    if (!de.region || entendusDits.has(de.hex)) continue;
+    entendusDits.add(de.hex);
+    alerts.push({
+      id: `al-uav-entendu-${de.hex}`,
+      trackId: `live-${de.hex}`,
+      at: now,
+      level: "elevee",
+      title: `${de.indicatif ?? de.hex.toUpperCase()} · UAS entendu sans position (${de.drone.par === "B6" ? "B6" : de.drone.type})`,
+      body: `Mode S seul — ${libelleDrone(de.drone)}${de.registre ? ` · ${de.registre}` : ""} · ${ouLibelle(de)}.`,
+      acked: false,
+    });
+  }
   // Piste 1090ES à l'adresse d'un de nos drones : dite quand le constat apparaît, et redite s'il
   // change de niveau (confirmée par le chef ; adresse copiée découverte quand la télémétrie arrive).
   // Élevée ou critique, elle est relayée au chef (Telegram / Signal) par le relais d'alertes.
@@ -1623,18 +1666,32 @@ export function ingestLivePicture(pic: LivePicture) {
   );
   const stNow = useVigilair.getState();
   const holdCamera = Boolean(stNow.lakeRouteId || stNow.mineId || stNow.waterId);
-  if (aCapturer && cameraLibre(stNow.capture, aCapturer.rang)) {
-    const { piste, drone, lieu } = aCapturer;
+  if (aCapturer) {
+    // Chaque drone capturé seul a son dossier scellé, le cliché du lieu en tête. Né pendant une
+    // scène que la caméra garde, il est capturé EN APPUI : la scène ouverte reste à l'écran, la
+    // sienne s'ajoute aux captures. Avant, il ne gardait que son alerte (vu en réel le 23 novembre
+    // 2026 : un drone au-dessus du Qatar, né pendant la scène de BOOSTER au-dessus d'Israël).
+    const { piste, drone, lieu, rang } = aCapturer;
     capturesAuto.add(piste.id);
-    stNow.openCapture({
+    const scene = {
       lat: piste.lat,
       lon: piste.lon,
-      kind: "uav",
+      kind: "uav" as const,
       title: `${piste.callsign} · UAV 10 m`,
       body: `Capture visible ≤ 10 m · ${libelleDrone(drone)} · ${lieu.pays}${lieu.km > 0 ? `, à ${Math.round(lieu.km)} km de sa côte` : ""}`,
       source: "1090ES",
       id: `${PREFIXE_CAPTURE_DRONE}${piste.id}`,
-      holdCamera,
+    };
+    const ouverte = stNow.capture;
+    const libre = cameraLibre(ouverte, rang);
+    if (libre) stNow.openCapture({ ...scene, holdCamera });
+    else stNow.captureEnAppui(scene);
+    stNow.fileBulletin(piste.id, {
+      cliche: true,
+      contexte:
+        !libre && ouverte
+          ? `capture en appui, la scène « ${ouverte.title} » étant ouverte`
+          : "capture automatique",
     });
   } else if (!stNow.capture && autoPhenom) {
     stNow.openCapture({
