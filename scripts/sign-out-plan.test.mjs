@@ -3,7 +3,6 @@ import { test } from "node:test";
 import {
   DEPLOYED_SIGN_OUT_TIMEOUT_MS,
   PREVIEW_SIGN_OUT_TIMEOUT_MS,
-  runPreSignInSignOut,
   runSignOut,
   settleWithin,
   signOutTimeoutMs,
@@ -135,7 +134,7 @@ test("deployed: the timeout is distinguishable from a rejection", async () => {
   await assert.rejects(deployed({ requestSignOut: rejects }).run(), /Sign-out failed/);
 });
 
-// ── Bounded wait (also used by `signIn`'s pre-sign-in session clear) ──────────
+// ── Bounded wait ────────────────────────────────────────────────────────────────
 
 test("settleWithin reports the outcome and never rejects", async () => {
   assert.equal(await settleWithin(() => Promise.resolve(), TEST_TIMEOUT_MS), "ok");
@@ -155,78 +154,6 @@ test("settleWithin waits its full window, then gives up rather than hanging", as
   t.mock.timers.tick(1);
   await done;
   assert.equal(outcome, "timeout", "the caller is never left waiting on a wedged request");
-});
-
-// ── Pre-sign-in session clear (`signIn`) ─────────────────────────────────────
-// Same per-environment bound as sign-out, but best effort: it also runs when
-// there is no prior session, so a failure must never block sign-in.
-
-/** A pre-sign-in clear whose request never settles. */
-function preSignIn(livePreview, overrides = {}) {
-  let cleared = 0;
-  const done = runPreSignInSignOut({
-    livePreview,
-    hasBearer: true,
-    requestSignOut: hangs,
-    clearToken: () => (cleared += 1),
-    ...overrides,
-  });
-  return {
-    done,
-    get cleared() {
-      return cleared;
-    },
-  };
-}
-
-test("pre-sign-in: the preview clear gives up at the preview bound", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  const h = preSignIn(true);
-
-  t.mock.timers.tick(PREVIEW_SIGN_OUT_TIMEOUT_MS - 1);
-  await flush();
-  assert.equal(h.cleared, 0);
-
-  t.mock.timers.tick(1);
-  await h.done;
-  assert.equal(h.cleared, 1);
-});
-
-test("pre-sign-in: a deployed session gets the deployed window, not the preview one", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  const h = preSignIn(false);
-
-  t.mock.timers.tick(PREVIEW_SIGN_OUT_TIMEOUT_MS);
-  await flush();
-  assert.equal(
-    h.cleared,
-    0,
-    "only the server can end a deployed session — do not start OAuth while it is still live",
-  );
-
-  t.mock.timers.tick(DEPLOYED_SIGN_OUT_TIMEOUT_MS - PREVIEW_SIGN_OUT_TIMEOUT_MS);
-  await h.done;
-  assert.equal(h.cleared, 1);
-});
-
-test("pre-sign-in: a failed clear never blocks sign-in", async () => {
-  // Best effort by design: this also runs with no prior session to clear.
-  await preSignIn(false, { requestSignOut: rejects, timeoutMs: TEST_TIMEOUT_MS }).done;
-  await preSignIn(true, { requestSignOut: rejects, timeoutMs: TEST_TIMEOUT_MS }).done;
-});
-
-test("pre-sign-in: the preview skips the request when there is no bearer", async () => {
-  let requests = 0;
-  const h = preSignIn(true, {
-    hasBearer: false,
-    requestSignOut: () => {
-      requests += 1;
-      return hangs();
-    },
-  });
-  await h.done;
-  assert.equal(requests, 0);
-  assert.equal(h.cleared, 1);
 });
 
 test("every sign-out bound comes from one rule", () => {

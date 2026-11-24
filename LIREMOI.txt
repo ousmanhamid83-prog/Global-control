@@ -950,11 +950,30 @@ Symbologie APP-6 et radar
   setMarine, setWaterId, setDeclutter, setWatch : leur champ est écrit ailleurs), clearJournal
   jamais appelé, et stewardOn, écrit mais jamais lu, avec son réglage. Du gabarit
   d'authentification : 5 composants d'écran jamais affichés, sign-in-gate et son test,
-  readSessionToken, useCurrentUser. Restent, voulus : traficGarde (les tests attendent par lui la
-  fin des écritures) et le parcours de connexion OAuth du gabarit, sans bouton dans la console mais
-  qui relève de l'authentification : au chef de décider. Après : 0 déclaration locale inutilisée
+  readSessionToken, useCurrentUser. Reste, voulu : traficGarde (les tests attendent par lui la fin
+  des écritures) ; le parcours de connexion OAuth du gabarit, laissé au chef, est retiré depuis sur
+  sa décision (voir ci-dessous). Après : 0 déclaration locale inutilisée
   (tsc --noUnusedLocals), 0 membre mort dans le store, les 13 pages de la console affichées sans
   erreur sur le serveur construit, puis déconnexion et retour à /login.
+- PARCOURS DE CONNEXION OAUTH DU GABARIT : RETIRÉ (24 novembre 2026, décision du chef ;
+  src/lib/auth/server.ts, client.ts). Le gabarit d'origine fédérait la connexion vers un courtier
+  extérieur (Google, X) par le plugin genericOAuth, avec une page popup et un client de
+  prévisualisation partagé, identifiant et secret écrits dans le code (ce secret, commun à toutes
+  les applications du gabarit, reste dans l'historique du dépôt). Aucun bouton de la console ne
+  l'appelait, mais il répondait : mesuré sur le serveur construit, auth active, une requête anonyme
+  à /api/auth/sign-in/oauth2 recevait une redirection vers auth.grok.me avec ce client partagé.
+  Retirés : le plugin côté serveur et côté client, la page popup et son greffon Vite, la liste des
+  fournisseurs, le client de prévisualisation et son secret, et l'étape de déconnexion qui ne
+  servait qu'à lui, avec ses 4 tests. Restent : les comptes locaux (e-mail et mot de passe) et le
+  jeton porteur des navigateurs qui refusent les cookies. La règle qui impose l'authentification
+  dépendait des identifiants du courtier, toujours présents par le client partagé : elle ne dépend
+  plus que de VITE_AUTH_ENABLED, la même valeur qu'avant.
+- Vu en vrai le 24 novembre 2026 (serveur construit, auth active) : /api/auth/sign-in/oauth2, le
+  retour OAuth et /auth/popup répondent 404 ; connexion du chef par e-mail et mot de passe, les 13
+  pages sans erreur, « Fermer » ramène au login ; l'image du relevé, fonction serveur protégée,
+  répond avec la session et renvoie « Unauthorized » après la déconnexion, comme depuis un
+  navigateur jamais connecté. Aucune requête sortante pendant l'essai. Tests de la console et des
+  scripts : 0 échec.
 - CE QUI SORT DU POSTE (audit, mesuré). Lu dans le code ET mesuré : un espion noté chaque sortie
   réseau du serveur (fetch, HTTP, TCP, UDP, DNS) pendant que toutes les pages tournaient.
   · NAVIGATEUR DE L'OPÉRATEUR : 0 requête vers un tiers (7 198 requêtes en production sur 16 pages,
@@ -2328,7 +2347,7 @@ Durcissement défensif
   · RESTE — better-auth 1.6.30 (3 avis, dont 1 critique) : connexion par appareil sans détail du
     client, proxy OAuth et state réutilisable en Magic Link. AUCUN ne s'applique au poste tel
     qu'il tourne : ces chemins exigent les plugins deviceAuthorization, oAuthProxy ou magicLink,
-    qu'AfriControl n'active pas (il n'utilise que genericOAuth et bearer), ET l'authentification
+    qu'AfriControl n'active pas (il n'utilise plus que bearer), ET l'authentification
     est COUPÉE par défaut sur le poste isolé. Le correctif (better-auth 1.7.15) est une mise à
     jour mineure, à faire au prochain passage sur l'authentification multi-agents ; non appliqué
     ici pour ne pas toucher à l'auth sans la retester de bout en bout.
